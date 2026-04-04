@@ -37,6 +37,7 @@ class ElevenLabsSampleGenerator:
         setting: str = "",
         use_cache: bool = True,
         root_key: str = "",
+        track_duration_sec: float = 0,
     ) -> str:
         """
         Generate audio for a single layer via ElevenLabs.
@@ -45,7 +46,7 @@ class ElevenLabsSampleGenerator:
         """
         is_musical = layer.layer_type == LayerType.MUSICAL
         prompt = self._build_prompt(layer, mood, setting, root_key)
-        duration = self._get_duration(layer.layer_type)
+        duration = self._get_duration(layer.layer_type, track_duration_sec)
         should_loop = layer.loop or layer.layer_type in (LayerType.BASE, LayerType.MID)
         api_tag = "music" if is_musical else "sfx"
         cache_key = hashlib.sha256(f"{api_tag}|{prompt}|{duration}".encode()).hexdigest()[:16]
@@ -170,16 +171,21 @@ class ElevenLabsSampleGenerator:
 
         return prompt
 
-    def _get_duration(self, layer_type: LayerType) -> float:
-        """Choose generation duration based on layer type.
+    def _get_duration(self, layer_type: LayerType, track_duration_sec: float = 0) -> float:
+        """Choose generation duration based on layer type and track length.
 
-        With the consolidated approach (2-3 layers), each layer gets more
-        generation time for richer, more varied content that loops better.
+        Musical layers match the track duration (capped at ElevenLabs' 600s max)
+        so the music doesn't need to loop within shorter tracks. SFX layers stay
+        short since ambient textures loop naturally.
         """
+        if layer_type == LayerType.MUSICAL:
+            if track_duration_sec > 0:
+                return min(track_duration_sec, 600.0)
+            return 300.0
+
         durations = {
             LayerType.BASE: 22.0,
             LayerType.MID: 22.0,
             LayerType.DETAIL: 10.0,
-            LayerType.MUSICAL: 60.0,  # 60s — rich enough for looping, Music API supports up to 600s
         }
         return durations.get(layer_type, 15.0)
