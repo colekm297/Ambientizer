@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+.env
+generated_samples/
+output/
+saved_jobs/
+samples/

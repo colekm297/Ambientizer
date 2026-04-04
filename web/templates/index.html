@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ambientizer</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <h1 class="logo">Ambientizer</h1>
+            <p class="tagline">AI-powered ambient soundscape generator</p>
+        </header>
+
+        <!-- Generator Panel -->
+        <section class="panel generator-panel">
+            <h2>Create Soundscape</h2>
+            <div class="form-group">
+                <label for="prompt">Describe your soundscape</label>
+                <textarea id="prompt" rows="3"
+                    placeholder="e.g., Cozy rainy cafe at midnight with soft jazz piano and distant thunder..."></textarea>
+            </div>
+            <div class="mode-toggle">
+                <button id="mode-ambient" class="btn btn-mode active" data-mode="ambient">Ambient</button>
+                <button id="mode-musical" class="btn btn-mode" data-mode="musical">Musical</button>
+            </div>
+            <div class="form-group">
+                <label for="reference-url">YouTube Reference (optional)</label>
+                <input type="url" id="reference-url"
+                    placeholder="https://www.youtube.com/watch?v=... — Gemini will analyze the audio style">
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="duration">Duration</label>
+                    <select id="duration">
+                        <option value="1">1 minute</option>
+                        <option value="2">2 minutes</option>
+                        <option value="5" selected>5 minutes</option>
+                        <option value="10">10 minutes</option>
+                        <option value="15">15 minutes</option>
+                        <option value="30">30 minutes</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="toggle-label">
+                        <input type="checkbox" id="loopable" checked>
+                        <span class="toggle-text">Seamless loop</span>
+                    </label>
+                    <span class="form-hint">Crossfades end into beginning for gapless tiling</span>
+                </div>
+            </div>
+            <button id="generate-btn" class="btn btn-primary">Generate Soundscape</button>
+        </section>
+
+        <!-- History Panel -->
+        <section class="panel history-panel">
+            <h2>Saved Sessions</h2>
+            <div id="history-list" class="history-list">
+                <p class="history-empty">No saved sessions yet.</p>
+            </div>
+        </section>
+
+        <!-- Progress Panel (hidden until generation starts) -->
+        <section id="progress-panel" class="panel progress-panel hidden">
+            <h2>Generation Progress</h2>
+            <div class="progress-header">
+                <span id="progress-stage" class="stage-badge">Starting</span>
+                <span id="progress-message" class="progress-text"></span>
+            </div>
+            <div class="progress-bar-container">
+                <div id="progress-bar" class="progress-bar"></div>
+            </div>
+            <details class="log-details">
+                <summary>Activity Log</summary>
+                <div id="log-container" class="log-container"></div>
+            </details>
+        </section>
+
+        <!-- Audio Player (hidden until complete) -->
+        <section id="player-panel" class="panel player-panel hidden">
+            <h2>Your Soundscape</h2>
+            <div class="player-info">
+                <span id="player-prompt" class="player-prompt"></span>
+            </div>
+            <audio id="audio-player" controls></audio>
+            <div class="player-actions">
+                <button id="btn-download" class="btn btn-secondary">Download WAV</button>
+            </div>
+        </section>
+
+        <!-- Layer Inspector (hidden until complete) -->
+        <section id="layers-panel" class="panel layers-panel hidden">
+            <h2>Layers <span id="layers-count" class="layers-count"></span></h2>
+            <div id="layers-list" class="layers-list"></div>
+        </section>
+
+        <!-- Feedback Chat (hidden until audio ready) -->
+        <section id="feedback-panel" class="panel feedback-panel hidden">
+            <h2>Refine Your Mix</h2>
+            <div id="feedback-messages" class="feedback-messages">
+                <div class="feedback-hint">
+                    Listen to your soundscape, then describe what to change.<br>
+                    Mix tweaks: "rain too loud", "more reverb", "make it warmer"<br>
+                    Change a sound: "I don't like the thunder, make it softer rumbles", "regenerate the wind"
+                </div>
+            </div>
+            <div class="feedback-input-row">
+                <input type="text" id="feedback-input"
+                    placeholder="What would you like to change?"
+                    disabled>
+                <button id="feedback-send" class="btn btn-accent" disabled>Send</button>
+            </div>
+        </section>
+
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+anthropic
+google-genai
+elevenlabs
+pydub
+pedalboard
+librosa
+numpy
+soundfile
+scipy
+python-dotenv
+pyloudnorm
+flask
