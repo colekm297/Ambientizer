@@ -54,7 +54,7 @@
                 </div>
                 <div class="form-row">
                     <div class="form-group">
-                        <label for="duration">Duration</label>
+                        <label for="duration">Track Duration</label>
                         <select id="duration">
                             <option value="1">1 minute</option>
                             <option value="2">2 minutes</option>
@@ -64,6 +64,19 @@
                             <option value="30">30 minutes</option>
                         </select>
                     </div>
+                    <div class="form-group">
+                        <label for="music-length">Music Length</label>
+                        <select id="music-length">
+                            <option value="0">Match track</option>
+                            <option value="2">2 min (fast)</option>
+                            <option value="3" selected>3 min</option>
+                            <option value="5">5 min</option>
+                            <option value="10">10 min (max)</option>
+                        </select>
+                        <span class="form-hint">How much unique music to generate — loops seamlessly if shorter than track</span>
+                    </div>
+                </div>
+                <div class="form-row">
                     <div class="form-group">
                         <label class="toggle-label">
                             <input type="checkbox" id="loopable" checked>

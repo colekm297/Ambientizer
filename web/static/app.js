@@ -37,6 +37,7 @@
   const promptEl = document.getElementById("prompt");
   const referenceUrlEl = document.getElementById("reference-url");
   const durationEl = document.getElementById("duration");
+  const musicLengthEl = document.getElementById("music-length");
   const loopableEl = document.getElementById("loopable");
   const generateBtn = document.getElementById("generate-btn");
   const modeButtons = document.querySelectorAll("[data-mode]");
@@ -85,6 +86,7 @@
       prompt: promptEl.value,
       mode: currentMode,
       duration: durationEl.value,
+      music_length: musicLengthEl.value,
       reference_url: referenceUrlEl.value,
       loopable: loopableEl.checked,
     };
@@ -102,6 +104,7 @@
         modeButtons.forEach(b => b.classList.toggle("active", b.dataset.mode === s.mode));
       }
       if (s.duration) durationEl.value = s.duration;
+      if (s.music_length) musicLengthEl.value = s.music_length;
       if (s.reference_url) referenceUrlEl.value = s.reference_url;
       if (s.loopable !== undefined) loopableEl.checked = s.loopable;
     } catch (_) {}
@@ -109,6 +112,7 @@
 
   promptEl.addEventListener("input", saveFormState);
   durationEl.addEventListener("change", saveFormState);
+  musicLengthEl.addEventListener("change", saveFormState);
   referenceUrlEl.addEventListener("input", saveFormState);
   loopableEl.addEventListener("change", saveFormState);
   restoreFormState();
@@ -152,6 +156,7 @@
           modeButtons.forEach(b => b.classList.toggle("active", b.dataset.mode === p.mode));
         }
         if (p.duration) durationEl.value = p.duration;
+        if (p.music_length) musicLengthEl.value = p.music_length;
         if (p.reference_url) referenceUrlEl.value = p.reference_url;
         if (p.loopable !== undefined) loopableEl.checked = p.loopable;
         saveFormState();
@@ -187,6 +192,7 @@
         prompt,
         mode: currentMode,
         duration: durationEl.value,
+        music_length: musicLengthEl.value,
         reference_url: referenceUrlEl.value,
         loopable: loopableEl.checked,
         saved_at: new Date().toISOString(),
@@ -296,6 +302,7 @@
         body: JSON.stringify({
           prompt,
           duration: parseFloat(durationEl.value),
+          music_length: parseFloat(musicLengthEl.value),
           mastering: true,
           mode: currentMode,
           reference_url: referenceUrlEl.value.trim(),

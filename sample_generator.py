@@ -38,6 +38,7 @@ class ElevenLabsSampleGenerator:
         use_cache: bool = True,
         root_key: str = "",
         track_duration_sec: float = 0,
+        music_length_sec: float = 0,
     ) -> str:
         """
         Generate audio for a single layer via ElevenLabs.
@@ -46,7 +47,7 @@ class ElevenLabsSampleGenerator:
         """
         is_musical = layer.layer_type == LayerType.MUSICAL
         prompt = self._build_prompt(layer, mood, setting, root_key)
-        duration = self._get_duration(layer.layer_type, track_duration_sec)
+        duration = self._get_duration(layer.layer_type, track_duration_sec, music_length_sec)
         should_loop = layer.loop or layer.layer_type in (LayerType.BASE, LayerType.MID)
         api_tag = "music" if is_musical else "sfx"
         cache_key = hashlib.sha256(f"{api_tag}|{prompt}|{duration}".encode()).hexdigest()[:16]
@@ -171,17 +172,20 @@ class ElevenLabsSampleGenerator:
 
         return prompt
 
-    def _get_duration(self, layer_type: LayerType, track_duration_sec: float = 0) -> float:
+    def _get_duration(self, layer_type: LayerType, track_duration_sec: float = 0,
+                       music_length_sec: float = 0) -> float:
         """Choose generation duration based on layer type and track length.
 
-        Musical layers match the track duration (capped at ElevenLabs' 600s max)
-        so the music doesn't need to loop within shorter tracks. SFX layers stay
-        short since ambient textures loop naturally.
+        Musical layers use music_length_sec if set, otherwise match the track
+        duration. Capped at ElevenLabs' 600s max. SFX layers stay short since
+        ambient textures loop naturally.
         """
         if layer_type == LayerType.MUSICAL:
+            if music_length_sec > 0:
+                return min(music_length_sec, 600.0)
             if track_duration_sec > 0:
                 return min(track_duration_sec, 600.0)
-            return 300.0
+            return 180.0
 
         durations = {
             LayerType.BASE: 22.0,
