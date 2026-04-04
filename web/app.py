@@ -574,6 +574,7 @@ def submit_feedback(job_id: str):
                 setting=revised_config.setting,
                 use_cache=False,
                 root_key=revised_config.root_key,
+                track_duration_sec=revised_config.duration_sec,
             )
             if path:
                 layer.generated_audio_path = path
@@ -748,6 +749,7 @@ def layer_action(job_id: str):
             setting=config.setting,
             use_cache=False,
             root_key=config.root_key,
+            track_duration_sec=config.duration_sec,
         )
         if path:
             layer.generated_audio_path = path
@@ -784,6 +786,7 @@ def layer_action(job_id: str):
             setting=config.setting,
             use_cache=False,
             root_key=config.root_key,
+            track_duration_sec=config.duration_sec,
         )
         if path:
             layer.generated_audio_path = path
@@ -833,6 +836,7 @@ def layer_action(job_id: str):
             setting=config.setting,
             use_cache=True,
             root_key=config.root_key,
+            track_duration_sec=config.duration_sec,
         )
         if path:
             new_layer.generated_audio_path = path
