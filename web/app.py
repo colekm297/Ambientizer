@@ -1067,7 +1067,7 @@ def _resolve_audio_path(relative_path: str) -> str | None:
 
 @app.route("/api/audio/<job_id>/layer/<layer_name>")
 def api_layer_audio(job_id: str, layer_name: str):
-    """Serve an individual layer's source audio file for the live mixer."""
+    """Serve an individual layer's audio, crossfaded for seamless looping."""
     with jobs_lock:
         job = jobs.get(job_id)
     if not job:
@@ -1087,7 +1087,26 @@ def api_layer_audio(job_id: str, layer_name: str):
     if not path:
         abort(404)
 
-    return send_file(path, mimetype="audio/wav", as_attachment=False)
+    # Serve a crossfaded version so the mixer's loop point is seamless.
+    # Without this, ElevenLabs music (which fades out naturally at the end)
+    # causes an audible dip every time the buffer loops.
+    loopable_path = path.replace(".wav", "_loop.wav")
+    if not os.path.exists(loopable_path):
+        try:
+            from pydub import AudioSegment as AS
+            from audio_engine import make_loopable
+            audio = AS.from_wav(path)
+            if len(audio) > 10000:  # only crossfade files longer than 10s
+                crossfade_ms = min(5000, len(audio) // 4)
+                audio = make_loopable(audio, crossfade_ms)
+                audio.export(loopable_path, format="wav")
+            else:
+                loopable_path = path
+        except Exception as e:
+            print(f"  Crossfade failed for {layer_name}: {e}")
+            loopable_path = path
+
+    return send_file(loopable_path, mimetype="audio/wav", as_attachment=False)
 
 
 @app.route("/api/audio/<job_id>")
