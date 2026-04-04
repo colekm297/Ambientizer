@@ -23,7 +23,7 @@ from pydub.effects import low_pass_filter, high_pass_filter
 
 from schemas import (
     SoundscapeConfig, LayerConfig, LayerType,
-    EffectsChain, EnergyCurve, AudioFeatures,
+    EffectsChain, EnergyCurve, AudioFeatures, PartSnapshot,
 )
 
 # Optional: pedalboard for higher quality effects
@@ -317,10 +317,10 @@ def harmonize_layers(config: SoundscapeConfig, cache_dir: str = "generated_sampl
 
 
 FREQ_SLOTS = {
-    LayerType.BASE:    {"low_pass_hz": 4000,  "high_pass_hz": 30},
-    LayerType.MID:     {"low_pass_hz": 8000,  "high_pass_hz": 150},
-    LayerType.DETAIL:  {"low_pass_hz": 14000, "high_pass_hz": 800},
-    LayerType.MUSICAL: {"low_pass_hz": 12000, "high_pass_hz": 80},
+    LayerType.BASE:    {"low_pass_hz": 10000, "high_pass_hz": 30},
+    LayerType.MID:     {"low_pass_hz": 12000, "high_pass_hz": 80},
+    LayerType.DETAIL:  {"low_pass_hz": 16000, "high_pass_hz": 400},
+    # No automatic filtering on musical layers — let them use full spectrum
 }
 
 STEREO_POSITIONS = [0.0, -0.25, 0.25, -0.5, 0.5, -0.15, 0.15, -0.6, 0.6]
@@ -371,6 +371,9 @@ class AudioEngine:
                 gain_offset=gain_offset,
             )
             if layer_audio is not None:
+                layer_audio = self._apply_layer_timing(
+                    layer_audio, layer_config, render_ms
+                )
                 mix = mix.overlay(layer_audio)
                 layers_rendered += 1
 
@@ -387,6 +390,26 @@ class AudioEngine:
             mix = make_loopable(mix, crossfade_ms)
 
         return mix
+
+    def _apply_layer_timing(
+        self, audio: AudioSegment, layer: LayerConfig, total_ms: int
+    ) -> AudioSegment:
+        """If layer has start_sec/end_sec, silence the regions outside that window
+        and apply 2-second fades at the entry/exit points."""
+        start_ms = int(layer.start_sec * 1000)
+        end_ms = int(layer.end_sec * 1000) if layer.end_sec > 0 else total_ms
+        if start_ms <= 0 and end_ms >= total_ms:
+            return audio
+        FADE_MS = 2000
+        active = audio[start_ms:end_ms]
+        active = active.fade_in(min(FADE_MS, len(active) // 2))
+        active = active.fade_out(min(FADE_MS, len(active) // 2))
+        result = AudioSegment.silent(duration=start_ms, frame_rate=audio.frame_rate)
+        result += active
+        tail = total_ms - len(result)
+        if tail > 0:
+            result += AudioSegment.silent(duration=tail, frame_rate=audio.frame_rate)
+        return result[:total_ms]
 
     def _auto_stereo_spread(self, config: SoundscapeConfig):
         """If all layers are centered (pan=0), auto-distribute across the stereo field."""
@@ -487,7 +510,13 @@ class AudioEngine:
         if sample is None:
             return None
 
-        if layer.independent_loop and loopable and len(sample) > 2000:
+        needs_tiling = len(sample) < duration_ms
+        use_crossfaded_tiling = (
+            loopable and needs_tiling and len(sample) > 2000
+            and (layer.independent_loop or layer.layer_type == LayerType.MUSICAL)
+        )
+
+        if use_crossfaded_tiling:
             layer_audio = self._render_independent_loop_layer(
                 sample, layer, duration_ms, energy_curve, crossfade_ms,
             )
@@ -502,6 +531,9 @@ class AudioEngine:
 
         if layer.effects:
             layer_audio = self._apply_effects(layer_audio, layer.effects)
+
+        if layer.swell_amount > 0.01:
+            layer_audio = self._apply_swell(layer_audio, layer.swell_amount, layer.swell_period_sec)
 
         if gain_offset != 0.0:
             layer_audio = layer_audio + gain_offset
@@ -777,11 +809,110 @@ class AudioEngine:
             audio = high_pass_filter(audio, effects.high_pass_hz)
         return audio
 
+    def _apply_swell(self, audio: AudioSegment, amount: float, period_sec: float) -> AudioSegment:
+        """Apply slow sine-wave volume modulation for organic breathing movement.
+
+        amount: 0.0 = no effect, 1.0 = full swell (up to -12 dB dip)
+        period_sec: length of one full breathe cycle
+        """
+        amount = max(0.0, min(1.0, amount))
+        period_sec = max(4.0, period_sec)
+        max_dip_db = amount * 12.0
+
+        samples = np.array(audio.get_array_of_samples(), dtype=np.float64)
+        channels = audio.channels
+        if channels > 1:
+            samples = samples.reshape((-1, channels))
+        num_frames = samples.shape[0] if channels > 1 else len(samples)
+
+        t = np.linspace(0, num_frames / audio.frame_rate, num_frames, endpoint=False)
+        phase_offset = np.random.uniform(0, 2 * np.pi)
+        envelope_db = -max_dip_db * 0.5 * (1.0 - np.cos(2 * np.pi * t / period_sec + phase_offset))
+        envelope_linear = 10.0 ** (envelope_db / 20.0)
+
+        if channels > 1:
+            envelope_linear = envelope_linear[:, np.newaxis]
+
+        samples = samples * envelope_linear
+        samples = np.clip(samples, -32768, 32767).astype(np.int16)
+
+        return audio._spawn(samples.tobytes())
+
     def _normalize(self, audio: AudioSegment, target_lufs: float) -> AudioSegment:
         """Approximate loudness normalization. For true LUFS, use pyloudnorm."""
         current_dbfs = audio.dBFS
         adjustment = target_lufs - current_dbfs
         return audio + adjustment
+
+    def render_part(self, base_config: SoundscapeConfig, part: PartSnapshot) -> AudioSegment:
+        """
+        Render a single Part by taking the base config and applying the part's
+        layer state overrides (volume, pan, mute, effects). Uses cached samples.
+        """
+        import copy
+        config = copy.deepcopy(base_config)
+        config.duration_sec = part.duration_sec
+        config.loopable = True
+
+        for layer in config.layers:
+            state = part.layer_states.get(layer.name)
+            if state:
+                if state.get("muted", False):
+                    layer.volume_db = -60.0
+                else:
+                    layer.volume_db = state.get("volume_db", layer.volume_db)
+                layer.pan = state.get("pan", layer.pan)
+                layer.pitch_shift_semitones = state.get("pitch_shift_semitones", layer.pitch_shift_semitones)
+                layer.swell_amount = state.get("swell_amount", layer.swell_amount)
+                layer.swell_period_sec = state.get("swell_period_sec", layer.swell_period_sec)
+                if layer.effects is None:
+                    layer.effects = EffectsChain()
+                layer.effects.reverb_amount = state.get("reverb_amount", layer.effects.reverb_amount)
+                if state.get("low_pass_hz") is not None:
+                    layer.effects.low_pass_hz = state["low_pass_hz"]
+
+        for added in part.added_layers:
+            config.layers.append(added)
+
+        return self.render(config)
+
+    def stitch_parts(
+        self,
+        base_config: SoundscapeConfig,
+        parts: list[PartSnapshot],
+        global_fade_in_sec: float = 20.0,
+        global_fade_out_sec: float = 10.0,
+    ) -> AudioSegment:
+        """
+        Render multiple Parts and crossfade-stitch them into one long track.
+        Each part is rendered separately using cached samples, then joined.
+        """
+        if not parts:
+            return AudioSegment.silent(duration=1000)
+
+        rendered_parts = []
+        for i, part in enumerate(parts):
+            print(f"  Rendering part {i + 1}/{len(parts)}: '{part.name}' ({part.duration_sec / 60:.0f} min)...")
+            rendered = self.render_part(base_config, part)
+            rendered_parts.append(rendered)
+
+        result = rendered_parts[0]
+        for i in range(1, len(rendered_parts)):
+            crossfade_ms = int(parts[i].fade_in_sec * 1000)
+            crossfade_ms = min(crossfade_ms, len(result) // 4, len(rendered_parts[i]) // 4)
+            crossfade_ms = max(crossfade_ms, 500)
+            result = result.append(rendered_parts[i], crossfade=crossfade_ms)
+
+        if global_fade_in_sec > 0:
+            fade_ms = int(global_fade_in_sec * 1000)
+            result = result.fade_in(min(fade_ms, len(result) // 4))
+
+        if global_fade_out_sec > 0:
+            fade_ms = int(global_fade_out_sec * 1000)
+            result = result.fade_out(min(fade_ms, len(result) // 4))
+
+        result = self._normalize(result, base_config.target_loudness_lufs)
+        return result
 
 
 def extract_features(audio_path: str) -> AudioFeatures:

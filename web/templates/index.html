@@ -14,108 +14,416 @@
             <p class="tagline">AI-powered ambient soundscape generator</p>
         </header>
 
-        <!-- Generator Panel -->
-        <section class="panel generator-panel">
-            <h2>Create Soundscape</h2>
-            <div class="form-group">
-                <label for="prompt">Describe your soundscape</label>
-                <textarea id="prompt" rows="3"
-                    placeholder="e.g., Cozy rainy cafe at midnight with soft jazz piano and distant thunder..."></textarea>
-            </div>
-            <div class="mode-toggle">
-                <button id="mode-ambient" class="btn btn-mode active" data-mode="ambient">Ambient</button>
-                <button id="mode-musical" class="btn btn-mode" data-mode="musical">Musical</button>
-            </div>
-            <div class="form-group">
-                <label for="reference-url">YouTube Reference (optional)</label>
-                <input type="url" id="reference-url"
-                    placeholder="https://www.youtube.com/watch?v=... — Gemini will analyze the audio style">
-            </div>
-            <div class="form-row">
+        <!-- Tab Navigation -->
+        <nav class="tab-nav">
+            <button class="tab-btn active" data-tab="create">Create</button>
+            <button class="tab-btn" data-tab="visuals">Visuals</button>
+            <button class="tab-btn" data-tab="publish">Publish</button>
+        </nav>
+
+        <!-- ═══════════════════════════════════════════════ -->
+        <!--  TAB: Create                                   -->
+        <!-- ═══════════════════════════════════════════════ -->
+        <div id="tab-create" class="tab-content active">
+
+            <!-- Generator Panel -->
+            <section class="panel generator-panel">
+                <h2>Create Soundscape</h2>
                 <div class="form-group">
-                    <label for="duration">Duration</label>
-                    <select id="duration">
-                        <option value="1">1 minute</option>
-                        <option value="2">2 minutes</option>
-                        <option value="5" selected>5 minutes</option>
-                        <option value="10">10 minutes</option>
-                        <option value="15">15 minutes</option>
-                        <option value="30">30 minutes</option>
+                    <label for="prompt">Describe your soundscape</label>
+                    <textarea id="prompt" rows="3"
+                        placeholder="e.g., Project Hail Mary deep space, cozy rainy cafe at midnight, Blade Runner rooftop..."></textarea>
+                    <div class="prompt-tools">
+                        <button id="btn-enhance-prompt" class="btn btn-enhance" title="Research your idea and craft a detailed prompt">Enhance Prompt</button>
+                        <button id="btn-save-prompt" class="btn btn-save-prompt" title="Save this prompt for later">Save</button>
+                        <button id="btn-show-saved" class="btn btn-show-saved" title="Load a saved prompt">Saved Prompts</button>
+                        <span id="enhance-status" class="enhance-status"></span>
+                    </div>
+                    <div id="saved-prompts-dropdown" class="saved-prompts-dropdown hidden">
+                        <div id="saved-prompts-list" class="saved-prompts-list"></div>
+                    </div>
+                </div>
+                <div class="mode-toggle">
+                    <button id="mode-ambient" class="btn btn-mode active" data-mode="ambient" title="2-3 rich SFX layers for environmental atmosphere">Ambient</button>
+                    <button id="mode-musical" class="btn btn-mode" data-mode="musical" title="1 complete music piece + 1-2 atmosphere SFX layers">Musical</button>
+                </div>
+                <div class="form-group">
+                    <label for="reference-url">YouTube Reference (optional)</label>
+                    <input type="url" id="reference-url"
+                        placeholder="https://www.youtube.com/watch?v=... — Gemini will analyze the audio style">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="duration">Duration</label>
+                        <select id="duration">
+                            <option value="1">1 minute</option>
+                            <option value="2">2 minutes</option>
+                            <option value="5" selected>5 minutes</option>
+                            <option value="10">10 minutes</option>
+                            <option value="15">15 minutes</option>
+                            <option value="30">30 minutes</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="toggle-label">
+                            <input type="checkbox" id="loopable" checked>
+                            <span class="toggle-text">Seamless loop</span>
+                        </label>
+                        <span class="form-hint">Crossfades end into beginning for gapless tiling</span>
+                    </div>
+                </div>
+                <button id="generate-btn" class="btn btn-primary">Generate Soundscape</button>
+            </section>
+
+            <!-- History Panel -->
+            <section class="panel history-panel">
+                <h2>Saved Sessions</h2>
+                <div id="history-list" class="history-list">
+                    <p class="history-empty">No saved sessions yet.</p>
+                </div>
+            </section>
+
+            <!-- Progress Panel -->
+            <section id="progress-panel" class="panel progress-panel hidden">
+                <h2>Generation Progress</h2>
+                <div class="progress-header">
+                    <span id="progress-stage" class="stage-badge">Starting</span>
+                    <span id="progress-message" class="progress-text"></span>
+                </div>
+                <div class="progress-bar-container">
+                    <div id="progress-bar" class="progress-bar"></div>
+                </div>
+                <details class="log-details">
+                    <summary>Activity Log</summary>
+                    <div id="log-container" class="log-container"></div>
+                </details>
+            </section>
+
+            <!-- Audio Player -->
+            <section id="player-panel" class="panel player-panel hidden">
+                <h2>Your Soundscape</h2>
+                <div class="player-info">
+                    <span id="player-prompt" class="player-prompt"></span>
+                    <span id="mixer-badge" class="mixer-badge hidden">LIVE</span>
+                </div>
+                <!-- Live mixer transport (used when mixer is active) -->
+                <div id="live-transport" class="live-transport hidden">
+                    <button id="btn-play-pause" class="transport-btn" title="Play / Pause">
+                        <svg id="icon-play" viewBox="0 0 24 24" width="20" height="20"><polygon points="6,4 20,12 6,20" fill="currentColor"/></svg>
+                        <svg id="icon-pause" class="hidden" viewBox="0 0 24 24" width="20" height="20"><rect x="5" y="4" width="4" height="16" fill="currentColor"/><rect x="15" y="4" width="4" height="16" fill="currentColor"/></svg>
+                    </button>
+                    <span id="transport-current" class="transport-time">0:00</span>
+                    <input type="range" id="transport-seek" class="transport-seek" min="0" max="1000" value="0" step="1">
+                    <span id="transport-total" class="transport-time">0:00</span>
+                </div>
+                <!-- Fallback audio element (used when mixer not available) -->
+                <audio id="audio-player" controls class="hidden"></audio>
+                <div class="player-actions">
+                    <button id="btn-download" class="btn btn-secondary">Download WAV</button>
+                    <div class="export-extended">
+                        <select id="extended-duration">
+                            <option value="30">30 min</option>
+                            <option value="60" selected>1 hour</option>
+                            <option value="120">2 hours</option>
+                            <option value="180">3 hours</option>
+                        </select>
+                        <button id="btn-export-extended" class="btn btn-secondary">Export Looped</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Layer Inspector -->
+            <section id="layers-panel" class="panel layers-panel hidden">
+                <h2>Layers <span id="layers-count" class="layers-count"></span></h2>
+                <div id="layers-list" class="layers-list"></div>
+                <div id="ai-suggest-section" class="ai-suggest-section">
+                    <button id="btn-ai-suggest" class="btn btn-secondary">AI Suggest Layers</button>
+                    <div id="ai-suggestions" class="ai-suggestions hidden"></div>
+                </div>
+            </section>
+
+            <!-- AI Feedback -->
+            <section id="ai-feedback-panel" class="panel ai-feedback-panel hidden">
+                <div class="ai-feedback-header">
+                    <h2>AI Feedback</h2>
+                    <button id="btn-ai-feedback" class="btn btn-secondary">Get AI Feedback</button>
+                </div>
+                <div id="ai-feedback-result" class="ai-feedback-result hidden">
+                    <div class="ai-score-row">
+                        <span class="ai-score-label">Quality Score</span>
+                        <span id="ai-score-value" class="ai-score-value">—</span>
+                        <span id="ai-score-bar-wrap" class="ai-score-bar-wrap"><span id="ai-score-bar" class="ai-score-bar"></span></span>
+                    </div>
+                    <ul id="ai-feedback-notes" class="ai-feedback-notes"></ul>
+                </div>
+            </section>
+
+            <!-- Parts Builder -->
+            <section id="parts-panel" class="panel parts-panel hidden">
+                <h2>Parts Builder <span id="parts-count" class="parts-count"></span></h2>
+                <p class="parts-desc">Compose a long-form track by saving the current mix as numbered parts. Each part captures layer volumes, panning, and effects. Parts are crossfaded together.</p>
+                <div id="parts-list" class="parts-list"></div>
+                <div class="parts-actions">
+                    <button id="btn-save-part" class="btn btn-secondary">+ Save Current Mix as Part</button>
+                </div>
+                <div id="parts-stitch-section" class="parts-stitch-section hidden">
+                    <div class="form-row" style="margin-bottom:12px">
+                        <div class="form-group">
+                            <label for="parts-fade-in">Global Fade In (sec)</label>
+                            <input type="number" id="parts-fade-in" value="20" min="0" max="120" step="1">
+                        </div>
+                        <div class="form-group">
+                            <label for="parts-fade-out">Global Fade Out (sec)</label>
+                            <input type="number" id="parts-fade-out" value="10" min="0" max="120" step="1">
+                        </div>
+                    </div>
+                    <button id="btn-stitch-parts" class="btn btn-accent" style="width:100%">Stitch All Parts & Render</button>
+                </div>
+            </section>
+
+            <!-- Feedback Chat -->
+            <section id="feedback-panel" class="panel feedback-panel hidden">
+                <h2>Refine Your Mix</h2>
+                <div id="feedback-messages" class="feedback-messages">
+                    <div class="feedback-hint">
+                        Listen to your soundscape, then describe what to change.<br>
+                        Mix tweaks: "rain too loud", "more reverb", "make it warmer"<br>
+                        Change a sound: "I don't like the thunder, make it softer rumbles", "regenerate the wind"
+                    </div>
+                </div>
+                <div class="feedback-input-row">
+                    <input type="text" id="feedback-input"
+                        placeholder="What would you like to change?"
+                        disabled>
+                    <button id="feedback-send" class="btn btn-accent" disabled>Send</button>
+                </div>
+            </section>
+
+        </div>
+
+        <!-- ═══════════════════════════════════════════════ -->
+        <!--  TAB: Visuals                                  -->
+        <!-- ═══════════════════════════════════════════════ -->
+        <div id="tab-visuals" class="tab-content">
+
+            <!-- Track Selector -->
+            <section class="panel visuals-panel">
+                <h2>Visuals for YouTube</h2>
+                <p class="visuals-desc">Pick a soundscape, generate a scene image, animate it, preview, then export a full-length video.</p>
+
+                <div class="form-group">
+                    <label for="vis-track-select">Select Track</label>
+                    <select id="vis-track-select">
+                        <option value="">— Choose a soundscape —</option>
                     </select>
                 </div>
+
+                <div id="vis-track-info" class="vis-track-info hidden">
+                    <div class="vis-track-meta">
+                        <span id="vis-track-prompt" class="vis-track-prompt"></span>
+                    </div>
+                    <audio id="vis-audio-player" controls></audio>
+                </div>
+            </section>
+
+            <!-- Step 1: Image -->
+            <section id="vis-image-panel" class="panel visuals-panel hidden">
+                <h2>1. Generate Scene Image</h2>
                 <div class="form-group">
-                    <label class="toggle-label">
-                        <input type="checkbox" id="loopable" checked>
-                        <span class="toggle-text">Seamless loop</span>
-                    </label>
-                    <span class="form-hint">Crossfades end into beginning for gapless tiling</span>
+                    <label for="image-prompt">Image Prompt</label>
+                    <textarea id="image-prompt" rows="3"
+                        placeholder="e.g., Cozy dimly-lit cafe at night, rain on windows, warm golden light, lo-fi aesthetic, cinematic wide shot..."></textarea>
                 </div>
-            </div>
-            <button id="generate-btn" class="btn btn-primary">Generate Soundscape</button>
-        </section>
-
-        <!-- History Panel -->
-        <section class="panel history-panel">
-            <h2>Saved Sessions</h2>
-            <div id="history-list" class="history-list">
-                <p class="history-empty">No saved sessions yet.</p>
-            </div>
-        </section>
-
-        <!-- Progress Panel (hidden until generation starts) -->
-        <section id="progress-panel" class="panel progress-panel hidden">
-            <h2>Generation Progress</h2>
-            <div class="progress-header">
-                <span id="progress-stage" class="stage-badge">Starting</span>
-                <span id="progress-message" class="progress-text"></span>
-            </div>
-            <div class="progress-bar-container">
-                <div id="progress-bar" class="progress-bar"></div>
-            </div>
-            <details class="log-details">
-                <summary>Activity Log</summary>
-                <div id="log-container" class="log-container"></div>
-            </details>
-        </section>
-
-        <!-- Audio Player (hidden until complete) -->
-        <section id="player-panel" class="panel player-panel hidden">
-            <h2>Your Soundscape</h2>
-            <div class="player-info">
-                <span id="player-prompt" class="player-prompt"></span>
-            </div>
-            <audio id="audio-player" controls></audio>
-            <div class="player-actions">
-                <button id="btn-download" class="btn btn-secondary">Download WAV</button>
-            </div>
-        </section>
-
-        <!-- Layer Inspector (hidden until complete) -->
-        <section id="layers-panel" class="panel layers-panel hidden">
-            <h2>Layers <span id="layers-count" class="layers-count"></span></h2>
-            <div id="layers-list" class="layers-list"></div>
-        </section>
-
-        <!-- Feedback Chat (hidden until audio ready) -->
-        <section id="feedback-panel" class="panel feedback-panel hidden">
-            <h2>Refine Your Mix</h2>
-            <div id="feedback-messages" class="feedback-messages">
-                <div class="feedback-hint">
-                    Listen to your soundscape, then describe what to change.<br>
-                    Mix tweaks: "rain too loud", "more reverb", "make it warmer"<br>
-                    Change a sound: "I don't like the thunder, make it softer rumbles", "regenerate the wind"
+                <div class="visuals-actions">
+                    <button id="btn-auto-prompt" class="btn btn-secondary" title="Use AI to create a visual prompt from your soundscape description">Auto-Write Prompt</button>
+                    <button id="btn-gen-image" class="btn btn-accent">Generate Image ($0.02)</button>
                 </div>
-            </div>
-            <div class="feedback-input-row">
-                <input type="text" id="feedback-input"
-                    placeholder="What would you like to change?"
-                    disabled>
-                <button id="feedback-send" class="btn btn-accent" disabled>Send</button>
-            </div>
-        </section>
+
+                <div id="image-preview" class="image-preview hidden">
+                    <img id="preview-img" src="" alt="Generated scene">
+                    <div class="image-actions">
+                        <button id="btn-regen-image" class="btn btn-secondary">Regenerate</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Step 2: Animate -->
+            <section id="vis-animate-panel" class="panel visuals-panel hidden">
+                <h2>2. Animate</h2>
+
+                <div class="video-mode-toggle">
+                    <button id="vmode-ai" class="btn btn-mode active" data-vmode="ai" title="Grok animates your image with subtle motion (~$0.50)">AI Animation (~$0.50)</button>
+                    <button id="vmode-kb" class="btn btn-mode" data-vmode="kenburns" title="Free slow zoom effect via ffmpeg">Ken Burns (Free)</button>
+                </div>
+
+                <div id="motion-prompt-group" class="form-group">
+                    <label for="motion-prompt">Motion Prompt</label>
+                    <textarea id="motion-prompt" rows="2"
+                        placeholder="e.g., Slow gentle camera drift, rain falling on window, soft light flickering..."></textarea>
+                    <span class="form-hint">Describe the motion. Leave blank for a default ambient animation.</span>
+                </div>
+
+                <div class="visuals-actions">
+                    <button id="btn-create-clip" class="btn btn-accent">Generate Animation</button>
+                </div>
+
+                <div id="clip-progress" class="video-progress hidden">
+                    <span id="clip-progress-text" class="video-progress-text">Generating animation...</span>
+                </div>
+
+                <div id="clip-preview" class="clip-preview hidden">
+                    <video id="clip-video" controls loop></video>
+                    <p class="visuals-desc" style="margin-top:8px">This clip will be seamlessly looped to fill your full video.</p>
+                </div>
+            </section>
+
+            <!-- Step 3: Export -->
+            <section id="vis-export-panel" class="panel visuals-panel hidden">
+                <h2>3. Export Full Video</h2>
+                <p class="visuals-desc">Loop the clip to your desired length, combine with audio, and download the final MP4.</p>
+
+                <div class="video-options">
+                    <div class="form-group">
+                        <label for="video-duration">Video Duration</label>
+                        <select id="video-duration">
+                            <option value="5">5 minutes (test)</option>
+                            <option value="30">30 minutes</option>
+                            <option value="60" selected>1 hour</option>
+                            <option value="120">2 hours</option>
+                            <option value="180">3 hours</option>
+                        </select>
+                    </div>
+                    <button id="btn-export-video" class="btn btn-accent">Export Video</button>
+                </div>
+
+                <div id="export-progress" class="video-progress hidden">
+                    <span id="export-progress-text" class="video-progress-text">Exporting...</span>
+                </div>
+
+                <div id="video-download" class="video-download hidden">
+                    <a id="video-download-link" href="#" class="btn btn-primary" download>Download Video (MP4)</a>
+                </div>
+            </section>
+
+        </div>
+
+        <!-- ═══════════════════════════════════════════════ -->
+        <!--  TAB: Publish                                  -->
+        <!-- ═══════════════════════════════════════════════ -->
+        <div id="tab-publish" class="tab-content">
+
+            <!-- YouTube Connection -->
+            <section class="panel publish-panel">
+                <h2>Publish to YouTube</h2>
+
+                <div id="yt-connect-section">
+                    <div id="yt-status" class="yt-status">
+                        <span id="yt-status-text" class="yt-status-text">Checking YouTube connection...</span>
+                    </div>
+                    <div id="yt-channel-info" class="yt-channel-info hidden">
+                        <img id="yt-channel-thumb" class="yt-channel-thumb" src="" alt="">
+                        <div>
+                            <strong id="yt-channel-name"></strong>
+                            <span id="yt-channel-subs" class="yt-channel-subs"></span>
+                        </div>
+                    </div>
+                    <div class="visuals-actions">
+                        <button id="btn-yt-connect" class="btn btn-accent hidden">Connect YouTube</button>
+                        <button id="btn-yt-disconnect" class="btn btn-secondary hidden">Disconnect</button>
+                    </div>
+                    <p id="yt-setup-hint" class="form-hint hidden">
+                        Requires a <code>client_secret.json</code> file from
+                        <a href="https://console.cloud.google.com/apis/credentials" target="_blank">Google Cloud Console</a>.
+                        Enable YouTube Data API v3, create an OAuth 2.0 Client ID (Desktop app), download the JSON, and place it in the project root.
+                    </p>
+                </div>
+            </section>
+
+            <!-- Track & Video Selector -->
+            <section id="pub-select-panel" class="panel publish-panel hidden">
+                <h2>1. Select Video</h2>
+                <div class="form-group">
+                    <label for="pub-track-select">Choose a soundscape with an exported video</label>
+                    <select id="pub-track-select">
+                        <option value="">— Choose a track —</option>
+                    </select>
+                </div>
+                <div id="pub-track-info" class="vis-track-info hidden">
+                    <span id="pub-track-prompt" class="vis-track-prompt"></span>
+                    <div id="pub-video-badge" class="pub-video-badge"></div>
+                </div>
+            </section>
+
+            <!-- Metadata -->
+            <section id="pub-meta-panel" class="panel publish-panel hidden">
+                <h2>2. Video Details</h2>
+                <div class="visuals-actions" style="margin-bottom:14px">
+                    <button id="btn-auto-meta" class="btn btn-secondary" title="Have Claude write your title, description & tags">Auto-Write Everything</button>
+                </div>
+
+                <div class="form-group">
+                    <label for="yt-title">Title</label>
+                    <input type="text" id="yt-title" maxlength="100"
+                        placeholder="e.g., Midnight Rain Café — 1 Hour Ambient Soundscape for Deep Focus">
+                    <span class="char-count"><span id="yt-title-count">0</span>/100</span>
+                </div>
+
+                <div class="form-group">
+                    <label for="yt-description">Description</label>
+                    <textarea id="yt-description" rows="10"
+                        placeholder="An immersive story, track info, hashtags..."></textarea>
+                    <span class="char-count"><span id="yt-desc-count">0</span>/5000</span>
+                </div>
+
+                <div class="form-group">
+                    <label for="yt-tags">Tags <span class="form-hint">(comma separated)</span></label>
+                    <input type="text" id="yt-tags"
+                        placeholder="ambient, soundscape, rain sounds, focus music, study...">
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="yt-privacy">Privacy</label>
+                        <select id="yt-privacy">
+                            <option value="unlisted" selected>Unlisted (review first)</option>
+                            <option value="public">Public</option>
+                            <option value="private">Private</option>
+                        </select>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Upload -->
+            <section id="pub-upload-panel" class="panel publish-panel hidden">
+                <h2>3. Upload</h2>
+                <div id="pub-upload-preview" class="pub-upload-preview">
+                    <div id="pub-thumb-preview" class="pub-thumb-preview"></div>
+                    <div class="pub-preview-meta">
+                        <strong id="pub-preview-title">—</strong>
+                        <span id="pub-preview-privacy" class="pub-privacy-badge">unlisted</span>
+                    </div>
+                </div>
+
+                <button id="btn-yt-upload" class="btn btn-primary btn-upload">Upload to YouTube</button>
+
+                <div id="upload-progress" class="video-progress hidden">
+                    <span id="upload-progress-text" class="video-progress-text">Uploading...</span>
+                    <div class="progress-bar-container" style="margin-top:8px">
+                        <div id="upload-progress-bar" class="progress-bar" style="width:0%"></div>
+                    </div>
+                </div>
+
+                <div id="upload-result" class="upload-result hidden">
+                    <span class="upload-success-icon">&#10003;</span>
+                    <a id="upload-result-link" href="#" target="_blank" class="upload-result-link">View on YouTube</a>
+                </div>
+            </section>
+
+        </div>
 
     </div>
 
+    <script src="/static/mixer.js"></script>
     <script src="/static/app.js"></script>
 </body>
 </html>

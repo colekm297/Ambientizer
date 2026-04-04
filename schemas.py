@@ -61,6 +61,14 @@ class LayerConfig:
     # Pitch / tuning
     pitch_shift_semitones: int = 0              # Manual pitch shift (-6 to +6 semitones)
 
+    # Swell / breathing — slow sine-wave volume modulation for organic movement
+    swell_amount: float = 0.0                   # 0.0 (constant) to 1.0 (dramatic swell)
+    swell_period_sec: float = 20.0              # Full cycle length in seconds
+
+    # Timeline — when this layer enters/exits within the track (0 = full duration)
+    start_sec: float = 0.0
+    end_sec: float = 0.0
+
     # Looping
     independent_loop: bool = False              # Loop at own sample length, not with the mix
 
@@ -128,6 +136,10 @@ class SoundscapeConfig:
                 pitch_drift_cents=ld.get("pitch_drift_cents", 0.0),
                 effects=effects,
                 pitch_shift_semitones=ld.get("pitch_shift_semitones", 0),
+                swell_amount=ld.get("swell_amount", 0.0),
+                swell_period_sec=ld.get("swell_period_sec", 20.0),
+                start_sec=ld.get("start_sec", 0.0),
+                end_sec=ld.get("end_sec", 0.0),
                 independent_loop=ld.get("independent_loop", False),
                 elevenlabs_prompt=ld.get("elevenlabs_prompt"),
                 generated_audio_path=ld.get("generated_audio_path"),
@@ -153,6 +165,73 @@ class SoundscapeConfig:
             loopable=d.get("loopable", True),
             crossfade_seconds=d.get("crossfade_seconds", 15.0),
             root_key=d.get("root_key", ""),
+        )
+
+
+@dataclass
+class PartLayerState:
+    """Per-layer mix state within a Part."""
+    volume_db: float = -6.0
+    pan: float = 0.0
+    muted: bool = False
+    reverb_amount: float = 0.3
+    low_pass_hz: Optional[float] = None
+    pitch_shift_semitones: int = 0
+    swell_amount: float = 0.0
+    swell_period_sec: float = 20.0
+
+
+@dataclass
+class PartSnapshot:
+    """A snapshot of the mix state for one section of a long-form composition."""
+    name: str                                       # "Gentle Intro", "Peak", etc.
+    duration_sec: float = 300.0                     # How long this part lasts
+    layer_states: dict[str, dict] = field(default_factory=dict)  # layer_name -> PartLayerState as dict
+    added_layers: list[LayerConfig] = field(default_factory=list)  # new layers only in this part
+    fade_in_sec: float = 5.0                        # Crossfade into this part
+
+    def to_dict(self) -> dict:
+        import dataclasses
+        return {
+            "name": self.name,
+            "duration_sec": self.duration_sec,
+            "layer_states": self.layer_states,
+            "added_layers": [dataclasses.asdict(l) for l in self.added_layers],
+            "fade_in_sec": self.fade_in_sec,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "PartSnapshot":
+        added = []
+        for ld in d.get("added_layers", []):
+            effects = None
+            if ld.get("effects"):
+                effects = EffectsChain(**ld["effects"])
+            added.append(LayerConfig(
+                name=ld["name"],
+                layer_type=LayerType(ld["layer_type"]),
+                sample_tags=ld.get("sample_tags", []),
+                volume_db=ld.get("volume_db", -6.0),
+                pan=ld.get("pan", 0.0),
+                loop=ld.get("loop", True),
+                fade_in_sec=ld.get("fade_in_sec", 2.0),
+                fade_out_sec=ld.get("fade_out_sec", 2.0),
+                effects=effects,
+                pitch_shift_semitones=ld.get("pitch_shift_semitones", 0),
+                swell_amount=ld.get("swell_amount", 0.0),
+                swell_period_sec=ld.get("swell_period_sec", 20.0),
+                start_sec=ld.get("start_sec", 0.0),
+                end_sec=ld.get("end_sec", 0.0),
+                independent_loop=ld.get("independent_loop", False),
+                elevenlabs_prompt=ld.get("elevenlabs_prompt"),
+                generated_audio_path=ld.get("generated_audio_path"),
+            ))
+        return cls(
+            name=d.get("name", "Untitled"),
+            duration_sec=d.get("duration_sec", 300.0),
+            layer_states=d.get("layer_states", {}),
+            added_layers=added,
+            fade_in_sec=d.get("fade_in_sec", 5.0),
         )
 
 

@@ -171,11 +171,15 @@ class ElevenLabsSampleGenerator:
         return prompt
 
     def _get_duration(self, layer_type: LayerType) -> float:
-        """Choose generation duration based on layer type."""
+        """Choose generation duration based on layer type.
+
+        With the consolidated approach (2-3 layers), each layer gets more
+        generation time for richer, more varied content that loops better.
+        """
         durations = {
             LayerType.BASE: 22.0,
             LayerType.MID: 22.0,
             LayerType.DETAIL: 10.0,
-            LayerType.MUSICAL: 30.0,
+            LayerType.MUSICAL: 60.0,  # 60s — rich enough for looping, Music API supports up to 600s
         }
         return durations.get(layer_type, 15.0)
