@@ -7,3 +7,6 @@ generated_samples/
 output/
 saved_jobs/
 samples/
+client_secret*.json
+youtube_token.json
+*.credentials.json
