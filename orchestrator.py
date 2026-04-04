@@ -123,6 +123,7 @@ class SoundscapeOrchestrator:
                 use_cache=self.use_cache,
                 root_key=config.root_key,
                 track_duration_sec=config.duration_sec,
+                music_length_sec=config.music_length_sec,
             )
             if path:
                 layer.generated_audio_path = path

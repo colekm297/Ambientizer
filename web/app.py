@@ -276,7 +276,7 @@ def _serialize_layers(config: SoundscapeConfig) -> list[dict]:
 def run_generation(
     job_id: str, prompt: str, duration: float,
     mastering: bool, mode: str = "ambient", reference_url: str = None,
-    loopable: bool = True,
+    loopable: bool = True, music_length: float = 0,
 ):
     """
     Background worker: generates samples via ElevenLabs + renders a short
@@ -305,6 +305,9 @@ def run_generation(
             reference_url=reference_url or None,
             loopable=loopable,
         )
+
+        if music_length > 0:
+            result.final_config.music_length_sec = music_length * 60
 
         with jobs_lock:
             jobs[job_id]["status"] = "complete"
@@ -420,6 +423,7 @@ def api_generate():
         return jsonify({"error": "prompt is required"}), 400
 
     duration = float(data.get("duration", 5.0))
+    music_length = float(data.get("music_length", 0))
     mastering = data.get("mastering", True)
     mode = data.get("mode", "ambient")
     reference_url = data.get("reference_url", "").strip() or None
@@ -431,6 +435,7 @@ def api_generate():
             "job_id": job_id,
             "prompt": prompt,
             "duration": duration,
+            "music_length": music_length,
             "mastering": mastering,
             "mode": mode,
             "reference_url": reference_url,
@@ -451,7 +456,7 @@ def api_generate():
 
     thread = threading.Thread(
         target=run_generation,
-        args=(job_id, prompt, duration, mastering, mode, reference_url, loopable),
+        args=(job_id, prompt, duration, mastering, mode, reference_url, loopable, music_length),
         daemon=True,
     )
     thread.start()
@@ -575,6 +580,7 @@ def submit_feedback(job_id: str):
                 use_cache=False,
                 root_key=revised_config.root_key,
                 track_duration_sec=revised_config.duration_sec,
+                music_length_sec=revised_config.music_length_sec,
             )
             if path:
                 layer.generated_audio_path = path
@@ -750,6 +756,7 @@ def layer_action(job_id: str):
             use_cache=False,
             root_key=config.root_key,
             track_duration_sec=config.duration_sec,
+            music_length_sec=config.music_length_sec,
         )
         if path:
             layer.generated_audio_path = path
@@ -787,6 +794,7 @@ def layer_action(job_id: str):
             use_cache=False,
             root_key=config.root_key,
             track_duration_sec=config.duration_sec,
+            music_length_sec=config.music_length_sec,
         )
         if path:
             layer.generated_audio_path = path
@@ -837,6 +845,7 @@ def layer_action(job_id: str):
             use_cache=True,
             root_key=config.root_key,
             track_duration_sec=config.duration_sec,
+            music_length_sec=config.music_length_sec,
         )
         if path:
             new_layer.generated_audio_path = path

@@ -102,6 +102,7 @@ class SoundscapeConfig:
     energy_curve: EnergyCurve = field(default_factory=EnergyCurve)
     target_loudness_lufs: float = -18.0     # Target integrated loudness
     duration_sec: float = 300.0             # Render duration
+    music_length_sec: float = 0.0           # Music generation length (0 = match track duration)
     loopable: bool = True                   # Make output seamlessly loopable
     crossfade_seconds: float = 15.0         # Crossfade duration at loop boundary
     root_key: str = ""                      # Harmonic key for tonal coordination (e.g. "C minor")
