@@ -1100,26 +1100,29 @@ def api_layer_audio(job_id: str, layer_name: str):
     if not path:
         abort(404)
 
-    # Serve a crossfaded version so the mixer's loop point is seamless.
-    # Without this, ElevenLabs music (which fades out naturally at the end)
-    # causes an audible dip every time the buffer loops.
-    loopable_path = path.replace(".wav", "_loop.wav")
-    if not os.path.exists(loopable_path):
-        try:
-            from pydub import AudioSegment as AS
-            from audio_engine import make_loopable
-            audio = AS.from_wav(path)
-            if len(audio) > 10000:  # only crossfade files longer than 10s
-                crossfade_ms = min(5000, len(audio) // 4)
+    # Only musical layers need crossfading — they have natural fade-outs
+    # baked in by ElevenLabs. SFX layers are already generated with loop=True
+    # and should be served as-is.
+    from schemas import LayerType
+    if layer.layer_type == LayerType.MUSICAL:
+        loopable_path = path.replace(".wav", "_loop.wav")
+        if not os.path.exists(loopable_path):
+            try:
+                from pydub import AudioSegment as AS
+                from audio_engine import make_loopable
+                audio = AS.from_wav(path)
+                # Long crossfade (20% of clip, 15-60s) to fully mask the
+                # natural fade-out that AI music generation adds at the end
+                crossfade_ms = max(15000, min(60000, len(audio) // 5))
                 audio = make_loopable(audio, crossfade_ms)
                 audio.export(loopable_path, format="wav")
-            else:
+                print(f"  Created loopable version for {layer_name}: {len(audio)/1000:.0f}s (xfade {crossfade_ms/1000:.0f}s)")
+            except Exception as e:
+                print(f"  Crossfade failed for {layer_name}: {e}")
                 loopable_path = path
-        except Exception as e:
-            print(f"  Crossfade failed for {layer_name}: {e}")
-            loopable_path = path
+        return send_file(loopable_path, mimetype="audio/wav", as_attachment=False)
 
-    return send_file(loopable_path, mimetype="audio/wav", as_attachment=False)
+    return send_file(path, mimetype="audio/wav", as_attachment=False)
 
 
 @app.route("/api/audio/<job_id>")
