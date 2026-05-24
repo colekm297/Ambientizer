@@ -24,7 +24,12 @@
       btn.classList.add("active");
       document.getElementById(`tab-${target}`).classList.add("active");
 
-      if (target === "visuals") refreshVisTrackList();
+      if (target === "visuals") {
+        refreshVisTrackList();
+        if (mixer && mixer.playing) mixer.pause();
+      } else {
+        if (visMixer && visMixer.playing) visMixer.pause();
+      }
       if (target === "publish") { checkYouTubeStatus(); refreshPubTrackList(); }
     });
   });
@@ -36,16 +41,30 @@
   // ── DOM refs ──────────────────────────────────
   const promptEl = document.getElementById("prompt");
   const referenceUrlEl = document.getElementById("reference-url");
+  const refStartEl = document.getElementById("ref-start");
+  const refEndEl = document.getElementById("ref-end");
+  const useReferenceGenerationEl = document.getElementById("use-reference-generation");
   const durationEl = document.getElementById("duration");
   const musicLengthEl = document.getElementById("music-length");
+  const plannerModeEl = document.getElementById("planner-mode");
+  const musicGenerationModeEl = document.getElementById("music-generation-mode");
   const loopableEl = document.getElementById("loopable");
+  const creditEstimateEl = document.getElementById("credit-estimate");
   const generateBtn = document.getElementById("generate-btn");
   const modeButtons = document.querySelectorAll("[data-mode]");
+
+  function parseTimestamp(str) {
+    const parts = (str || "0:00").split(":").map(Number);
+    if (parts.length === 2) return (parts[0] || 0) * 60 + (parts[1] || 0);
+    if (parts.length === 3) return (parts[0] || 0) * 3600 + (parts[1] || 0) * 60 + (parts[2] || 0);
+    return parseInt(str) || 0;
+  }
 
   const progressPanel = document.getElementById("progress-panel");
   const progressStage = document.getElementById("progress-stage");
   const progressMessage = document.getElementById("progress-message");
   const progressBar = document.getElementById("progress-bar");
+  const stopGenerationBtn = document.getElementById("stop-generation-btn");
   const logContainer = document.getElementById("log-container");
 
   const playerPanel = document.getElementById("player-panel");
@@ -62,13 +81,20 @@
   const feedbackInput = document.getElementById("feedback-input");
   const feedbackSend = document.getElementById("feedback-send");
 
-  const historyList = document.getElementById("history-list");
+  const historySelect = document.getElementById("history-select");
+  const favToggleBtn = document.getElementById("fav-toggle-btn");
+  const filterFavBtn = document.getElementById("filter-favorites");
 
   // ── State ─────────────────────────────────────
   let currentJobId = null;
   let pollInterval = null;
+  let stemPollInterval = null;
   let currentMode = "ambient";
+  let currentApproach = "unified";
+  let currentStemSeparation = "none";
+  let currentLayerPlan = null;
   let feedbackPending = false;
+  let showFavoritesOnly = false;
   let currentRootKey = "";
   let currentLayers = [];
   let layerActionPending = false;
@@ -76,6 +102,187 @@
   let pendingSliderUpdates = {};
   let mixer = null;
   let currentTrackDuration = 300;
+  const MASTER_VOLUME_KEY = "ambientizer_master_volume";
+
+  function getSavedMasterVolume() {
+    const raw = localStorage.getItem(MASTER_VOLUME_KEY);
+    const val = raw === null ? 0.8 : parseFloat(raw);
+    return Number.isFinite(val) ? Math.max(0, Math.min(1, val)) : 0.8;
+  }
+
+  function setSavedMasterVolume(value) {
+    const vol = Math.max(0, Math.min(1, value));
+    localStorage.setItem(MASTER_VOLUME_KEY, String(vol));
+
+    const createVolume = document.getElementById("transport-volume");
+    const visualVolume = document.getElementById("vis-transport-volume");
+    if (createVolume) createVolume.value = String(Math.round(vol * 100));
+    if (visualVolume) visualVolume.value = String(vol);
+
+    if (mixer) mixer.setMasterVolume(vol);
+    if (window._ambientizerVisMixer) window._ambientizerVisMixer.setMasterVolume(vol);
+    if (audioPlayer) audioPlayer.volume = vol;
+    return vol;
+  }
+
+  // ── Credit estimate ──────────────────────────
+  function _getCreditCosts() {
+    const musicMin = parseFloat(musicLengthEl.value) || 0.5;
+    const musicSec = Math.min(musicMin * 60, 600);
+    const isMusical = currentMode === "musical";
+    const MUSIC_CR_PER_SEC = 30;
+    const SFX_CR_PER_SEC = 20;
+    const SFX_SEC = 5;
+    const STEM_CR_PER_SEC = 10;
+    let musicLayers, sfxLayers;
+    if (isMusical && currentApproach === "unified") {
+      musicLayers = 1; sfxLayers = 1;
+    } else if (isMusical) {
+      musicLayers = 3; sfxLayers = 1;
+    } else {
+      musicLayers = 0; sfxLayers = 3;
+    }
+    const baseCost = (musicLayers * musicSec * MUSIC_CR_PER_SEC) + (sfxLayers * SFX_SEC * SFX_CR_PER_SEC);
+    let stemCost = 0;
+    if (isMusical && currentApproach === "unified" && currentStemSeparation !== "none") {
+      stemCost = Math.round(musicSec * STEM_CR_PER_SEC);
+    }
+    return {
+      musicSec,
+      perMusic: musicSec * MUSIC_CR_PER_SEC,
+      perSfx: SFX_SEC * SFX_CR_PER_SEC,
+      stemCost,
+      total: baseCost + stemCost,
+      musicLayers,
+      sfxLayers,
+    };
+  }
+
+  function updateCreditEstimate() {
+    const c = _getCreditCosts();
+    let text = `~${c.total.toLocaleString()} credits to generate`;
+    if (c.musicLayers > 0) {
+      text += ` | Music re-roll: ~${c.perMusic.toLocaleString()} cr`;
+    }
+    text += ` | SFX re-roll: ~${c.perSfx.toLocaleString()} cr`;
+    if (c.stemCost > 0) {
+      text += ` | Stems: ~${c.stemCost.toLocaleString()} cr`;
+    }
+    creditEstimateEl.textContent = text;
+    creditEstimateEl.classList.toggle("credit-warn", c.total > 3000);
+  }
+  durationEl.addEventListener("change", updateCreditEstimate);
+  musicLengthEl.addEventListener("change", updateCreditEstimate);
+
+  // ── Real credit balance from ElevenLabs API ──────
+  const creditBarFill = document.getElementById("credit-bar-fill");
+  const creditRemainingEl = document.getElementById("credit-remaining");
+  const creditResetEl = document.getElementById("credit-reset");
+  const creditRefreshBtn = document.getElementById("credit-refresh-btn");
+  const creditSessionLog = document.getElementById("credit-session-log");
+  const SESSION_LOG_KEY = "ambientizer_credit_log";
+
+  let _lastBalance = null;
+
+  async function fetchCreditBalance() {
+    if (creditRefreshBtn) {
+      creditRefreshBtn.classList.add("spinning");
+      setTimeout(() => creditRefreshBtn.classList.remove("spinning"), 600);
+    }
+    try {
+      const r = await fetch("/api/credits");
+      if (!r.ok) throw new Error("API error");
+      const d = await r.json();
+      _lastBalance = d;
+      _renderCreditBalance(d);
+      return d;
+    } catch (e) {
+      if (creditRemainingEl) creditRemainingEl.textContent = "Could not load balance";
+      return null;
+    }
+  }
+
+  function _renderCreditBalance(d) {
+    if (!d || !creditBarFill) return;
+    const pct = d.limit > 0 ? ((d.remaining / d.limit) * 100) : 0;
+    creditBarFill.style.width = `${Math.max(0.5, pct)}%`;
+    creditBarFill.classList.remove("bar-warn", "bar-danger", "bar-dead");
+    if (pct <= 0) creditBarFill.classList.add("bar-dead");
+    else if (pct < 5) creditBarFill.classList.add("bar-danger");
+    else if (pct < 20) creditBarFill.classList.add("bar-warn");
+
+    const fmt = (n) => n.toLocaleString();
+    let cls = "";
+    if (pct <= 0) cls = "credit-danger-text";
+    else if (pct < 5) cls = "credit-danger-text";
+    else if (pct < 20) cls = "credit-warn-text";
+    creditRemainingEl.innerHTML = `<span class="${cls}">${fmt(d.remaining)}</span> / ${fmt(d.limit)} remaining`;
+
+    if (d.reset_unix) {
+      const resetDate = new Date(d.reset_unix * 1000);
+      const daysLeft = Math.max(0, Math.ceil((resetDate - Date.now()) / 86400000));
+      creditResetEl.textContent = `Resets in ${daysLeft}d (${resetDate.toLocaleDateString()})`;
+    }
+  }
+
+  async function fetchGeminiUsage() {
+    const el = document.getElementById("gemini-usage-text");
+    if (!el) return;
+    try {
+      const r = await fetch("/api/gemini-usage");
+      if (!r.ok) return;
+      const d = await r.json();
+      const rpmPct = d.rpm_limit > 0 ? (d.rpm_used / d.rpm_limit * 100) : 0;
+      const rpdPct = d.rpd_limit > 0 ? (d.rpd_used / d.rpd_limit * 100) : 0;
+      let cls = "";
+      if (rpdPct >= 100) cls = "credit-danger-text";
+      else if (rpdPct >= 80) cls = "credit-warn-text";
+      el.innerHTML = `<span class="${cls}">${d.rpd_used}/${d.rpd_limit} today</span> · ${d.rpm_used}/${d.rpm_limit} rpm`;
+    } catch (_) {}
+  }
+
+  function _canAfford(cost) {
+    if (!_lastBalance) return true;
+    return _lastBalance.remaining >= cost;
+  }
+
+  function _getSessionLog() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(SESSION_LOG_KEY) || "{}");
+      const today = new Date().toISOString().slice(0, 10);
+      if (raw.date !== today) return { date: today, entries: [], total: 0 };
+      return raw;
+    } catch (_) { return { date: new Date().toISOString().slice(0, 10), entries: [], total: 0 }; }
+  }
+
+  function _trackCredits(amount, label) {
+    const log = _getSessionLog();
+    const time = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    log.entries.push({ time, label: label || "Action", amount });
+    log.total += amount;
+    try { localStorage.setItem(SESSION_LOG_KEY, JSON.stringify(log)); } catch (_) {}
+    _renderSessionLog();
+    if (_lastBalance) {
+      _lastBalance.remaining = Math.max(0, _lastBalance.remaining - amount);
+      _lastBalance.used += amount;
+      _renderCreditBalance(_lastBalance);
+    }
+  }
+
+  function _renderSessionLog() {
+    if (!creditSessionLog) return;
+    const log = _getSessionLog();
+    if (!log.entries.length) { creditSessionLog.innerHTML = ""; return; }
+    const last5 = log.entries.slice(-5);
+    creditSessionLog.innerHTML =
+      last5.map(e => `<div class="log-entry">${e.time} — ${e.label}: ~${e.amount.toLocaleString()} cr</div>`).join("") +
+      `<div class="log-entry" style="font-weight:600;">Session total: ~${log.total.toLocaleString()} credits</div>`;
+  }
+
+  if (creditRefreshBtn) creditRefreshBtn.addEventListener("click", () => { fetchCreditBalance(); fetchGeminiUsage(); });
+  fetchCreditBalance();
+  fetchGeminiUsage();
+  _renderSessionLog();
 
   // ── Auto-save form state to localStorage ─────
   const FORM_KEY = "ambientizer_form";
@@ -85,9 +292,16 @@
     const state = {
       prompt: promptEl.value,
       mode: currentMode,
+      approach: currentApproach,
+      stem_separation: currentStemSeparation,
+      planner_mode: plannerModeEl?.value || "claude",
+      music_generation_mode: musicGenerationModeEl?.value || "text",
       duration: durationEl.value,
       music_length: musicLengthEl.value,
       reference_url: referenceUrlEl.value,
+      ref_start: refStartEl.value,
+      ref_end: refEndEl.value,
+      ref_use_generation: useReferenceGenerationEl?.checked || false,
       loopable: loopableEl.checked,
     };
     try { localStorage.setItem(FORM_KEY, JSON.stringify(state)); } catch (_) {}
@@ -103,19 +317,41 @@
         currentMode = s.mode;
         modeButtons.forEach(b => b.classList.toggle("active", b.dataset.mode === s.mode));
       }
+      if (s.approach) {
+        currentApproach = s.approach;
+        document.querySelectorAll("[data-approach]").forEach(b =>
+          b.classList.toggle("active", b.dataset.approach === s.approach));
+      }
+      if (s.stem_separation) {
+        currentStemSeparation = s.stem_separation;
+        const stemEl = document.getElementById("stem-separation");
+        if (stemEl) stemEl.value = s.stem_separation;
+      }
+      if (plannerModeEl && s.planner_mode) plannerModeEl.value = s.planner_mode;
+      if (musicGenerationModeEl && s.music_generation_mode) musicGenerationModeEl.value = s.music_generation_mode;
       if (s.duration) durationEl.value = s.duration;
       if (s.music_length) musicLengthEl.value = s.music_length;
       if (s.reference_url) referenceUrlEl.value = s.reference_url;
+      if (s.ref_start) refStartEl.value = s.ref_start;
+      if (s.ref_end) refEndEl.value = s.ref_end;
+      if (useReferenceGenerationEl) useReferenceGenerationEl.checked = s.ref_use_generation === true;
       if (s.loopable !== undefined) loopableEl.checked = s.loopable;
+      _updateApproachVisibility();
     } catch (_) {}
   }
 
   promptEl.addEventListener("input", saveFormState);
   durationEl.addEventListener("change", saveFormState);
   musicLengthEl.addEventListener("change", saveFormState);
+  if (plannerModeEl) plannerModeEl.addEventListener("change", saveFormState);
+  if (musicGenerationModeEl) musicGenerationModeEl.addEventListener("change", saveFormState);
   referenceUrlEl.addEventListener("input", saveFormState);
+  refStartEl.addEventListener("change", saveFormState);
+  refEndEl.addEventListener("change", saveFormState);
+  if (useReferenceGenerationEl) useReferenceGenerationEl.addEventListener("change", saveFormState);
   loopableEl.addEventListener("change", saveFormState);
   restoreFormState();
+  updateCreditEstimate();
 
   // ── Saved Prompts Library ─────────────────────
   function getSavedPrompts() {
@@ -222,9 +458,49 @@
       modeButtons.forEach((b) => b.classList.remove("active"));
       btn.classList.add("active");
       currentMode = btn.dataset.mode;
+      _updateApproachVisibility();
       saveFormState();
+      updateCreditEstimate();
     });
   });
+
+  // ── Approach toggle (Unified / Multi-Layer) ──────
+  const approachButtons = document.querySelectorAll("[data-approach]");
+  approachButtons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      approachButtons.forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      currentApproach = btn.dataset.approach;
+      _updateApproachVisibility();
+      saveFormState();
+      updateCreditEstimate();
+    });
+  });
+
+  const stemSelectEl = document.getElementById("stem-separation");
+  if (stemSelectEl) {
+    currentStemSeparation = stemSelectEl.value;
+    stemSelectEl.addEventListener("change", () => {
+      currentStemSeparation = stemSelectEl.value;
+      saveFormState();
+      updateCreditEstimate();
+    });
+  }
+
+  function _updateApproachVisibility() {
+    const approachToggle = document.getElementById("approach-toggle");
+    const stemGroup = document.getElementById("stem-select-group");
+    const musicExperimentGroup = document.getElementById("music-experiment-group");
+    if (currentMode === "musical") {
+      approachToggle.classList.remove("hidden");
+      stemGroup.classList.toggle("hidden", currentApproach !== "unified");
+      musicExperimentGroup.classList.remove("hidden");
+    } else {
+      approachToggle.classList.add("hidden");
+      stemGroup.classList.add("hidden");
+      musicExperimentGroup.classList.add("hidden");
+    }
+  }
 
   const stageProgress = {
     starting: 5,
@@ -233,13 +509,108 @@
     generating_samples: 40,
     rendering: 65,
     mastering: 85,
+    separating_stems: 95,
     complete: 100,
     error: 100,
+    canceled: 100,
   };
 
-  // ── Enhance Prompt ──────────────────────────────
+  // ── Enhance & Plan ──────────────────────────────
   const btnEnhancePrompt = document.getElementById("btn-enhance-prompt");
   const enhanceStatus = document.getElementById("enhance-status");
+  const planPreview = document.getElementById("plan-preview");
+
+  function _renderPlanPreview(layers) {
+    if (!layers || !layers.length) {
+      planPreview.classList.add("hidden");
+      currentLayerPlan = null;
+      return;
+    }
+    currentLayerPlan = layers;
+    const esc = s => (s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+    const typeIcons = { musical: "\u{1F3B5}", base: "\u{1F30A}", mid: "\u{1F33F}", detail: "\u2728" };
+
+    let totalCost = 0;
+    let html = '<div class="plan-header"><span class="plan-title">Layer Plan</span><button id="btn-clear-plan" class="plan-clear-btn" title="Clear plan">&times;</button></div>';
+    html += '<div class="plan-cards">';
+    layers.forEach((l, i) => {
+      totalCost += l.est_credits || 0;
+      const icon = typeIcons[l.type] || "\u{1F50A}";
+      const chips = (l.instruments || []).map(inst =>
+        `<span class="plan-chip" data-layer="${i}" data-inst="${esc(inst)}">${esc(inst)} <button class="plan-chip-x" data-layer="${i}" data-inst="${esc(inst)}">&times;</button></span>`
+      ).join("");
+      html += `<div class="plan-card" data-idx="${i}">
+        <div class="plan-card-header">
+          <span class="plan-card-icon">${icon}</span>
+          <input class="plan-card-name" value="${esc(l.name)}" data-idx="${i}">
+          <span class="plan-card-role">${esc(l.role)}</span>
+          <span class="layer-type-badge ${l.type}">${l.type}</span>
+          <span class="plan-card-cost">~${(l.est_credits||0).toLocaleString()} cr</span>
+          <button class="plan-card-remove" data-idx="${i}" title="Remove layer">&times;</button>
+        </div>
+        <div class="plan-card-instruments">${chips}
+          <input class="plan-add-inst" data-idx="${i}" placeholder="+ instrument" size="10">
+        </div>
+        <textarea class="plan-card-prompt" data-idx="${i}" rows="2">${esc(l.prompt_preview)}</textarea>
+      </div>`;
+    });
+    html += '</div>';
+    html += `<div class="plan-footer">
+      <span class="plan-total">Total: ~${totalCost.toLocaleString()} credits</span>
+      <button id="btn-replan" class="btn btn-enhance">Re-Plan</button>
+    </div>`;
+    planPreview.innerHTML = html;
+    planPreview.classList.remove("hidden");
+
+    planPreview.querySelector("#btn-clear-plan")?.addEventListener("click", () => {
+      currentLayerPlan = null;
+      planPreview.classList.add("hidden");
+    });
+
+    planPreview.querySelectorAll(".plan-card-remove").forEach(btn => {
+      btn.addEventListener("click", () => {
+        currentLayerPlan.splice(parseInt(btn.dataset.idx), 1);
+        _renderPlanPreview(currentLayerPlan);
+      });
+    });
+
+    planPreview.querySelectorAll(".plan-card-name").forEach(inp => {
+      inp.addEventListener("change", () => {
+        currentLayerPlan[parseInt(inp.dataset.idx)].name = inp.value;
+      });
+    });
+
+    planPreview.querySelectorAll(".plan-card-prompt").forEach(ta => {
+      ta.addEventListener("change", () => {
+        currentLayerPlan[parseInt(ta.dataset.idx)].prompt_preview = ta.value;
+      });
+    });
+
+    planPreview.querySelectorAll(".plan-chip-x").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const idx = parseInt(btn.dataset.layer);
+        const inst = btn.dataset.inst;
+        const layer = currentLayerPlan[idx];
+        layer.instruments = layer.instruments.filter(i => i !== inst);
+        _renderPlanPreview(currentLayerPlan);
+      });
+    });
+
+    planPreview.querySelectorAll(".plan-add-inst").forEach(inp => {
+      inp.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && inp.value.trim()) {
+          e.preventDefault();
+          currentLayerPlan[parseInt(inp.dataset.idx)].instruments.push(inp.value.trim());
+          _renderPlanPreview(currentLayerPlan);
+        }
+      });
+    });
+
+    planPreview.querySelector("#btn-replan")?.addEventListener("click", () => {
+      btnEnhancePrompt.click();
+    });
+  }
 
   btnEnhancePrompt.addEventListener("click", async () => {
     const raw = promptEl.value.trim();
@@ -254,7 +625,11 @@
       const res = await fetch("/api/enhance-prompt", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: raw, mode: currentMode }),
+        body: JSON.stringify({
+          prompt: raw,
+          mode: currentMode,
+          approach: currentApproach,
+        }),
       });
       const data = await res.json();
       if (data.error) {
@@ -264,9 +639,14 @@
         promptEl.value = data.enhanced_prompt;
         promptEl.style.height = "auto";
         promptEl.style.height = promptEl.scrollHeight + "px";
-        enhanceStatus.textContent = data.research_summary
-          ? "Enhanced with web research"
-          : "Enhanced";
+        if (data.layers && data.layers.length) {
+          _renderPlanPreview(data.layers);
+          enhanceStatus.textContent = "Enhanced + layer plan ready";
+        } else {
+          enhanceStatus.textContent = data.research_summary
+            ? "Enhanced with web research"
+            : "Enhanced";
+        }
         enhanceStatus.className = "enhance-status success";
         setTimeout(() => { enhanceStatus.textContent = ""; enhanceStatus.className = "enhance-status"; }, 5000);
       }
@@ -275,8 +655,121 @@
       enhanceStatus.className = "enhance-status error";
     }
     btnEnhancePrompt.disabled = false;
-    btnEnhancePrompt.textContent = "Enhance Prompt";
+    btnEnhancePrompt.textContent = "Enhance & Plan";
   });
+
+  // ── Reference Analysis (pre-generate) ────────
+  const btnAnalyzeRef = document.getElementById("btn-analyze-ref");
+  const analyzeRefStatus = document.getElementById("analyze-ref-status");
+  const refAnalysisPanel = document.getElementById("ref-analysis-panel");
+  const refAnalysisSummary = document.getElementById("ref-analysis-summary");
+  const refAnalysisLayers = document.getElementById("ref-analysis-layers");
+  const refSuggestedPrompt = document.getElementById("ref-suggested-prompt");
+  const btnRefUse = document.getElementById("btn-ref-use");
+  const btnRefMerge = document.getElementById("btn-ref-merge");
+  const btnRefClose = document.getElementById("btn-ref-close");
+
+  let _lastRefSuggested = "";
+  let _lastRefAnalysis = null;
+  let _lastRefSignature = "";
+
+  function _referenceSignature() {
+    return JSON.stringify({
+      url: referenceUrlEl.value.trim(),
+      start: parseTimestamp(refStartEl.value),
+      end: parseTimestamp(refEndEl.value),
+    });
+  }
+
+  if (btnAnalyzeRef) {
+    btnAnalyzeRef.addEventListener("click", async () => {
+      const url = referenceUrlEl.value.trim();
+      if (!url) { referenceUrlEl.focus(); return; }
+
+      btnAnalyzeRef.disabled = true;
+      btnAnalyzeRef.textContent = "Analyzing...";
+      analyzeRefStatus.textContent = "Gemini is listening to the audio...";
+      analyzeRefStatus.className = "enhance-status active";
+      refAnalysisPanel.classList.add("hidden");
+
+      try {
+        const res = await fetch("/api/analyze-reference", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            url,
+            start_sec: parseTimestamp(refStartEl.value),
+            end_sec: parseTimestamp(refEndEl.value),
+          }),
+        });
+        const data = await res.json();
+        if (data.error) {
+          analyzeRefStatus.textContent = data.error;
+          analyzeRefStatus.className = "enhance-status error";
+        } else {
+          refAnalysisSummary.textContent = data.summary || "";
+          refAnalysisLayers.innerHTML = (data.layers || []).map(l =>
+            `<span class="ref-layer-tag ${l.type}">${l.name}</span>`
+          ).join("");
+          _lastRefSuggested = data.suggested_prompt || "";
+          _lastRefAnalysis = data.analysis || null;
+          _lastRefSignature = _referenceSignature();
+          refSuggestedPrompt.textContent = _lastRefSuggested;
+          refAnalysisPanel.classList.remove("hidden");
+          analyzeRefStatus.textContent = "Analysis complete";
+          analyzeRefStatus.className = "enhance-status success";
+        }
+      } catch (err) {
+        analyzeRefStatus.textContent = "Analysis failed — check connection";
+        analyzeRefStatus.className = "enhance-status error";
+      }
+      btnAnalyzeRef.disabled = false;
+      btnAnalyzeRef.textContent = "Analyze";
+    });
+  }
+
+  if (btnRefUse) {
+    btnRefUse.addEventListener("click", () => {
+      if (_lastRefSuggested) {
+        promptEl.value = _lastRefSuggested;
+        promptEl.style.height = "auto";
+        promptEl.style.height = promptEl.scrollHeight + "px";
+        saveFormState();
+        analyzeRefStatus.textContent = "Prompt replaced with reference suggestion";
+        analyzeRefStatus.className = "enhance-status success";
+        setTimeout(() => { analyzeRefStatus.textContent = ""; analyzeRefStatus.className = "enhance-status"; }, 3000);
+      } else {
+        analyzeRefStatus.textContent = "No suggested prompt available from reference analysis";
+        analyzeRefStatus.className = "enhance-status error";
+      }
+    });
+  }
+
+  if (btnRefMerge) {
+    btnRefMerge.addEventListener("click", () => {
+      if (_lastRefSuggested) {
+        const current = promptEl.value.trim();
+        promptEl.value = current ? `${current}\n\n${_lastRefSuggested}` : _lastRefSuggested;
+        promptEl.style.height = "auto";
+        promptEl.style.height = promptEl.scrollHeight + "px";
+        saveFormState();
+        analyzeRefStatus.textContent = "Reference suggestion merged into prompt";
+        analyzeRefStatus.className = "enhance-status success";
+        setTimeout(() => { analyzeRefStatus.textContent = ""; analyzeRefStatus.className = "enhance-status"; }, 3000);
+      } else {
+        analyzeRefStatus.textContent = "No suggested prompt available from reference analysis";
+        analyzeRefStatus.className = "enhance-status error";
+      }
+    });
+  }
+
+  if (btnRefClose) {
+    btnRefClose.addEventListener("click", () => {
+      refAnalysisPanel.classList.add("hidden");
+      analyzeRefStatus.textContent = "";
+      analyzeRefStatus.className = "enhance-status";
+    });
+  }
 
   // ── Generate ──────────────────────────────────
   generateBtn.addEventListener("click", async () => {
@@ -286,8 +779,21 @@
       return;
     }
 
+    const c = _getCreditCosts();
+    if (!_canAfford(c.total)) {
+      alert(`Not enough credits. Need ~${c.total.toLocaleString()} but only ${(_lastBalance?.remaining || 0).toLocaleString()} remaining.\n\nAdd credits at elevenlabs.io/subscription`);
+      return;
+    }
+    let confirmMsg = `This will use ~${c.total.toLocaleString()} credits (${c.musicLayers} music @ ${(c.musicSec/60).toFixed(0)}min + ${c.sfxLayers} SFX @ 5s`;
+    if (c.stemCost > 0) confirmMsg += ` + stems ~${c.stemCost.toLocaleString()} cr`;
+    confirmMsg += `). Generate?`;
+    if (!confirm(confirmMsg)) return;
+
+    _trackCredits(c.total, "Generate");
     generateBtn.disabled = true;
     generateBtn.textContent = "Generating...";
+    stopGenerationBtn.classList.remove("hidden");
+    stopGenerationBtn.disabled = false;
 
     progressPanel.classList.remove("hidden");
     playerPanel.classList.add("hidden");
@@ -296,18 +802,38 @@
     resetProgress();
 
     try {
-      const res = await fetch("/api/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const genBody = {
           prompt,
           duration: parseFloat(durationEl.value),
           music_length: parseFloat(musicLengthEl.value),
           mastering: true,
           mode: currentMode,
-          reference_url: referenceUrlEl.value.trim(),
+          approach: currentApproach,
+          stem_separation: (currentMode === "musical" && currentApproach === "unified") ? currentStemSeparation : "none",
+          planner_mode: plannerModeEl?.value || "claude",
+          music_generation_mode: musicGenerationModeEl?.value || "text",
+          reference_url: useReferenceGenerationEl?.checked ? referenceUrlEl.value.trim() : "",
+          ref_start_sec: parseTimestamp(refStartEl.value),
+          ref_end_sec: parseTimestamp(refEndEl.value),
           loopable: loopableEl.checked,
-        }),
+      };
+      if (currentLayerPlan) genBody.layer_plan = currentLayerPlan;
+      const plannerUsesReference = genBody.planner_mode === "reference_direct";
+      if ((useReferenceGenerationEl?.checked || plannerUsesReference) && _lastRefAnalysis && _lastRefSignature === _referenceSignature()) {
+        genBody.reference_analysis = _lastRefAnalysis;
+      }
+      if (plannerUsesReference && !genBody.reference_analysis) {
+        showError("Reference Direct requires Analyze Reference first, with the same URL/timestamps.");
+        generateBtn.disabled = false;
+        generateBtn.textContent = "Generate Soundscape";
+        stopGenerationBtn.classList.add("hidden");
+        return;
+      }
+      console.log("[Generate] Sending:", JSON.stringify({mode: genBody.mode, approach: genBody.approach, planner_mode: genBody.planner_mode, music_generation_mode: genBody.music_generation_mode, stem_separation: genBody.stem_separation, has_plan: !!genBody.layer_plan, use_reference: !!genBody.reference_url, has_reference_analysis: !!genBody.reference_analysis}));
+      const res = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(genBody),
       });
 
       const data = await res.json();
@@ -317,6 +843,7 @@
       }
 
       currentJobId = data.job_id;
+      refreshHistory();
       startPolling(data.job_id);
     } catch (err) {
       showError("Failed to start generation: " + err.message);
@@ -333,15 +860,31 @@
         const data = await res.json();
         updateProgress(data);
 
-        if (data.status === "complete" || data.status === "error") {
+        if (data.status === "complete" || data.status === "error" || data.status === "canceled") {
           clearInterval(pollInterval);
           pollInterval = null;
           generateBtn.disabled = false;
           generateBtn.textContent = "Generate Soundscape";
+          stopGenerationBtn.classList.add("hidden");
+          stopGenerationBtn.disabled = false;
+          stopGenerationBtn.textContent = "Stop";
 
           if (data.status === "complete") {
             showPlayer(data);
             enableFeedback();
+            if (data.stems_status === "processing") {
+              startStemPolling(jobId);
+            }
+          } else if (data.status === "canceled") {
+            progressMessage.textContent = data.progress_message || "Generation stopped";
+            progressStage.textContent = "Stopped";
+            progressStage.className = "stage-badge canceled";
+          } else if (data.status === "error") {
+            const errMsg = data.error || "Generation failed";
+            progressMessage.textContent = errMsg;
+            progressStage.textContent = "Error";
+            progressStage.className = "stage-badge error";
+            addChatMessage("system", `Generation failed: ${errMsg}`);
           }
 
           refreshHistory();
@@ -352,6 +895,31 @@
     }, 2000);
   }
 
+  function startStemPolling(jobId) {
+    if (stemPollInterval) clearInterval(stemPollInterval);
+    progressMessage.textContent = "Stems separating in background — you can listen now";
+    stemPollInterval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/status/${jobId}`);
+        const data = await res.json();
+        if (data.stems_status === "ready" && data.stems) {
+          clearInterval(stemPollInterval);
+          stemPollInterval = null;
+          _currentStems = data.stems;
+          progressMessage.textContent = "Stems ready";
+          if (currentLayers && currentLayers.length) renderLayers(currentLayers);
+          addChatMessage("system", "Stem separation finished — expand a music layer to mix stems.");
+        } else if (data.stems_status === "failed") {
+          clearInterval(stemPollInterval);
+          stemPollInterval = null;
+          addChatMessage("system", `Stem separation failed: ${data.stems_error || "unknown error"}`);
+        }
+      } catch (err) {
+        console.warn("Stem poll error:", err);
+      }
+    }, 3000);
+  }
+
   // ── Progress ──────────────────────────────────
   function resetProgress() {
     progressStage.textContent = "Starting";
@@ -359,6 +927,7 @@
     progressMessage.textContent = "";
     progressBar.style.width = "0%";
     progressBar.classList.add("indeterminate");
+    progressBar.style.background = "";
     logContainer.innerHTML = "";
   }
 
@@ -366,6 +935,7 @@
     progressStage.textContent = formatStage(data.stage);
     if (data.status === "complete") progressStage.className = "stage-badge complete";
     else if (data.status === "error") progressStage.className = "stage-badge error";
+    else if (data.status === "canceled") progressStage.className = "stage-badge canceled";
     else progressStage.className = "stage-badge";
 
     progressMessage.textContent = cleanMessage(data.progress_message || "");
@@ -380,6 +950,8 @@
       starting: "Starting", analyzing_reference: "Analyzing Reference",
       interpreting: "Interpreting", generating_samples: "Generating Audio",
       rendering: "Rendering", mastering: "Mastering",
+      separating_stems: "Separating Stems",
+      canceled: "Stopped",
       complete: "Complete", error: "Error",
     };
     return names[stage] || stage;
@@ -405,6 +977,29 @@
     progressBar.style.background = "var(--error)";
     generateBtn.disabled = false;
     generateBtn.textContent = "Generate Soundscape";
+    stopGenerationBtn.classList.add("hidden");
+    stopGenerationBtn.disabled = false;
+    stopGenerationBtn.textContent = "Stop";
+  }
+
+  if (stopGenerationBtn) {
+    stopGenerationBtn.addEventListener("click", async () => {
+      if (!currentJobId) return;
+      stopGenerationBtn.disabled = true;
+      stopGenerationBtn.textContent = "Stopping...";
+      try {
+        const res = await fetch(`/api/cancel/${currentJobId}`, { method: "POST" });
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        progressStage.textContent = "Stopped";
+        progressStage.className = "stage-badge canceled";
+        progressMessage.textContent = "Generation stop requested";
+      } catch (err) {
+        stopGenerationBtn.disabled = false;
+        stopGenerationBtn.textContent = "Stop";
+        showError("Could not stop generation: " + err.message);
+      }
+    });
   }
 
   // ── Audio Player ──────────────────────────────
@@ -455,10 +1050,43 @@
     window._seekDragging = () => seeking;
   }
 
+  // ── Volume slider ──
+  const transportVolume = document.getElementById("transport-volume");
+  if (transportVolume) {
+    transportVolume.value = String(Math.round(getSavedMasterVolume() * 100));
+    transportVolume.addEventListener("input", () => {
+      setSavedMasterVolume(parseFloat(transportVolume.value) / 100);
+    });
+  }
+
+  // ── Loop toggle ──
+  const btnLoopToggle = document.getElementById("btn-loop-toggle");
+  if (btnLoopToggle) {
+    btnLoopToggle.addEventListener("click", () => {
+      if (!mixer) return;
+      const looping = mixer.toggleLoop();
+      btnLoopToggle.classList.toggle("active", looping);
+      btnLoopToggle.title = looping ? "Loop: ON" : "Loop: OFF";
+    });
+  }
+
+  // Click-to-seek on any layer timeline bar
+  document.addEventListener("click", (e) => {
+    const track = e.target.closest(".timeline-track");
+    if (!track || !mixer) return;
+    const rect = track.getBoundingClientRect();
+    const frac = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const targetSec = frac * mixer.duration;
+    mixer.seek(targetSec);
+    if (transportSeek) transportSeek.value = Math.round(frac * 1000);
+    if (transportCurrent) transportCurrent.textContent = formatTime(targetSec);
+  });
+
   async function initMixer(jobId, layers, durationSec) {
     if (mixer) mixer.destroy();
     mixer = new LiveMixer();
     await mixer.init(durationSec);
+    mixer.setMasterVolume(getSavedMasterVolume());
 
     mixer.onTimeUpdate = (t, dur) => {
       if (!window._seekDragging || !window._seekDragging()) {
@@ -474,10 +1102,14 @@
         }
         ph.style.left = (dur > 0 ? (t / dur) * 100 : 0) + "%";
       });
+      iconPlay.classList.toggle("hidden", mixer.playing);
+      iconPause.classList.toggle("hidden", !mixer.playing);
     };
     transportTotal.textContent = formatTime(durationSec);
 
-    const loadPromises = layers.filter(l => l.has_audio && l.volume_db > -55).map(l => {
+    const layersWithAudio = layers.filter(l => l.has_audio);
+    const failedLayers = [];
+    const loadPromises = layersWithAudio.map(l => {
       const url = `/api/audio/${jobId}/layer/${encodeURIComponent(l.name)}`;
       return mixer.addLayer(l.name, url, {
         volume_db: l.volume_db,
@@ -489,35 +1121,109 @@
         swell_period_sec: l.swell_period_sec || 20,
         start_sec: l.start_sec || 0,
         end_sec: l.end_sec || 0,
-      }).catch(err => console.warn(`Failed to load layer "${l.name}":`, err));
+        repeat_every_sec: l.repeat_every_sec || 0,
+      }).catch(err => {
+        console.error(`[Mixer] Failed to load layer "${l.name}":`, err);
+        failedLayers.push(l.name);
+      });
     });
 
     await Promise.all(loadPromises);
+    const loaded = Object.keys(mixer.layers).length;
+    console.log(`[Mixer] Loaded ${loaded}/${layersWithAudio.length} layers (${layers.length} total, ${layers.length - layersWithAudio.length} without audio)`);
+    if (loaded > 0) {
+      const loopDur = Math.max(
+        ...Object.values(mixer.layers).map(l => l.buffer?.duration || 0)
+      );
+      if (loopDur > 0) {
+        mixer.duration = loopDur;
+        currentTrackDuration = loopDur;
+        transportTotal.textContent = formatTime(loopDur);
+        console.log(`[Mixer] Loop duration synced to ${loopDur.toFixed(1)}s`);
+      }
+    }
+    if (failedLayers.length > 0) {
+      console.error(`[Mixer] Failed layers:`, failedLayers);
+      markLayerLoadFailures(failedLayers);
+    }
+
+    if (_currentStems) {
+      const silentStems = [];
+      const stemPromises = Object.entries(_currentStems).map(async ([stemName, stemUrl]) => {
+        const mixerName = `stem:${stemName}`;
+        try {
+          await mixer.addLayer(mixerName, stemUrl, {
+            volume_db: -6,
+            pan: 0,
+            muted: true,
+          });
+          const layer = mixer.layers[mixerName];
+          if (layer && layer.buffer) {
+            let peak = 0;
+            for (let ch = 0; ch < layer.buffer.numberOfChannels; ch++) {
+              const data = layer.buffer.getChannelData(ch);
+              const step = Math.max(1, Math.floor(data.length / 10000));
+              for (let i = 0; i < data.length; i += step) {
+                const abs = Math.abs(data[i]);
+                if (abs > peak) peak = abs;
+              }
+            }
+            if (peak < 0.001) {
+              silentStems.push(stemName);
+              console.log(`[Mixer] Stem "${stemName}" is silent (peak=${peak.toFixed(6)}) — hiding`);
+            }
+          }
+        } catch (err) {
+          console.warn(`[Mixer] Failed to load stem "${stemName}":`, err);
+          silentStems.push(stemName);
+        }
+      });
+      await Promise.all(stemPromises);
+      if (silentStems.length > 0) {
+        for (const s of silentStems) delete _currentStems[s];
+      }
+      const remaining = Object.keys(_currentStems).length;
+      console.log(`[Mixer] Loaded ${remaining} audible stems (${silentStems.length} silent, hidden)`);
+      if (remaining === 0) _currentStems = null;
+    }
 
     liveTransport.classList.remove("hidden");
     audioPlayer.classList.add("hidden");
     mixerBadge.classList.remove("hidden");
 
+    mixer.setMasterFades(8, 5);
     mixer.play();
     iconPlay.classList.add("hidden");
     iconPause.classList.remove("hidden");
   }
 
+  let _currentStems = null;
+
   function showPlayer(data) {
     playerPanel.classList.remove("hidden");
     playerPrompt.textContent = `"${data.prompt}"`;
+    fetchCreditBalance();
     btnDownload.onclick = () => finalizeAndDownload(data.job_id);
     if (data.root_key) currentRootKey = data.root_key;
+    _currentStems = data.stems || null;
     if (data.layers && data.layers.length) {
       const durationSec = (data.duration || 5) * 60;
       currentTrackDuration = durationSec;
       renderLayers(data.layers);
-      initMixer(data.job_id, data.layers, durationSec).catch(err => {
+      initMixer(data.job_id, data.layers, durationSec).then(() => {
+        const altPairs = data.alternate_pairs || [];
+        for (const p of altPairs) {
+          if (mixer) mixer.setAlternate(p.layer_a, p.layer_b, p.cycle_sec, p.xfade_sec);
+        }
+        if (window._restoreTimingStateGlobal) window._restoreTimingStateGlobal();
+        renderLayers(data.layers);
+      }).catch(err => {
         console.warn("LiveMixer init failed, falling back to audio element:", err);
         audioPlayer.classList.remove("hidden");
         liveTransport.classList.add("hidden");
         mixerBadge.classList.add("hidden");
         audioPlayer.src = `/api/audio/${data.job_id}?t=${Date.now()}`;
+        audioPlayer.volume = getSavedMasterVolume();
         audioPlayer.load();
       });
     } else {
@@ -525,6 +1231,7 @@
       liveTransport.classList.add("hidden");
       mixerBadge.classList.add("hidden");
       audioPlayer.src = `/api/audio/${data.job_id}?t=${Date.now()}`;
+      audioPlayer.volume = getSavedMasterVolume();
       audioPlayer.load();
     }
     aiFeedbackPanel.classList.remove("hidden");
@@ -533,7 +1240,63 @@
     loadParts();
   }
 
+  function markLayerLoadFailures(failedNames) {
+    document.querySelectorAll(".layer-card").forEach(card => {
+      const name = card.dataset.name;
+      if (failedNames.includes(name)) {
+        let badge = card.querySelector(".layer-load-error");
+        if (!badge) {
+          badge = document.createElement("span");
+          badge.className = "layer-load-error";
+          badge.title = "Audio failed to load — try regenerating this layer";
+          badge.textContent = "No audio";
+          const header = card.querySelector(".layer-header") || card.firstElementChild;
+          if (header) header.appendChild(badge);
+        }
+      }
+    });
+  }
+
   // ── Layer Inspector ────────────────────────────
+
+  function _renderStemCards(layer, eName) {
+    if (!_currentStems || layer.layer_type !== "musical") return "";
+    const stemNames = Object.keys(_currentStems);
+    if (!stemNames.length) return "";
+    if (stemNames.length === 1 && stemNames[0] === "other") {
+      return `<div class="stem-section" data-parent="${eName}">
+        <p class="stem-note">Stem separation couldn't isolate individual instruments in this track. The audio may be too ambient/textural for the model to separate.</p>
+      </div>`;
+    }
+    const prettyName = { bass: "Bass", drums: "Drums", guitar: "Guitar", piano: "Piano", vocals: "Vocals", other: "Other", instrumental: "Instrumental" };
+    const stemIcon = { bass: "\u{1F3B8}", drums: "\u{1F941}", guitar: "\u{1F3B8}", piano: "\u{1F3B9}", vocals: "\u{1F399}", other: "\u{1F50A}", instrumental: "\u{1F3B6}" };
+    return `<div class="stem-section" data-parent="${eName}">
+      <button class="btn-stems-toggle" data-parent="${eName}">\u{1F3A4} Show ${stemNames.length} Stems</button>
+      <div class="stem-cards hidden" data-parent="${eName}">
+        ${stemNames.map(s => {
+          const sName = escapeHtml(s);
+          return `<div class="stem-card" data-stem="${sName}">
+            <div class="stem-card-header">
+              <span class="stem-icon">${stemIcon[s] || "\u{1F50A}"}</span>
+              <span class="stem-name">${escapeHtml(prettyName[s] || s)}</span>
+              <button class="stem-mute-btn muted" data-stem="${sName}" title="Stems start muted">Muted</button>
+              <button class="stem-solo-btn" data-stem="${sName}" title="Solo this stem">S</button>
+            </div>
+            <div class="stem-sliders">
+              <label class="stem-slider-label">Vol</label>
+              <input type="range" class="stem-vol-slider" data-stem="${sName}" min="-40" max="6" step="1" value="-6">
+              <span class="stem-vol-val" data-stem="${sName}">-6 dB</span>
+            </div>
+            <div class="stem-sliders">
+              <label class="stem-slider-label">Pan</label>
+              <input type="range" class="stem-pan-slider" data-stem="${sName}" min="-100" max="100" step="5" value="0">
+              <span class="stem-pan-val" data-stem="${sName}">C</span>
+            </div>
+          </div>`;
+        }).join("")}
+      </div>
+    </div>`;
+  }
 
   function renderLayers(layers) {
     currentLayers = layers;
@@ -565,6 +1328,7 @@
       const startSec = l.start_sec || 0;
       const endSec = l.end_sec || 0;
       const trackDur = currentTrackDuration || 300;
+      const repeatEvery = l.repeat_every_sec || 0;
       const startPct = (startSec / trackDur) * 100;
       const endPct = endSec > 0 ? (endSec / trackDur) * 100 : 100;
       const soloActive = mixer && mixer.isSoloed(l.name);
@@ -586,6 +1350,9 @@
             <div class="timeline-inputs">
               <label class="tl-label">In: <input type="number" class="tl-input tl-start" data-layer="${eName}" value="${startSec > 0 ? (startSec / 60).toFixed(1) : "0"}" min="0" max="${(trackDur / 60).toFixed(0)}" step="0.5"> min</label>
               <label class="tl-label">Out: <input type="number" class="tl-input tl-end" data-layer="${eName}" value="${endSec > 0 ? (endSec / 60).toFixed(1) : ""}" min="0" max="${(trackDur / 60).toFixed(0)}" step="0.5" placeholder="end"> min</label>
+              <label class="tl-label tl-repeat-label">Repeat: <input type="number" class="tl-input tl-repeat" data-layer="${eName}" value="${repeatEvery > 0 ? (repeatEvery / 60).toFixed(1) : ""}" min="0" max="${(trackDur / 60).toFixed(0)}" step="0.5" placeholder="off"> min</label>
+              <button class="tl-sporadic-btn" data-layer="${eName}" title="Make this layer appear sporadically">Sporadic</button>
+              <button class="tl-alt-btn" data-layer="${eName}" title="Alternate this layer with another">Alt</button>
             </div>
           </div>
           <div class="layer-sliders">
@@ -599,7 +1366,8 @@
           <label class="layer-toggle" title="Loop this layer on its own cycle for natural variation"><input type="checkbox" class="indep-loop-cb" data-layer="${eName}" ${indepLoop ? "checked" : ""}><span class="layer-toggle-text">Independent loop</span></label>
           <div class="layer-actions">
             ${muteBtn}
-            <button class="layer-btn layer-btn-reroll" data-action="regenerate" data-layer="${eName}" title="Re-roll">Re-roll</button>
+            <button class="layer-btn layer-btn-reroll" data-action="regenerate" data-layer="${eName}" title="${l.layer_type === 'musical' ? 'Re-roll (music layer — costs credits!)' : 'Re-roll (~440 credits)'}">Re-roll</button>
+            <button class="layer-btn layer-btn-vary" data-action="vary" data-layer="${eName}" title="${l.layer_type === 'musical' ? 'Create variation (music layer — costs credits!)' : 'Create variation (~440 credits)'}">Vary</button>
             <button class="layer-btn layer-btn-regen" data-action="show-regen" data-layer="${eName}" title="Regenerate with new prompt">New Sound</button>
             <button class="layer-btn layer-btn-remove" data-action="remove" data-layer="${eName}" title="Remove layer">Remove</button>
           </div>
@@ -611,6 +1379,7 @@
               <button class="layer-btn layer-btn-mute regen-cancel" data-layer="${eName}">Cancel</button>
             </div>
           </div>
+          ${_renderStemCards(l, eName)}
         </div>`;
     }).join("");
 
@@ -632,6 +1401,101 @@
 
     layersList.innerHTML = html;
 
+    // Wire stem toggle buttons — mute parent layer when stems are shown,
+    // restore parent when stems are hidden.
+    layersList.querySelectorAll(".btn-stems-toggle").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const parentName = btn.dataset.parent;
+        const cards = layersList.querySelector(`.stem-cards[data-parent="${parentName}"]`);
+        if (!cards) return;
+        const hidden = cards.classList.toggle("hidden");
+        const count = cards.querySelectorAll(".stem-card").length;
+        btn.textContent = hidden ? `\u{1F3A4} Show ${count} Stems` : `\u{1F3A4} Hide Stems`;
+
+        if (mixer && _currentStems) {
+          if (!hidden) {
+            // Showing stems — mute the parent, unmute all stems
+            mixer.setMute(parentName, true);
+            const parentMuteBtn = layersList.querySelector(`.layer-mute-btn[data-layer="${parentName}"]`);
+            if (parentMuteBtn) { parentMuteBtn.textContent = "Muted"; parentMuteBtn.classList.add("muted"); }
+            Object.keys(_currentStems).forEach(s => {
+              const name = `stem:${s}`;
+              if (mixer.hasLayer(name)) mixer.setMute(name, false);
+            });
+            cards.querySelectorAll(".stem-mute-btn").forEach(b => {
+              b.textContent = "Playing"; b.classList.remove("muted");
+            });
+          } else {
+            // Hiding stems — mute all stems, restore the parent
+            Object.keys(_currentStems).forEach(s => {
+              const name = `stem:${s}`;
+              if (mixer.hasLayer(name)) mixer.setMute(name, true);
+            });
+            mixer.setMute(parentName, false);
+            const parentMuteBtn = layersList.querySelector(`.layer-mute-btn[data-layer="${parentName}"]`);
+            if (parentMuteBtn) { parentMuteBtn.textContent = "Playing"; parentMuteBtn.classList.remove("muted"); }
+          }
+        }
+      });
+    });
+
+    // Wire stem controls
+    layersList.querySelectorAll(".stem-mute-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const stemName = `stem:${btn.dataset.stem}`;
+        if (!mixer || !mixer.hasLayer(stemName)) {
+          console.warn(`[Stems] Layer "${stemName}" not in mixer`);
+          return;
+        }
+        const isMuted = mixer.layers[stemName]?.muted;
+        mixer.setMute(stemName, !isMuted);
+        btn.textContent = !isMuted ? "Muted" : "Playing";
+        btn.classList.toggle("muted", !isMuted);
+      });
+    });
+    layersList.querySelectorAll(".stem-solo-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        if (!mixer || !_currentStems) return;
+        const soloStem = `stem:${btn.dataset.stem}`;
+        const allSoloed = btn.classList.contains("active");
+        Object.keys(_currentStems).forEach(s => {
+          const name = `stem:${s}`;
+          if (!mixer.hasLayer(name)) return;
+          if (allSoloed) {
+            mixer.setMute(name, true);
+          } else {
+            mixer.setMute(name, name !== soloStem);
+          }
+        });
+        layersList.querySelectorAll(".stem-solo-btn").forEach(b => b.classList.remove("active"));
+        layersList.querySelectorAll(".stem-mute-btn").forEach(b => {
+          const name = `stem:${b.dataset.stem}`;
+          const m = mixer.layers[name]?.muted;
+          b.textContent = m ? "Muted" : "Playing";
+          b.classList.toggle("muted", m);
+        });
+        if (!allSoloed) btn.classList.add("active");
+      });
+    });
+    layersList.querySelectorAll(".stem-vol-slider").forEach(sl => {
+      sl.addEventListener("input", () => {
+        const stemName = `stem:${sl.dataset.stem}`;
+        if (mixer) mixer.setVolume(stemName, parseFloat(sl.value));
+        const valEl = layersList.querySelector(`.stem-vol-val[data-stem="${sl.dataset.stem}"]`);
+        if (valEl) valEl.textContent = `${sl.value} dB`;
+      });
+    });
+    layersList.querySelectorAll(".stem-pan-slider").forEach(sl => {
+      sl.addEventListener("input", () => {
+        const stemName = `stem:${sl.dataset.stem}`;
+        if (mixer) mixer.setPan(stemName, parseFloat(sl.value) / 100);
+        const v = parseInt(sl.value);
+        const label = v === 0 ? "C" : v < 0 ? `L${Math.abs(v)}` : `R${v}`;
+        const valEl = layersList.querySelector(`.stem-pan-val[data-stem="${sl.dataset.stem}"]`);
+        if (valEl) valEl.textContent = label;
+      });
+    });
+
     layersList.querySelectorAll(".layer-prompt").forEach((el) => {
       el.addEventListener("click", () => el.classList.toggle("expanded"));
     });
@@ -646,6 +1510,18 @@
           if (form) form.classList.toggle("hidden");
           return;
         }
+        if (action === "regenerate" || action === "vary") {
+          const layer = currentLayers.find(l => l.name === layerName);
+          const isMusic = layer && layer.layer_type === "musical";
+          const cost = isMusic ? _getCreditCosts().perMusic : _getCreditCosts().perSfx;
+          const durLabel = isMusic ? `${(_getCreditCosts().musicSec/60).toFixed(0)} min music` : "5s SFX";
+          if (!_canAfford(cost)) {
+            alert(`Not enough credits. Need ~${cost.toLocaleString()} but only ${(_lastBalance?.remaining || 0).toLocaleString()} remaining.`);
+            return;
+          }
+          if (!confirm(`${action === "vary" ? "Vary" : "Re-roll"} "${layerName}" — generates ${durLabel} (~${cost.toLocaleString()} credits). Continue?`)) return;
+          _trackCredits(cost, `${action === "vary" ? "Vary" : "Re-roll"} ${layerName}`);
+        }
         performLayerAction(action, layerName);
       });
     });
@@ -658,6 +1534,14 @@
         const prompt = form.querySelector(".regen-prompt-input").value.trim();
         const newType = form.querySelector(".regen-type-select").value || null;
         if (!prompt) { form.querySelector(".regen-prompt-input").focus(); return; }
+        const isMusic = newType === "musical" || (!newType && currentLayers.find(l => l.name === layerName)?.layer_type === "musical");
+        const cost = isMusic ? _getCreditCosts().perMusic : _getCreditCosts().perSfx;
+        if (!_canAfford(cost)) {
+          alert(`Not enough credits. Need ~${cost.toLocaleString()} but only ${(_lastBalance?.remaining || 0).toLocaleString()} remaining.`);
+          return;
+        }
+        if (!confirm(`Regenerate "${layerName}" with new prompt (~${cost.toLocaleString()} credits). Continue?`)) return;
+        _trackCredits(cost, `Regen ${layerName}`);
         performRegenWithPrompt(layerName, prompt, newType);
         form.classList.add("hidden");
       });
@@ -731,8 +1615,8 @@
       input.addEventListener("change", () => {
         const name = input.dataset.layer;
         const startSec = parseFloat(input.value || 0) * 60;
-        if (mixer) mixer.setTiming(name, startSec, _getEndSec(name));
-        syncTimingToServer(name, startSec, _getEndSec(name));
+        if (mixer) mixer.setTiming(name, startSec, _getEndSec(name), _getRepeatEvery(name));
+        syncTimingToServer(name, startSec, _getEndSec(name), _getRepeatEvery(name));
         updateTimelineFill(name);
       });
     });
@@ -740,9 +1624,185 @@
       input.addEventListener("change", () => {
         const name = input.dataset.layer;
         const endSec = input.value ? parseFloat(input.value) * 60 : 0;
-        if (mixer) mixer.setTiming(name, _getStartSec(name), endSec);
-        syncTimingToServer(name, _getStartSec(name), endSec);
+        if (mixer) mixer.setTiming(name, _getStartSec(name), endSec, _getRepeatEvery(name));
+        syncTimingToServer(name, _getStartSec(name), endSec, _getRepeatEvery(name));
         updateTimelineFill(name);
+      });
+    });
+    layersList.querySelectorAll(".tl-repeat").forEach(input => {
+      input.addEventListener("change", () => {
+        const name = input.dataset.layer;
+        const repeatSec = input.value ? parseFloat(input.value) * 60 : 0;
+        if (mixer) mixer.setTiming(name, _getStartSec(name), _getEndSec(name), repeatSec);
+        syncTimingToServer(name, _getStartSec(name), _getEndSec(name), repeatSec);
+        updateTimelineFill(name);
+      });
+    });
+
+    // ── Alternate pairing ──────────────────────────
+    let _altPendingLayer = null;
+    layersList.querySelectorAll(".tl-alt-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const name = btn.dataset.layer;
+
+        if (btn.classList.contains("alt-linked")) {
+          const altInfo = mixer && mixer.getAlternateInfo(name);
+          const partnerName = altInfo ? (altInfo.a === name ? altInfo.b : altInfo.a) : null;
+          if (mixer) mixer.clearAlternate(name);
+          layersList.querySelectorAll(".tl-alt-btn.alt-linked").forEach(b => {
+            b.classList.remove("alt-linked");
+            b.textContent = "Alt";
+          });
+          updateTimelineFill(name);
+          if (partnerName) updateTimelineFill(partnerName);
+          _syncAlternatePairsToServer();
+          return;
+        }
+
+        if (_altPendingLayer && _altPendingLayer !== name) {
+          const cycleStr = prompt("How many minutes should each layer play before switching?", "2");
+          if (!cycleStr) { _clearAltState(); return; }
+          const cycleSec = parseFloat(cycleStr) * 60;
+          if (isNaN(cycleSec) || cycleSec <= 0) { _clearAltState(); return; }
+          _applyAlternate(_altPendingLayer, name, cycleSec);
+          _clearAltState();
+        } else if (_altPendingLayer === name) {
+          _clearAltState();
+        } else {
+          _altPendingLayer = name;
+          btn.classList.add("alt-active");
+          btn.textContent = "Pick 2nd...";
+        }
+      });
+    });
+
+    function _clearAltState() {
+      _altPendingLayer = null;
+      layersList.querySelectorAll(".tl-alt-btn").forEach(b => {
+        b.classList.remove("alt-active");
+        b.textContent = "Alt";
+      });
+    }
+
+    function _applyAlternate(nameA, nameB, cycleSec) {
+      const xfade = Math.min(8, cycleSec * 0.3);
+      if (mixer) mixer.setAlternate(nameA, nameB, cycleSec, xfade);
+      _drawAlternateTimeline(nameA, nameB, cycleSec, xfade);
+
+      [nameA, nameB].forEach(name => {
+        const startEl = layersList.querySelector(`.tl-start[data-layer="${name}"]`);
+        const endEl = layersList.querySelector(`.tl-end[data-layer="${name}"]`);
+        const repEl = layersList.querySelector(`.tl-repeat[data-layer="${name}"]`);
+        if (startEl) startEl.value = "0";
+        if (endEl) endEl.value = "";
+        if (repEl) repEl.value = "";
+      });
+
+      [nameA, nameB].forEach(name => {
+        const btn = layersList.querySelector(`.tl-alt-btn[data-layer="${name}"]`);
+        if (btn) { btn.classList.add("alt-linked"); btn.textContent = "Linked"; }
+      });
+
+      _syncAlternatePairsToServer();
+    }
+
+    function _syncAlternatePairsToServer() {
+      if (!currentJobId || !mixer) return;
+      const pairs = mixer._alternates.map(a => ({
+        layer_a: a.a, layer_b: a.b, cycle_sec: a.cycle, xfade_sec: a.xfade,
+      }));
+      fetch(`/api/alternate-pairs/${currentJobId}`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pairs }),
+      }).catch(() => {});
+    }
+
+    function _drawAlternateTimeline(nameA, nameB, cycleSec, xfadeSec) {
+      const dur = currentTrackDuration || 300;
+      const period = cycleSec * 2;
+
+      [nameA, nameB].forEach((name, idx) => {
+        const tl = layersList.querySelector(`.layer-timeline[data-layer="${name}"]`);
+        if (!tl) return;
+        const track = tl.querySelector(".timeline-track");
+        if (!track) return;
+        track.querySelectorAll(".timeline-fill").forEach(f => f.remove());
+
+        let t = 0;
+        while (t < dur) {
+          const phase = t;
+          let segStart, segEnd;
+          if (idx === 0) {
+            segStart = t;
+            segEnd = Math.min(t + cycleSec, dur);
+          } else {
+            segStart = t + cycleSec;
+            segEnd = Math.min(t + period, dur);
+          }
+          if (segStart < dur) {
+            const fill = document.createElement("div");
+            fill.className = "timeline-fill" + (idx === 1 ? " alt-b" : "");
+            fill.style.left = (segStart / dur * 100) + "%";
+            fill.style.width = (Math.max(0, segEnd - segStart) / dur * 100) + "%";
+            track.appendChild(fill);
+          }
+          t += period;
+        }
+      });
+    }
+
+    // ── Restore timing state after renderLayers ───
+    function _restoreTimingState() {
+      // 1. Restore sporadic/window timeline fills for all layers
+      if (currentLayers) {
+        for (const l of currentLayers) {
+          const name = escapeHtml(l.name);
+          const startSec = l.start_sec || 0;
+          const endSec = l.end_sec || 0;
+          const repeatSec = l.repeat_every_sec || 0;
+          if (repeatSec > 0 || startSec > 0 || endSec > 0) {
+            updateTimelineFill(name);
+          }
+        }
+      }
+
+      // 2. Restore alternate pairs from mixer state
+      if (mixer && mixer._alternates) {
+        for (const alt of mixer._alternates) {
+          _drawAlternateTimeline(alt.a, alt.b, alt.cycle, alt.xfade);
+          [alt.a, alt.b].forEach(name => {
+            const btn = layersList.querySelector(`.tl-alt-btn[data-layer="${name}"]`);
+            if (btn) { btn.classList.add("alt-linked"); btn.textContent = "Linked"; }
+          });
+        }
+      }
+    }
+
+    function _setLayerTiming(name, startSec, endSec, repeatSec) {
+      const startEl = layersList.querySelector(`.tl-start[data-layer="${name}"]`);
+      const endEl = layersList.querySelector(`.tl-end[data-layer="${name}"]`);
+      const repEl = layersList.querySelector(`.tl-repeat[data-layer="${name}"]`);
+      if (startEl) startEl.value = (startSec / 60).toFixed(1);
+      if (endEl) endEl.value = (endSec / 60).toFixed(1);
+      if (repEl) repEl.value = (repeatSec / 60).toFixed(1);
+      if (mixer) mixer.setTiming(name, startSec, endSec, repeatSec);
+      syncTimingToServer(name, startSec, endSec, repeatSec);
+      updateTimelineFill(name);
+    }
+
+    // ── Sporadic presets ───────────────────────────
+    layersList.querySelectorAll(".tl-sporadic-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const name = btn.dataset.layer;
+        const durStr = prompt("How many seconds should it play each time?", "30");
+        if (!durStr) return;
+        const playSec = parseFloat(durStr);
+        if (isNaN(playSec) || playSec <= 0) return;
+        const everyStr = prompt("Come back every how many minutes?", "3");
+        if (!everyStr) return;
+        const everySec = parseFloat(everyStr) * 60;
+        if (isNaN(everySec) || everySec <= 0) return;
+        _setLayerTiming(name, 0, playSec, everySec);
       });
     });
 
@@ -754,23 +1814,52 @@
       const el = layersList.querySelector(`.tl-end[data-layer="${name}"]`);
       return el && el.value ? parseFloat(el.value) * 60 : 0;
     }
+    function _getRepeatEvery(name) {
+      const el = layersList.querySelector(`.tl-repeat[data-layer="${name}"]`);
+      return el && el.value ? parseFloat(el.value) * 60 : 0;
+    }
     function updateTimelineFill(name) {
       const tl = layersList.querySelector(`.layer-timeline[data-layer="${name}"]`);
       if (!tl) return;
-      const fill = tl.querySelector(".timeline-fill");
+      const track = tl.querySelector(".timeline-track");
+      if (!track) return;
+      track.querySelectorAll(".timeline-fill").forEach(f => f.remove());
       const startSec = _getStartSec(name);
       const endSec = _getEndSec(name);
+      const repeatSec = _getRepeatEvery(name);
       const dur = currentTrackDuration || 300;
-      const startPct = (startSec / dur) * 100;
-      const endPct = endSec > 0 ? (endSec / dur) * 100 : 100;
-      fill.style.left = startPct + "%";
-      fill.style.width = (endPct - startPct) + "%";
+      const windowLen = (endSec > 0 ? endSec : dur) - startSec;
+
+      if (repeatSec > 0 && windowLen > 0) {
+        const effectiveRepeat = Math.max(repeatSec, windowLen);
+        let t = startSec;
+        while (t < dur) {
+          const s = Math.max(0, t);
+          const e = Math.min(dur, t + windowLen);
+          const fill = document.createElement("div");
+          fill.className = "timeline-fill";
+          fill.style.left = (s / dur * 100) + "%";
+          fill.style.width = ((e - s) / dur * 100) + "%";
+          track.appendChild(fill);
+          t += effectiveRepeat;
+        }
+      } else {
+        const fill = document.createElement("div");
+        fill.className = "timeline-fill";
+        const startPct = (startSec / dur) * 100;
+        const endPct = endSec > 0 ? (endSec / dur) * 100 : 100;
+        fill.style.left = startPct + "%";
+        fill.style.width = (endPct - startPct) + "%";
+        track.appendChild(fill);
+      }
     }
-    function syncTimingToServer(name, startSec, endSec) {
+    function syncTimingToServer(name, startSec, endSec, repeatEvery) {
       if (!currentJobId) return;
+      const params = { start_sec: startSec, end_sec: endSec };
+      if (repeatEvery !== undefined) params.repeat_every_sec = repeatEvery;
       fetch(`/api/layer-action/${currentJobId}`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "update_params", layer_name: name, params: { start_sec: startSec, end_sec: endSec } }),
+        body: JSON.stringify({ action: "update_params", layer_name: name, params }),
       }).catch(() => {});
     }
 
@@ -783,37 +1872,68 @@
     if (suggestBtn) {
       suggestBtn.onclick = () => fetchAiSuggestions();
     }
+
+    _restoreTimingState();
+
+    // Expose for use after initMixer
+    window._restoreTimingStateGlobal = _restoreTimingState;
   }
 
   const soundPalette = {
-    "Nature": [
-      { name: "Gentle Rain", type: "base", prompt: "Soft steady rain falling on leaves and wet ground, natural outdoor recording" },
-      { name: "Forest Birds", type: "detail", prompt: "Distant songbirds in a forest canopy, varied species, occasional calls" },
-      { name: "Ocean Waves", type: "base", prompt: "Slow ocean waves breaking gently on a sandy shore, rhythmic and calming" },
-      { name: "Wind Through Trees", type: "mid", prompt: "Gentle breeze rustling through pine trees, soft whooshing" },
-      { name: "Creek Babble", type: "mid", prompt: "Small creek babbling over smooth stones, gentle water flow" },
-      { name: "Thunder Distant", type: "detail", prompt: "Distant rolling thunder, low rumbles far away, no sharp cracks" },
-      { name: "Crickets Night", type: "base", prompt: "Crickets chirping on a warm summer night, continuous gentle rhythm" },
-    ],
-    "Urban": [
-      { name: "City Traffic", type: "base", prompt: "Distant city traffic hum, muffled cars passing, urban ambience" },
-      { name: "Cafe Chatter", type: "mid", prompt: "Soft indistinct cafe background conversation, clinking cups and plates" },
-      { name: "Train Station", type: "base", prompt: "Train station ambient sounds, distant announcements, footsteps, echoing hall" },
-      { name: "Vinyl Crackle", type: "detail", prompt: "Warm vinyl record surface noise, gentle crackle and pop, analog warmth" },
-    ],
-    "Musical": [
-      { name: "Piano Ambient", type: "musical", prompt: "Slow ambient piano chords in C major, reverberant, spacious, gentle sustain" },
-      { name: "Synth Pad", type: "musical", prompt: "Warm analog synthesizer pad, slowly evolving, rich harmonics, dreamy" },
+    "Instruments": [
+      { name: "Piano Ambient", type: "musical", prompt: "Continuous slow ambient piano pad, dense sustained chords, reverberant, spacious, gentle felt-dampened sustain throughout, no silent gaps" },
+      { name: "Rhodes Pad", type: "musical", prompt: "Warm Rhodes electric piano chords, soft tremolo, pillowy sustain, vintage warmth" },
+      { name: "Celesta/Music Box", type: "musical", prompt: "Delicate celesta or music box melody, tinkling and ethereal, sparse notes" },
+      { name: "Harp Arpeggios", type: "musical", prompt: "Gentle harp arpeggios, slow and spacious, reverberant, classical warmth" },
       { name: "Acoustic Guitar", type: "musical", prompt: "Gentle fingerpicked acoustic guitar, slow arpeggios, warm tone, intimate" },
-      { name: "Cello Drone", type: "musical", prompt: "Deep cello sustained note, slow bow, rich overtones, melancholic" },
-      { name: "Music Box", type: "detail", prompt: "Delicate music box melody, simple lullaby, tinkling and ethereal" },
+      { name: "Cello Drone", type: "musical", prompt: "Deep cello sustained bowing, rich overtones, slow harmonic shifts" },
+      { name: "Violin Harmonics", type: "musical", prompt: "High violin natural harmonics, crystalline and fragile, sparse bowed notes" },
+      { name: "Synth Pad", type: "musical", prompt: "Warm analog synthesizer pad, slowly evolving filter sweep, rich detuned oscillators" },
+      { name: "Granular Texture", type: "musical", prompt: "Granular time-stretched texture, frozen spectral fragments, slowly morphing" },
+      { name: "Tape Loops", type: "musical", prompt: "Generative tape loop, imperfect repetition, warped pitch, analog degradation" },
+      { name: "Flute Breath", type: "musical", prompt: "Airy flute long tones, breathy and meditative, gentle vibrato, spacious" },
+      { name: "Shakuhachi", type: "musical", prompt: "Japanese shakuhachi flute, meditative single notes, breath sounds, Zen aesthetic" },
+      { name: "Singing Bowl", type: "detail", prompt: "Tibetan singing bowl strike and sustain, rich overtones, slowly decaying resonance" },
+      { name: "Kalimba", type: "detail", prompt: "Gentle kalimba melody, sparse plucked notes, warm metallic tone, African thumb piano" },
+      { name: "Hang Drum", type: "musical", prompt: "Hang drum soft melodic pattern, steel resonance, meditative, gentle percussion" },
+      { name: "Vibraphone", type: "detail", prompt: "Vibraphone with motor vibrato, sparse jazz chords, metallic shimmer, cool tone" },
+      { name: "Tongue Drum", type: "detail", prompt: "Steel tongue drum, soft melodic tones, meditative, warm resonance" },
+      { name: "Choir Pad", type: "musical", prompt: "Ethereal vocal choir pad, sustained vowel sounds, reverberant, celestial harmonies" },
+    ],
+    "Environments": [
+      { name: "Gentle Rain", type: "base", prompt: "Soft steady rain falling on leaves and wet ground, natural outdoor recording" },
+      { name: "Thunderstorm", type: "base", prompt: "Distant thunderstorm with rolling thunder, heavy rain, atmospheric storm ambience" },
+      { name: "Forest", type: "base", prompt: "Deep forest ambience, distant songbirds, rustling leaves, dappled sunlight atmosphere" },
+      { name: "Ocean Waves", type: "base", prompt: "Slow ocean waves breaking gently on shore, rhythmic and calming, distant surf" },
+      { name: "River/Creek", type: "mid", prompt: "Small creek babbling over smooth stones, gentle water flow, natural stream" },
+      { name: "Night Crickets", type: "base", prompt: "Crickets chirping on a warm summer night, continuous gentle rhythm, field recording" },
+      { name: "Wind", type: "mid", prompt: "Gentle wind across an open landscape, soft whooshing, natural air movement" },
+      { name: "Snow/Winter", type: "base", prompt: "Quiet winter atmosphere, muffled snow ambience, cold stillness, distant wind" },
+      { name: "Cave", type: "base", prompt: "Underground cave ambience, dripping water echoes, deep reverberant darkness" },
+      { name: "Fireplace", type: "mid", prompt: "Wood fire crackling softly, occasional pop, warm campfire or fireplace" },
+      { name: "City at Night", type: "base", prompt: "Distant late-night city ambience, muffled traffic, occasional sirens, urban quiet" },
+      { name: "Cafe Murmur", type: "mid", prompt: "Soft indistinct cafe background conversation, clinking cups, espresso machine hiss" },
+      { name: "Space/Void", type: "base", prompt: "Deep space ambient void, sub-bass drone, cosmic radiation crackle, vast emptiness" },
+      { name: "Mountain Air", type: "base", prompt: "High altitude mountain atmosphere, thin wind, distant eagle cry, vast openness" },
+      { name: "Underwater", type: "base", prompt: "Underwater ambient sounds, muffled bubbles, deep oceanic pressure, whale song distance" },
+    ],
+    "Treatments": [
+      { name: "Tape Saturation", type: "detail", prompt: "Warm tape-saturated texture, analog harmonic distortion, gentle compression artifacts" },
+      { name: "Vinyl Crackle", type: "detail", prompt: "Warm vinyl record surface noise, gentle crackle and pop, analog warmth" },
+      { name: "Lo-fi Hiss", type: "detail", prompt: "Lo-fi tape hiss and noise floor, nostalgic cassette recording quality" },
+      { name: "Shimmer Reverb", type: "detail", prompt: "Shimmer reverb tail, pitch-shifted octave reflections, crystalline and infinite" },
+      { name: "Reversed Pad", type: "mid", prompt: "Reversed ambient pad swell, building backwards, ghostly and ethereal" },
+      { name: "Granular Freeze", type: "mid", prompt: "Granular freeze effect on sustained tone, spectral smearing, frozen in time" },
+      { name: "Slowed Down", type: "base", prompt: "Extremely slowed-down recording, pitch-shifted low, stretched time, deep and vast" },
+      { name: "Deep Drone", type: "base", prompt: "Deep sub-bass drone, slowly evolving texture, cinematic low-end rumble" },
     ],
     "Atmospheric": [
-      { name: "Deep Drone", type: "base", prompt: "Deep sub-bass drone, slowly evolving texture, cinematic low-end rumble" },
       { name: "Ethereal Shimmer", type: "detail", prompt: "High-frequency shimmering texture, crystalline sparkle, airy and bright" },
-      { name: "Breathing Room", type: "base", prompt: "Empty room tone, subtle air conditioning hum, interior ambience" },
-      { name: "Fire Crackle", type: "mid", prompt: "Wood fire crackling softly, occasional pop, warm campfire or fireplace" },
+      { name: "Room Tone", type: "base", prompt: "Empty room tone, subtle air, interior ambience, close-mic'd silence" },
       { name: "Wind Chimes", type: "detail", prompt: "Distant wind chimes in a gentle breeze, metallic tinkling, sparse and random" },
+      { name: "Bell Resonance", type: "detail", prompt: "Large bell strike with long decay, deep bronze resonance, ceremonial tone" },
+      { name: "Radio Static", type: "detail", prompt: "Shortwave radio static and interference, distant signals, analog noise" },
+      { name: "Train Distant", type: "mid", prompt: "Distant train horn and wheels on tracks, far-off rumble, nostalgic travel" },
     ],
   };
 
@@ -864,6 +1984,14 @@
 
       container.querySelectorAll(".suggestion-add").forEach(btn => {
         btn.addEventListener("click", async () => {
+          const isMusic = btn.dataset.stype === "musical";
+          const cost = isMusic ? _getCreditCosts().perMusic : _getCreditCosts().perSfx;
+          if (!_canAfford(cost)) {
+            alert(`Not enough credits. Need ~${cost.toLocaleString()} but only ${(_lastBalance?.remaining || 0).toLocaleString()} remaining.`);
+            return;
+          }
+          if (!confirm(`Add "${btn.dataset.sname}" (${isMusic ? "music" : "SFX"}) — ~${cost.toLocaleString()} credits. Continue?`)) return;
+          _trackCredits(cost, `Add ${btn.dataset.sname}`);
           btn.disabled = true;
           btn.textContent = "Adding...";
           try {
@@ -877,10 +2005,18 @@
             else {
               addChatMessage("system", data.changes);
               if (data.layers) renderLayers(data.layers);
-              if (mixer) {
+              const newLayer = (data.layers || []).find(l => l.name === btn.dataset.sname);
+              if (mixer && newLayer && newLayer.has_audio) {
                 const url = `/api/audio/${currentJobId}/layer/${encodeURIComponent(btn.dataset.sname)}?t=${Date.now()}`;
-                mixer.addLayer(btn.dataset.sname, url, { volume_db: -6 }).catch(() => {});
-              } else {
+                mixer.addLayer(btn.dataset.sname, url, { volume_db: newLayer.volume_db || -6 }).catch(err => {
+                  console.error(`Failed to load new layer "${btn.dataset.sname}":`, err);
+                  addChatMessage("system", `Warning: layer added but audio failed to load. Try regenerating.`);
+                  markLayerLoadFailures([btn.dataset.sname]);
+                });
+              } else if (newLayer && !newLayer.has_audio) {
+                addChatMessage("system", `Warning: layer "${btn.dataset.sname}" was added but audio generation failed. Try regenerating.`);
+                markLayerLoadFailures([btn.dataset.sname]);
+              } else if (!mixer) {
                 audioPlayer.src = data.audio_url; audioPlayer.load(); audioPlayer.play().catch(() => {});
               }
             }
@@ -1023,10 +2159,24 @@
       else {
         addChatMessage("system", data.changes);
         if (data.layers) renderLayers(data.layers);
-        if (mixer) {
+        const regenLayer = (data.layers || []).find(l => l.name === layerName);
+        if (mixer && regenLayer && regenLayer.has_audio) {
           const url = `/api/audio/${currentJobId}/layer/${encodeURIComponent(layerName)}?t=${Date.now()}`;
-          mixer.reloadLayer(layerName, url).catch(() => {});
-        } else {
+          if (mixer.hasLayer(layerName)) {
+            mixer.reloadLayer(layerName, url).catch(err => {
+              console.error(`Failed to reload layer "${layerName}":`, err);
+              addChatMessage("system", `Warning: regenerated but audio failed to load.`);
+            });
+          } else {
+            mixer.addLayer(layerName, url, { volume_db: regenLayer.volume_db || -6 }).catch(err => {
+              console.error(`Failed to add regenerated layer "${layerName}":`, err);
+              addChatMessage("system", `Warning: regenerated but audio failed to load.`);
+            });
+          }
+        } else if (regenLayer && !regenLayer.has_audio) {
+          addChatMessage("system", `Warning: regeneration failed for "${layerName}".`);
+          markLayerLoadFailures([layerName]);
+        } else if (!mixer) {
           audioPlayer.src = data.audio_url; audioPlayer.load(); audioPlayer.play().catch(() => {});
         }
       }
@@ -1037,6 +2187,48 @@
 
   async function performLayerAction(action, layerName) {
     if (!currentJobId || layerActionPending) return;
+
+    // Vary: create a new layer with the same prompt for alternation
+    if (action === "vary") {
+      const srcLayer = currentLayers.find(l => l.name === layerName);
+      if (!srcLayer || !srcLayer.elevenlabs_prompt) {
+        addChatMessage("system", "Cannot vary — layer has no prompt.");
+        return;
+      }
+      const existingNames = currentLayers.map(l => l.name);
+      let varName = layerName + " v2";
+      let n = 2;
+      while (existingNames.includes(varName)) { n++; varName = layerName + " v" + n; }
+      layerActionPending = true;
+      layersList.querySelectorAll(".layer-btn").forEach(b => (b.disabled = true));
+      const card = layersList.querySelector(`.layer-btn[data-layer="${CSS.escape(layerName)}"]`)?.closest(".layer-card");
+      if (card) card.classList.add("layer-loading");
+      addChatMessage("system", `Creating variation "${varName}" from "${layerName}"...`);
+      try {
+        const res = await fetch(`/api/layer-action/${currentJobId}`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "add", name: varName, layer_type: srcLayer.layer_type, prompt: srcLayer.elevenlabs_prompt }),
+        });
+        const data = await res.json();
+        if (data.error) { addChatMessage("system", `Error: ${data.error}`); }
+        else {
+          addChatMessage("system", `Variation "${varName}" created — use Alt to alternate them!`);
+          if (data.layers) renderLayers(data.layers);
+          const newLayer = (data.layers || []).find(l => l.name === varName);
+          if (mixer && newLayer && newLayer.has_audio) {
+            const url = `/api/audio/${currentJobId}/layer/${encodeURIComponent(varName)}?t=${Date.now()}`;
+            mixer.addLayer(varName, url, { volume_db: newLayer.volume_db || -6 }).catch(err => {
+              console.error(`Failed to load variation "${varName}":`, err);
+              addChatMessage("system", `Warning: variation added but audio failed to load.`);
+            });
+          }
+        }
+      } catch (err) { addChatMessage("system", `Error: ${err.message}`); }
+      layerActionPending = false;
+      layersList.querySelectorAll(".layer-btn").forEach(b => (b.disabled = false));
+      fetchCreditBalance();
+      return;
+    }
 
     // Mute/unmute can be instant via mixer
     if (mixer && (action === "mute" || action === "unmute")) {
@@ -1075,6 +2267,7 @@
     } catch (err) { addChatMessage("system", `Error: ${err.message}`); }
     layerActionPending = false;
     layersList.querySelectorAll(".layer-btn").forEach((b) => (b.disabled = false));
+    fetchCreditBalance();
   }
 
   async function performAddLayer() {
@@ -1083,6 +2276,14 @@
     const layerType = document.getElementById("add-layer-type").value;
     const prompt = document.getElementById("add-layer-prompt").value.trim();
     if (!name || !prompt) { alert("Name and prompt are required"); return; }
+    const isMusic = layerType === "musical";
+    const cost = isMusic ? _getCreditCosts().perMusic : _getCreditCosts().perSfx;
+    if (!_canAfford(cost)) {
+      alert(`Not enough credits. Need ~${cost.toLocaleString()} but only ${(_lastBalance?.remaining || 0).toLocaleString()} remaining.`);
+      return;
+    }
+    if (!confirm(`Add "${name}" (${isMusic ? "music" : "SFX"}) — ~${cost.toLocaleString()} credits. Continue?`)) return;
+    _trackCredits(cost, `Add ${name}`);
     layerActionPending = true;
     const submitBtn = document.getElementById("add-layer-submit");
     submitBtn.disabled = true; submitBtn.textContent = "Generating...";
@@ -1093,10 +2294,18 @@
       else {
         addChatMessage("system", data.changes);
         if (data.layers) renderLayers(data.layers);
-        if (mixer) {
+        const newLayer = (data.layers || []).find(l => l.name === name);
+        if (mixer && newLayer && newLayer.has_audio) {
           const url = `/api/audio/${currentJobId}/layer/${encodeURIComponent(name)}?t=${Date.now()}`;
-          mixer.addLayer(name, url, { volume_db: -6 }).catch(() => {});
-        } else {
+          mixer.addLayer(name, url, { volume_db: newLayer.volume_db || -6 }).catch(err => {
+            console.error(`Failed to load new layer "${name}":`, err);
+            addChatMessage("system", `Warning: layer added but audio failed to load. Try regenerating.`);
+            markLayerLoadFailures([name]);
+          });
+        } else if (newLayer && !newLayer.has_audio) {
+          addChatMessage("system", `Warning: audio generation failed for "${name}". Try regenerating.`);
+          markLayerLoadFailures([name]);
+        } else if (!mixer) {
           audioPlayer.src = data.audio_url; audioPlayer.load(); audioPlayer.play().catch(() => {});
         }
         document.getElementById("add-layer-name").value = "";
@@ -1104,6 +2313,7 @@
       }
     } catch (err) { addChatMessage("system", `Error: ${err.message}`); }
     layerActionPending = false; submitBtn.disabled = false; submitBtn.textContent = "Add";
+    fetchCreditBalance();
   }
 
   // ── Feedback Chat ─────────────────────────────
@@ -1164,17 +2374,35 @@
   // ── Export Extended ───────────────────────────
   const btnExportExtended = document.getElementById("btn-export-extended");
   const extendedDurationEl = document.getElementById("extended-duration");
+  const extendedProgress = document.getElementById("extended-progress");
+  const extendedProgressText = document.getElementById("extended-progress-text");
+  const extendedStopBtn = document.getElementById("extended-stop-btn");
+  wireStopButton(extendedStopBtn);
+
   btnExportExtended.addEventListener("click", async () => {
     if (!currentJobId) return;
     const minutes = parseInt(extendedDurationEl.value);
-    btnExportExtended.disabled = true; btnExportExtended.textContent = `Exporting ${minutes} min...`;
-    try {
-      const res = await fetch(`/api/export-extended/${currentJobId}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ target_minutes: minutes }) });
-      const data = await res.json();
-      if (data.error) alert("Export failed: " + data.error);
-      else window.location.href = data.download_url;
-    } catch (err) { alert("Export failed: " + err.message); }
-    btnExportExtended.disabled = false; btnExportExtended.textContent = "Export Looped";
+    btnExportExtended.disabled = true;
+    btnExportExtended.textContent = `Exporting ${minutes} min...`;
+
+    await runLongTask(currentJobId, {
+      initialMessage: `Exporting ${minutes} minute looped audio...`,
+      progressEl: extendedProgress,
+      progressTextEl: extendedProgressText,
+      stopBtn: extendedStopBtn,
+      startRequest: () => fetch(`/api/export-extended/${currentJobId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target_minutes: minutes }),
+      }),
+      onDone: (data) => {
+        window.location.href = data.download_url;
+      },
+      onError: (msg) => { if (msg) alert("Export failed: " + msg); },
+    });
+
+    btnExportExtended.disabled = false;
+    btnExportExtended.textContent = "Export Looped";
   });
 
   // ── AI Feedback ──────────────────────────────
@@ -1422,26 +2650,94 @@
   });
 
   // ── History ───────────────────────────────────
+  let _historyCache = [];
+
   async function refreshHistory() {
     try {
       const res = await fetch("/api/history");
-      const history = await res.json();
-      if (!history.length) { historyList.innerHTML = '<p class="history-empty">No generations yet.</p>'; return; }
-      historyList.innerHTML = history.map((j) => {
-        let timeStr = "";
-        if (j.created_at) {
-          const d = new Date(j.created_at); const diff = Date.now() - d;
-          if (diff < 60000) timeStr = "just now";
-          else if (diff < 3600000) timeStr = Math.floor(diff / 60000) + "m ago";
-          else if (diff < 86400000) timeStr = Math.floor(diff / 3600000) + "h ago";
-          else timeStr = d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-        }
-        const edits = j.feedback_count ? j.feedback_count + " edits" : "";
-        const meta = [edits, timeStr].filter(Boolean).join(" · ");
-        return `<div class="history-item" data-job-id="${j.job_id}"><span class="status-dot ${j.status}"></span><span class="prompt-text">${escapeHtml(j.prompt)}</span><span class="meta">${meta}</span></div>`;
-      }).join("");
-      historyList.querySelectorAll(".history-item").forEach((el) => { el.addEventListener("click", () => viewJob(el.dataset.jobId)); });
+      _historyCache = await res.json();
+      _renderHistoryDropdown();
     } catch (err) { console.error("History fetch error:", err); }
+  }
+
+  function _renderHistoryDropdown() {
+    let items = _historyCache;
+    if (showFavoritesOnly) items = items.filter((j) => j.favorite);
+
+    historySelect.innerHTML = "";
+    if (!items.length) {
+      const opt = document.createElement("option");
+      opt.value = "";
+      opt.disabled = true;
+      opt.selected = true;
+      opt.textContent = showFavoritesOnly ? "No favorites yet" : "No saved sessions";
+      historySelect.appendChild(opt);
+      _updateFavBtn(null);
+      return;
+    }
+
+    items.forEach((j) => {
+      const opt = document.createElement("option");
+      opt.value = j.job_id;
+
+      let timeStr = "";
+      if (j.created_at) {
+        const d = new Date(j.created_at);
+        const diff = Date.now() - d;
+        if (diff < 60000) timeStr = "just now";
+        else if (diff < 3600000) timeStr = Math.floor(diff / 60000) + "m ago";
+        else if (diff < 86400000) timeStr = Math.floor(diff / 3600000) + "h ago";
+        else timeStr = d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+      }
+      const star = j.favorite ? "\u2605 " : "";
+      const dot = j.status === "complete" ? "\u2713" : j.status === "running" ? "\u25CB" : "\u2717";
+      const prompt = j.prompt.length > 60 ? j.prompt.slice(0, 57) + "..." : j.prompt;
+      opt.textContent = `${star}${dot} ${prompt}  (${timeStr})`;
+
+      if (j.job_id === currentJobId) opt.selected = true;
+      historySelect.appendChild(opt);
+    });
+
+    _updateFavBtn(currentJobId);
+  }
+
+  function _updateFavBtn(jobId) {
+    const job = _historyCache.find((j) => j.job_id === jobId);
+    if (job) {
+      favToggleBtn.textContent = job.favorite ? "\u2605" : "\u2606";
+      favToggleBtn.title = job.favorite ? "Unfavorite" : "Favorite";
+      favToggleBtn.dataset.jobId = job.job_id;
+      favToggleBtn.style.display = "";
+    } else {
+      favToggleBtn.style.display = "none";
+    }
+  }
+
+  historySelect.addEventListener("change", () => {
+    const jobId = historySelect.value;
+    if (jobId) viewJob(jobId);
+  });
+
+  favToggleBtn.addEventListener("click", async () => {
+    const jobId = favToggleBtn.dataset.jobId;
+    if (!jobId) return;
+    try {
+      const r = await fetch(`/api/favorite/${jobId}`, { method: "POST" });
+      const data = await r.json();
+      const cached = _historyCache.find((j) => j.job_id === jobId);
+      if (cached) cached.favorite = data.favorite;
+      _updateFavBtn(jobId);
+      if (showFavoritesOnly) _renderHistoryDropdown();
+    } catch (err) { console.error("Favorite toggle error:", err); }
+  });
+
+  if (filterFavBtn) {
+    filterFavBtn.addEventListener("click", () => {
+      showFavoritesOnly = !showFavoritesOnly;
+      filterFavBtn.textContent = showFavoritesOnly ? "Favorites" : "All";
+      filterFavBtn.classList.toggle("active", showFavoritesOnly);
+      _renderHistoryDropdown();
+    });
   }
 
   async function viewJob(jobId) {
@@ -1468,7 +2764,10 @@
       } else if (data.status === "error") {
         progressPanel.classList.remove("hidden"); playerPanel.classList.add("hidden"); layersPanel.classList.add("hidden"); feedbackPanel.classList.add("hidden");
         showError(`Session failed: ${data.error || "Unknown error"}`);
+        currentJobId = jobId;
       }
+      historySelect.value = jobId;
+      _updateFavBtn(jobId);
     } catch (err) { console.error("View job error:", err); }
   }
 
@@ -1480,7 +2779,188 @@
   const visTrackSelect = document.getElementById("vis-track-select");
   const visTrackInfo = document.getElementById("vis-track-info");
   const visTrackPrompt = document.getElementById("vis-track-prompt");
-  const visAudioPlayer = document.getElementById("vis-audio-player");
+  let visMixer = null;
+
+  // ── Visuals tab mixer (identical to Create tab's LiveMixer) ──
+  const visTransport = document.getElementById("vis-transport");
+  const visBtnPlayPause = document.getElementById("vis-btn-play-pause");
+  const visIconPlay = document.getElementById("vis-icon-play");
+  const visIconPause = document.getElementById("vis-icon-pause");
+  const visTransportCurrent = document.getElementById("vis-transport-current");
+  const visTransportSeek = document.getElementById("vis-transport-seek");
+  const visTransportTotal = document.getElementById("vis-transport-total");
+  const visTransportVolume = document.getElementById("vis-transport-volume");
+  const visLoadingMsg = document.getElementById("vis-loading-msg");
+
+  async function initVisMixer(jobId, layers, durationSec) {
+    if (visMixer) { visMixer.destroy(); visMixer = null; }
+    visMixer = new LiveMixer();
+    window._ambientizerVisMixer = visMixer;
+    await visMixer.init(durationSec);
+    visMixer.setMasterVolume(getSavedMasterVolume());
+
+    visMixer.onTimeUpdate = (t, dur) => {
+      visTransportCurrent.textContent = formatTime(t);
+      visTransportSeek.value = Math.round((t / dur) * 1000);
+      visIconPlay.classList.toggle("hidden", visMixer.playing);
+      visIconPause.classList.toggle("hidden", !visMixer.playing);
+    };
+    visTransportTotal.textContent = formatTime(durationSec);
+
+    const layersWithAudio = layers.filter(l => l.has_audio);
+    const loadPromises = layersWithAudio.map(l => {
+      const url = `/api/audio/${jobId}/layer/${encodeURIComponent(l.name)}`;
+      return visMixer.addLayer(l.name, url, {
+        volume_db: l.volume_db,
+        pan: l.pan || 0,
+        muted: l.volume_db <= -55,
+        low_pass_hz: l.effects?.low_pass_hz || 20000,
+        reverb_amount: l.effects?.reverb_amount || 0,
+        swell_amount: l.swell_amount || 0,
+        swell_period_sec: l.swell_period_sec || 20,
+        start_sec: l.start_sec || 0,
+        end_sec: l.end_sec || 0,
+        repeat_every_sec: l.repeat_every_sec || 0,
+      }).catch(err => {
+        console.warn(`[VisMixer] Failed to load layer "${l.name}":`, err);
+      });
+    });
+    await Promise.all(loadPromises);
+    console.log(`[VisMixer] Loaded ${Object.keys(visMixer.layers).length}/${layersWithAudio.length} layers`);
+
+    visMixer.setMasterFades(8, 5);
+    visMixer.play();
+    visIconPlay.classList.add("hidden");
+    visIconPause.classList.remove("hidden");
+  }
+
+  if (visBtnPlayPause) {
+    visBtnPlayPause.addEventListener("click", () => {
+      if (!visMixer) return;
+      if (visMixer.playing) visMixer.pause(); else visMixer.play();
+    });
+  }
+  if (visTransportSeek) {
+    visTransportSeek.addEventListener("input", () => {
+      if (!visMixer) return;
+      visMixer.seek((parseFloat(visTransportSeek.value) / 1000) * visMixer.duration);
+    });
+  }
+  if (visTransportVolume) {
+    visTransportVolume.value = String(getSavedMasterVolume());
+    visTransportVolume.addEventListener("input", () => {
+      setSavedMasterVolume(parseFloat(visTransportVolume.value));
+    });
+  }
+
+  // ── Cancellable long-running tasks ─────────────
+  let longTaskPollTimer = null;
+  let longTaskJobId = null;
+
+  async function cancelLongTask(jobId) {
+    if (!jobId) return;
+    try {
+      await fetch(`/api/cancel-task/${jobId}`, { method: "POST" });
+    } catch (err) {
+      console.warn("Cancel request failed:", err);
+    }
+  }
+
+  function stopLongTaskPolling() {
+    if (longTaskPollTimer) {
+      clearInterval(longTaskPollTimer);
+      longTaskPollTimer = null;
+    }
+    longTaskJobId = null;
+  }
+
+  function setTaskStopVisible(stopBtn, visible) {
+    if (!stopBtn) return;
+    stopBtn.classList.toggle("hidden", !visible);
+    stopBtn.disabled = false;
+    stopBtn.textContent = "Stop";
+  }
+
+  async function runLongTask(jobId, options) {
+    const {
+      startRequest,
+      progressEl,
+      progressTextEl,
+      stopBtn,
+      onDone,
+      onError,
+      initialMessage = "Working...",
+    } = options;
+
+    stopLongTaskPolling();
+    longTaskJobId = jobId;
+    if (progressTextEl) progressTextEl.textContent = initialMessage;
+    progressEl?.classList.remove("hidden");
+    setTaskStopVisible(stopBtn, true);
+
+    try {
+      const res = await startRequest();
+      const data = await res.json();
+      if (data.error) {
+        stopLongTaskPolling();
+        setTaskStopVisible(stopBtn, false);
+        progressEl?.classList.add("hidden");
+        onError?.(data.error);
+        return;
+      }
+      if (data.status === "ready" || data.status === "done") {
+        stopLongTaskPolling();
+        setTaskStopVisible(stopBtn, false);
+        progressEl?.classList.add("hidden");
+        onDone?.(data);
+        return;
+      }
+
+      if (data.message && progressTextEl) progressTextEl.textContent = data.message;
+
+      longTaskPollTimer = setInterval(async () => {
+        try {
+          const sr = await fetch(`/api/task-status/${jobId}`);
+          const sd = await sr.json();
+          if (sd.message && progressTextEl) progressTextEl.textContent = sd.message;
+
+          if (sd.status === "done") {
+            stopLongTaskPolling();
+            setTaskStopVisible(stopBtn, false);
+            progressEl?.classList.add("hidden");
+            onDone?.(sd);
+          } else if (sd.status === "error") {
+            stopLongTaskPolling();
+            setTaskStopVisible(stopBtn, false);
+            progressEl?.classList.add("hidden");
+            onError?.(sd.message || "Task failed");
+          } else if (sd.status === "canceled") {
+            stopLongTaskPolling();
+            setTaskStopVisible(stopBtn, false);
+            progressEl?.classList.add("hidden");
+            onError?.(null);
+          }
+        } catch (err) {
+          console.warn("Task poll failed:", err);
+        }
+      }, 1500);
+    } catch (err) {
+      stopLongTaskPolling();
+      setTaskStopVisible(stopBtn, false);
+      progressEl?.classList.add("hidden");
+      onError?.(err.message);
+    }
+  }
+
+  function wireStopButton(btn) {
+    if (!btn) return;
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      btn.textContent = "Stopping...";
+      await cancelLongTask(longTaskJobId);
+    });
+  }
+
   const visImagePanel = document.getElementById("vis-image-panel");
   const imagePromptEl = document.getElementById("image-prompt");
   const btnAutoPrompt = document.getElementById("btn-auto-prompt");
@@ -1498,24 +2978,119 @@
   const clipProgressText = document.getElementById("clip-progress-text");
   const clipPreview = document.getElementById("clip-preview");
   const clipVideo = document.getElementById("clip-video");
+  const extendPromptEl = document.getElementById("extend-prompt");
+  const btnExtendClip = document.getElementById("btn-extend-clip");
+  const clipSpeedEl = document.getElementById("clip-speed");
+  const btnApplySpeed = document.getElementById("btn-apply-speed");
   const btnExportVideo = document.getElementById("btn-export-video");
   const exportProgress = document.getElementById("export-progress");
   const exportProgressText = document.getElementById("export-progress-text");
+  const exportStopBtn = document.getElementById("export-stop-btn");
+  const imageProgress = document.getElementById("image-progress");
+  const imageProgressText = document.getElementById("image-progress-text");
+  const imageStopBtn = document.getElementById("image-stop-btn");
+  const clipStopBtn = document.getElementById("clip-stop-btn");
   const videoDownload = document.getElementById("video-download");
   const videoDownloadLink = document.getElementById("video-download-link");
   const vmodeButtons = document.querySelectorAll("[data-vmode]");
 
+  wireStopButton(clipStopBtn);
+  wireStopButton(exportStopBtn);
+  wireStopButton(imageStopBtn);
+
   let visCurrentJobId = null;
   let currentVideoMode = "ai";
+
+  const uploadVideoGroup = document.getElementById("upload-video-group");
+  const uploadVideoInput = document.getElementById("upload-video-input");
+  const uploadBrowseBtn = document.getElementById("upload-browse-btn");
+  const uploadDropArea = document.getElementById("upload-drop-area");
+  const uploadFileName = document.getElementById("upload-file-name");
+  const btnUploadVideo = document.getElementById("btn-upload-video");
+
+  function showClipPreview(clipUrl) {
+    clipVideo.src = clipUrl;
+    clipVideo.load();
+    clipPreview.classList.remove("hidden");
+    visExportPanel.classList.remove("hidden");
+    videoDownload.classList.add("hidden");
+    const exportPreview = document.getElementById("export-preview");
+    if (exportPreview) exportPreview.classList.add("hidden");
+  }
 
   vmodeButtons.forEach((btn) => {
     btn.addEventListener("click", () => {
       vmodeButtons.forEach((b) => b.classList.remove("active"));
       btn.classList.add("active");
       currentVideoMode = btn.dataset.vmode;
-      motionPromptGroup.classList.toggle("hidden", currentVideoMode === "kenburns");
+      const isUpload = currentVideoMode === "upload";
+      motionPromptGroup.classList.toggle("hidden", currentVideoMode !== "ai");
+      if (uploadVideoGroup) uploadVideoGroup.classList.toggle("hidden", !isUpload);
+      btnCreateClip.classList.toggle("hidden", isUpload);
     });
   });
+
+  // ── Upload Video handlers ──
+  if (uploadBrowseBtn && uploadVideoInput) {
+    uploadBrowseBtn.addEventListener("click", () => uploadVideoInput.click());
+
+    uploadVideoInput.addEventListener("change", () => {
+      const file = uploadVideoInput.files[0];
+      if (file) {
+        uploadFileName.textContent = `${file.name} (${(file.size / 1024 / 1024).toFixed(1)} MB)`;
+        uploadFileName.classList.remove("hidden");
+        btnUploadVideo.disabled = false;
+      } else {
+        uploadFileName.classList.add("hidden");
+        btnUploadVideo.disabled = true;
+      }
+    });
+
+    if (uploadDropArea) {
+      uploadDropArea.addEventListener("dragover", (e) => { e.preventDefault(); uploadDropArea.classList.add("dragover"); });
+      uploadDropArea.addEventListener("dragleave", () => uploadDropArea.classList.remove("dragover"));
+      uploadDropArea.addEventListener("drop", (e) => {
+        e.preventDefault();
+        uploadDropArea.classList.remove("dragover");
+        if (e.dataTransfer.files.length) {
+          uploadVideoInput.files = e.dataTransfer.files;
+          uploadVideoInput.dispatchEvent(new Event("change"));
+        }
+      });
+    }
+
+    btnUploadVideo.addEventListener("click", async () => {
+      const file = uploadVideoInput.files[0];
+      if (!file || !visCurrentJobId) return;
+
+      btnUploadVideo.disabled = true;
+      btnUploadVideo.textContent = "Uploading...";
+      clipProgress.classList.remove("hidden");
+      clipProgressText.textContent = "Uploading video...";
+      clipPreview.classList.add("hidden");
+
+      try {
+        const form = new FormData();
+        form.append("file", file);
+        const res = await fetch(`/api/visual/upload-video/${visCurrentJobId}`, {
+          method: "POST",
+          body: form,
+        });
+        const data = await res.json();
+        if (data.error) {
+          alert("Upload failed: " + data.error);
+        } else {
+          showClipPreview(data.clip_url);
+        }
+      } catch (err) {
+        alert("Upload failed: " + err.message);
+      }
+
+      btnUploadVideo.disabled = false;
+      btnUploadVideo.textContent = "Upload & Preview";
+      clipProgress.classList.add("hidden");
+    });
+  }
 
   async function refreshVisTrackList() {
     try {
@@ -1552,6 +3127,8 @@
       visImagePanel.classList.add("hidden");
       visAnimatePanel.classList.add("hidden");
       visExportPanel.classList.add("hidden");
+      if (visMixer) { visMixer.destroy(); visMixer = null; }
+      visTransport.classList.add("hidden");
       visCurrentJobId = null;
       return;
     }
@@ -1563,10 +3140,22 @@
       const data = await res.json();
 
       visTrackPrompt.textContent = `"${data.prompt}"`;
-      visAudioPlayer.src = `/api/audio/${jobId}?t=${Date.now()}`;
-      visAudioPlayer.load();
       visTrackInfo.classList.remove("hidden");
       visImagePanel.classList.remove("hidden");
+
+      // Spin up a LiveMixer — same setup as the Create tab
+      if (data.layers && data.layers.length) {
+        const durationSec = (data.duration || 5) * 60;
+        visLoadingMsg.classList.remove("hidden");
+        visTransport.classList.add("hidden");
+        try {
+          await initVisMixer(jobId, data.layers, durationSec);
+          visTransport.classList.remove("hidden");
+        } catch (err) {
+          console.warn("[VisMixer] init failed:", err);
+        }
+        visLoadingMsg.classList.add("hidden");
+      }
 
       imagePromptEl.value = data.visual_image_prompt || "";
       motionPromptEl.value = "";
@@ -1627,26 +3216,28 @@
     btnGenImage.disabled = true; btnGenImage.textContent = "Generating...";
     btnRegenImage.disabled = true;
 
-    try {
-      const res = await fetch(`/api/visual/image/${visCurrentJobId}`, {
+    await runLongTask(visCurrentJobId, {
+      initialMessage: "Generating scene image...",
+      progressEl: imageProgress,
+      progressTextEl: imageProgressText,
+      stopBtn: imageStopBtn,
+      startRequest: () => fetch(`/api/visual/image/${visCurrentJobId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt }),
-      });
-      const data = await res.json();
-      if (data.error) {
-        alert("Image generation failed: " + data.error);
-      } else {
+      }),
+      onDone: (data) => {
         previewImg.src = data.image_url;
         imagePreview.classList.remove("hidden");
         visAnimatePanel.classList.remove("hidden");
         clipPreview.classList.add("hidden");
         visExportPanel.classList.add("hidden");
         videoDownload.classList.add("hidden");
-      }
-    } catch (err) {
-      alert("Image generation failed: " + err.message);
-    }
+      },
+      onError: (msg) => {
+        if (msg) alert("Image generation failed: " + msg);
+      },
+    });
 
     btnGenImage.disabled = false; btnGenImage.textContent = "Generate Image ($0.02)";
     btnRegenImage.disabled = false;
@@ -1659,40 +3250,89 @@
     btnCreateClip.disabled = true;
     const isAI = currentVideoMode === "ai";
     btnCreateClip.textContent = isAI ? "Animating..." : "Processing...";
-    clipProgressText.textContent = isAI
-      ? "Grok is animating your image (1-3 min)..."
-      : "Creating Ken Burns clip...";
-    clipProgress.classList.remove("hidden");
     clipPreview.classList.add("hidden");
     visExportPanel.classList.add("hidden");
 
-    try {
-      const res = await fetch(`/api/visual/clip/${visCurrentJobId}`, {
+    const initialMessage = isAI
+      ? "Grok is animating your image (1-3 min)..."
+      : "Creating Ken Burns clip...";
+
+    await runLongTask(visCurrentJobId, {
+      initialMessage,
+      progressEl: clipProgress,
+      progressTextEl: clipProgressText,
+      stopBtn: clipStopBtn,
+      startRequest: () => fetch(`/api/visual/clip/${visCurrentJobId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           mode: currentVideoMode,
           motion_prompt: motionPromptEl.value.trim(),
         }),
-      });
-      const data = await res.json();
-      if (data.error) {
-        alert("Animation failed: " + data.error);
-      } else {
-        clipVideo.src = data.clip_url;
-        clipVideo.load();
-        clipPreview.classList.remove("hidden");
-        visExportPanel.classList.remove("hidden");
-        videoDownload.classList.add("hidden");
-      }
-    } catch (err) {
-      alert("Animation failed: " + err.message);
-    }
+      }),
+      onDone: (data) => showClipPreview(data.clip_url),
+      onError: (msg) => { if (msg) alert("Animation failed: " + msg); },
+    });
 
     btnCreateClip.disabled = false;
     btnCreateClip.textContent = "Generate Animation";
-    clipProgress.classList.add("hidden");
   });
+
+  if (btnExtendClip) {
+    btnExtendClip.addEventListener("click", async () => {
+      if (!visCurrentJobId) return;
+
+      btnExtendClip.disabled = true;
+      btnExtendClip.textContent = "Extending...";
+
+      await runLongTask(visCurrentJobId, {
+        initialMessage: "Grok is extending the current clip (+10s)...",
+        progressEl: clipProgress,
+        progressTextEl: clipProgressText,
+        stopBtn: clipStopBtn,
+        startRequest: () => fetch(`/api/visual/extend/${visCurrentJobId}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prompt: extendPromptEl?.value.trim() || "",
+            duration: 10,
+          }),
+        }),
+        onDone: (data) => showClipPreview(data.clip_url),
+        onError: (msg) => { if (msg) alert("Extend failed: " + msg); },
+      });
+
+      btnExtendClip.disabled = false;
+      btnExtendClip.textContent = "Extend Clip (+10s)";
+    });
+  }
+
+  if (btnApplySpeed) {
+    btnApplySpeed.addEventListener("click", async () => {
+      if (!visCurrentJobId) return;
+
+      const speed = parseFloat(clipSpeedEl?.value || "0.5");
+      btnApplySpeed.disabled = true;
+      btnApplySpeed.textContent = "Applying...";
+
+      await runLongTask(visCurrentJobId, {
+        initialMessage: `Creating ${speed}x slowed clip...`,
+        progressEl: clipProgress,
+        progressTextEl: clipProgressText,
+        stopBtn: clipStopBtn,
+        startRequest: () => fetch(`/api/visual/slow/${visCurrentJobId}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ speed }),
+        }),
+        onDone: (data) => showClipPreview(data.clip_url),
+        onError: (msg) => { if (msg) alert("Speed change failed: " + msg); },
+      });
+
+      btnApplySpeed.disabled = false;
+      btnApplySpeed.textContent = "Apply Speed";
+    });
+  }
 
   // ── Export full video (step 3) ────────────────
   btnExportVideo.addEventListener("click", async () => {
@@ -1700,32 +3340,35 @@
 
     btnExportVideo.disabled = true;
     btnExportVideo.textContent = "Exporting...";
-    exportProgressText.textContent = "Looping clip + combining with audio...";
-    exportProgress.classList.remove("hidden");
     videoDownload.classList.add("hidden");
 
     const minutes = parseFloat(videoDurationEl.value);
 
-    try {
-      const res = await fetch(`/api/visual/export/${visCurrentJobId}`, {
+    await runLongTask(visCurrentJobId, {
+      initialMessage: "Looping clip + combining with audio...",
+      progressEl: exportProgress,
+      progressTextEl: exportProgressText,
+      stopBtn: exportStopBtn,
+      startRequest: () => fetch(`/api/visual/export/${visCurrentJobId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ duration_minutes: minutes }),
-      });
-      const data = await res.json();
-      if (data.error) {
-        alert("Export failed: " + data.error);
-      } else {
+      }),
+      onDone: (data) => {
+        const exportPreview = document.getElementById("export-preview");
+        const exportVideo = document.getElementById("export-video");
+        exportVideo.src = `/api/visual/video/${visCurrentJobId}/view?t=${Date.now()}`;
+        exportVideo.load();
+        exportPreview.classList.remove("hidden");
+        if (visMixer && visMixer.playing) visMixer.pause();
         videoDownloadLink.href = data.download_url;
         videoDownload.classList.remove("hidden");
-      }
-    } catch (err) {
-      alert("Export failed: " + err.message);
-    }
+      },
+      onError: (msg) => { if (msg) alert("Export failed: " + msg); },
+    });
 
     btnExportVideo.disabled = false;
     btnExportVideo.textContent = "Export Video";
-    exportProgress.classList.add("hidden");
   });
 
 
@@ -1758,6 +3401,8 @@
   const pubPreviewTitle = document.getElementById("pub-preview-title");
   const pubPreviewPrivacy = document.getElementById("pub-preview-privacy");
   const pubThumbPreview = document.getElementById("pub-thumb-preview");
+  const pubVideoPreview = document.getElementById("pub-video-preview");
+  const pubPreviewVideo = document.getElementById("pub-preview-video");
   const btnYtUpload = document.getElementById("btn-yt-upload");
   const uploadProgress = document.getElementById("upload-progress");
   const uploadProgressText = document.getElementById("upload-progress-text");
@@ -1767,6 +3412,21 @@
 
   let pubCurrentJobId = null;
   let ytConnected = false;
+
+  function clearPubVideoPreview() {
+    if (!pubPreviewVideo) return;
+    pubPreviewVideo.pause();
+    pubPreviewVideo.removeAttribute("src");
+    pubPreviewVideo.load();
+    pubVideoPreview?.classList.add("hidden");
+  }
+
+  function showPubVideoPreview(jobId) {
+    if (!pubPreviewVideo || !pubVideoPreview) return;
+    pubPreviewVideo.src = `/api/visual/video/${jobId}/view?t=${Date.now()}`;
+    pubPreviewVideo.load();
+    pubVideoPreview.classList.remove("hidden");
+  }
 
   ytTitleEl.addEventListener("input", () => {
     ytTitleCount.textContent = ytTitleEl.value.length;
@@ -1848,7 +3508,7 @@
     try {
       const res = await fetch("/api/history");
       const history = await res.json();
-      const withVideo = history.filter((j) => j.status === "complete");
+      const withVideo = history.filter((j) => j.status === "complete" && j.visual_video_url);
 
       const prev = pubTrackSelect.value;
       pubTrackSelect.innerHTML = '<option value="">— Choose a track —</option>';
@@ -1878,6 +3538,7 @@
       pubTrackInfo.classList.add("hidden");
       pubMetaPanel.classList.add("hidden");
       pubUploadPanel.classList.add("hidden");
+      clearPubVideoPreview();
       pubCurrentJobId = null;
       return;
     }
@@ -1900,6 +3561,7 @@
       pubTrackInfo.classList.remove("hidden");
 
       if (data.visual_video_url) {
+        showPubVideoPreview(jobId);
         pubMetaPanel.classList.remove("hidden");
         pubUploadPanel.classList.remove("hidden");
         uploadResult.classList.add("hidden");
@@ -1928,6 +3590,7 @@
           uploadResult.classList.add("hidden");
         }
       } else {
+        clearPubVideoPreview();
         pubMetaPanel.classList.add("hidden");
         pubUploadPanel.classList.add("hidden");
       }
@@ -1988,38 +3651,72 @@
       });
       const data = await res.json();
       if (data.error) {
+        if (data.needs_reconnect) checkYouTubeStatus();
         alert("Upload failed: " + data.error);
         btnYtUpload.disabled = false;
         btnYtUpload.textContent = "Upload to YouTube";
         return;
       }
 
+      // Open upload progress in a new tab — works in all browsers including
+      // embedded ones (Windsurf, etc.) that block popup windows.
+      const uploadUrl = `/upload?job_id=${pubCurrentJobId}`;
+      window.open(uploadUrl, "_blank");
+
+      uploadProgressText.textContent = "Upload running in separate tab...";
+      btnYtUpload.textContent = "Uploading (see new tab)...";
+
+      // Listen for completion message from the popup
+      const onMessage = (e) => {
+        if (e.data && e.data.type === "yt-upload-done" && e.data.job_id === pubCurrentJobId) {
+          window.removeEventListener("message", onMessage);
+          uploadProgressBar.style.width = "100%";
+          uploadProgressText.textContent = "Upload complete!";
+          if (e.data.url) {
+            uploadResultLink.href = e.data.url;
+            uploadResultLink.textContent = e.data.url;
+            uploadResult.classList.remove("hidden");
+          }
+          btnYtUpload.disabled = false;
+          btnYtUpload.textContent = "Upload to YouTube";
+          setTimeout(() => uploadProgress.classList.add("hidden"), 3000);
+        }
+      };
+      window.addEventListener("message", onMessage);
+
+      // Also poll in background so the main page updates even if popup is closed
       const pollUpload = setInterval(async () => {
         try {
           const sr = await fetch(`/api/youtube/upload-status/${pubCurrentJobId}`);
           const sd = await sr.json();
-          uploadProgressBar.style.width = sd.progress + "%";
-          uploadProgressText.textContent = sd.message || "Uploading...";
+          uploadProgressBar.style.width = (sd.progress || 0) + "%";
 
           if (sd.status === "done") {
             clearInterval(pollUpload);
+            window.removeEventListener("message", onMessage);
             uploadProgressBar.style.width = "100%";
             uploadProgressText.textContent = "Upload complete!";
-            uploadResultLink.href = sd.youtube_url;
-            uploadResultLink.textContent = sd.youtube_url;
-            uploadResult.classList.remove("hidden");
+            if (sd.youtube_url) {
+              uploadResultLink.href = sd.youtube_url;
+              uploadResultLink.textContent = sd.youtube_url;
+              uploadResult.classList.remove("hidden");
+            }
             btnYtUpload.disabled = false;
             btnYtUpload.textContent = "Upload to YouTube";
             setTimeout(() => uploadProgress.classList.add("hidden"), 3000);
           } else if (sd.status === "error") {
             clearInterval(pollUpload);
-            alert("Upload failed: " + sd.message);
+            window.removeEventListener("message", onMessage);
+            const errMsg = sd.message || "Unknown error";
+            uploadProgressText.textContent = "Upload failed: " + errMsg;
+            if (errMsg.includes("authorization expired") || errMsg.includes("invalid_grant")) {
+              checkYouTubeStatus();
+            }
             btnYtUpload.disabled = false;
             btnYtUpload.textContent = "Upload to YouTube";
-            uploadProgress.classList.add("hidden");
           }
         } catch (e) { /* keep polling */ }
-      }, 2000);
+      }, 3000);
 
     } catch (err) {
       alert("Upload failed: " + err.message);

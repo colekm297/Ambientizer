@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>YouTube Upload</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #0d1117; color: #c9d1d9;
+    display: flex; align-items: center; justify-content: center;
+    min-height: 100vh; padding: 20px;
+  }
+  .card {
+    background: #161b22; border: 1px solid #30363d; border-radius: 12px;
+    padding: 32px; max-width: 480px; width: 100%; text-align: center;
+  }
+  h1 { font-size: 1.3rem; margin-bottom: 8px; }
+  .subtitle { color: #8b949e; font-size: 0.85rem; margin-bottom: 24px; }
+  .progress-bar-outer {
+    background: #21262d; border-radius: 8px; height: 28px;
+    overflow: hidden; margin-bottom: 16px; position: relative;
+  }
+  .progress-bar-inner {
+    background: linear-gradient(90deg, #238636, #2ea043);
+    height: 100%; width: 0%; transition: width 0.5s ease;
+    border-radius: 8px;
+  }
+  .progress-pct {
+    position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 600; font-size: 0.85rem; color: #fff;
+  }
+  .status-msg {
+    color: #8b949e; font-size: 0.9rem; min-height: 1.4em;
+    margin-bottom: 20px; word-break: break-word;
+  }
+  .status-msg.error { color: #f85149; }
+  .status-msg.done { color: #3fb950; }
+  .yt-link {
+    display: inline-block; margin-top: 12px; padding: 10px 20px;
+    background: #da3633; color: #fff; border-radius: 6px;
+    text-decoration: none; font-weight: 600; font-size: 0.95rem;
+  }
+  .yt-link:hover { background: #f85149; }
+  .icon { font-size: 2.5rem; margin-bottom: 12px; }
+  .safe-notice {
+    margin-top: 20px; padding: 12px; background: #1c2128;
+    border: 1px solid #30363d; border-radius: 8px;
+    color: #8b949e; font-size: 0.8rem; line-height: 1.5;
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="icon" id="icon">📤</div>
+  <h1 id="title">Uploading to YouTube</h1>
+  <div class="subtitle" id="subtitle">This window runs independently — you can close the main app.</div>
+
+  <div class="progress-bar-outer">
+    <div class="progress-bar-inner" id="bar"></div>
+    <div class="progress-pct" id="pct">0%</div>
+  </div>
+
+  <div class="status-msg" id="msg">Starting upload...</div>
+
+  <div id="link-area" style="display:none;">
+    <a class="yt-link" id="yt-link" href="#" target="_blank">▶ View on YouTube</a>
+  </div>
+
+  <div class="safe-notice">
+    This upload runs in a separate process on your machine.<br>
+    Closing the main Ambientizer tab will <strong>not</strong> stop it.
+  </div>
+</div>
+
+<script>
+  const params = new URLSearchParams(window.location.search);
+  const jobId = params.get("job_id");
+  const baseUrl = window.location.origin;
+
+  const bar = document.getElementById("bar");
+  const pct = document.getElementById("pct");
+  const msg = document.getElementById("msg");
+  const icon = document.getElementById("icon");
+  const titleEl = document.getElementById("title");
+  const subtitleEl = document.getElementById("subtitle");
+  const linkArea = document.getElementById("link-area");
+  const ytLink = document.getElementById("yt-link");
+
+  if (!jobId) {
+    msg.textContent = "No job_id provided.";
+    msg.classList.add("error");
+  } else {
+    poll();
+  }
+
+  async function poll() {
+    try {
+      const res = await fetch(`${baseUrl}/api/youtube/upload-status/${jobId}`);
+      const data = await res.json();
+
+      const progress = Math.round(data.progress || 0);
+      bar.style.width = progress + "%";
+      pct.textContent = progress + "%";
+      msg.textContent = data.message || "Uploading...";
+
+      if (data.status === "done") {
+        bar.style.width = "100%";
+        pct.textContent = "100%";
+        icon.textContent = "✅";
+        titleEl.textContent = "Upload Complete!";
+        subtitleEl.textContent = "Your video is live on YouTube.";
+        msg.textContent = data.youtube_url || "Done!";
+        msg.classList.add("done");
+        if (data.youtube_url) {
+          ytLink.href = data.youtube_url;
+          linkArea.style.display = "block";
+        }
+        // Notify the opener window
+        if (window.opener) {
+          window.opener.postMessage({ type: "yt-upload-done", job_id: jobId, url: data.youtube_url }, "*");
+        }
+        return;
+      }
+
+      if (data.status === "error") {
+        icon.textContent = "❌";
+        titleEl.textContent = "Upload Failed";
+        subtitleEl.textContent = "Something went wrong.";
+        msg.classList.add("error");
+        if ((data.message || "").includes("invalid_grant") || (data.message || "").includes("authorization expired")) {
+          subtitleEl.textContent = "Your YouTube session expired.";
+          msg.textContent = "Go back to Ambientizer → Publish tab → click Connect YouTube, then retry the upload.";
+        }
+        return;
+      }
+
+      setTimeout(poll, 2000);
+    } catch (err) {
+      msg.textContent = "Connection lost — retrying...";
+      setTimeout(poll, 5000);
+    }
+  }
+</script>
+</body>
+</html>

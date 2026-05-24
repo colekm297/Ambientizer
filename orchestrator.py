@@ -21,7 +21,7 @@ from typing import Optional, Callable
 
 from dotenv import load_dotenv
 
-from schemas import SoundscapeConfig, GenerationMode
+from schemas import SoundscapeConfig, GenerationMode, LayerType
 from theme_interpreter import ThemeInterpreter, DiscoveryConversation
 from audio_engine import AudioEngine, SampleLibrary
 from sample_generator import ElevenLabsSampleGenerator
@@ -103,6 +103,10 @@ class SoundscapeOrchestrator:
         if not self.generator:
             return
 
+        for layer in config.layers:
+            if layer.layer_type == LayerType.MUSICAL:
+                setattr(layer, "music_generation_mode", getattr(config, "music_generation_mode", "text"))
+
         layers_to_generate = [
             layer for layer in config.layers
             if not layer.generated_audio_path or not os.path.exists(layer.generated_audio_path)
@@ -110,6 +114,19 @@ class SoundscapeOrchestrator:
 
         if not layers_to_generate:
             return
+
+        # Pre-flight: estimate total cost for ALL layers and check once upfront
+        # so we don't burn real credits on early layers only to fail on later ones.
+        if self.generator:
+            total_est = 0
+            for layer in layers_to_generate:
+                dur = self.generator._get_duration(
+                    layer.layer_type, config.duration_sec, config.music_length_sec
+                )
+                cr = 30 if layer.layer_type == LayerType.MUSICAL else 20
+                total_est += dur * cr
+            self.generator._check_spend_limit(total_est)
+            self.generator.check_real_balance(total_est)
 
         self._status("generating_samples",
                       f"\n   Generating {len(layers_to_generate)} layer(s) via ElevenLabs...",
@@ -135,7 +152,15 @@ class SoundscapeOrchestrator:
         on_status: Optional[StatusCallback] = None,
         mode: GenerationMode = GenerationMode.AMBIENT,
         reference_url: Optional[str] = None,
+        reference_analysis: Optional[dict] = None,
+        planner_mode: str = "claude",
+        music_generation_mode: str = "text",
         loopable: bool = True,
+        layer_plan: Optional[list] = None,
+        approach: str = "unified",
+        ref_start_sec: int = 0,
+        ref_end_sec: int = 600,
+        music_length_minutes: float = 0,
     ) -> GenerationResult:
         """
         Generate a soundscape from a natural language prompt.
@@ -156,32 +181,57 @@ class SoundscapeOrchestrator:
             self._status("interpreting", f"   Reference: {reference_url}")
         self._status("interpreting", f"{'='*60}\n")
 
-        # Step 0: Analyze reference (if provided)
-        reference_analysis = None
-        if reference_url and self.reference_analyzer:
-            self._status("analyzing_reference", "Analyzing YouTube reference...")
-            reference_analysis = self.reference_analyzer.analyze(reference_url)
-            if reference_analysis:
+        # Step 0: Analyze reference (if provided). If the UI already ran the
+        # preview analysis, reuse it so generation is consistent and cheaper.
+        if reference_analysis and "_error" not in reference_analysis:
+            n_layers = len(reference_analysis.get("layers", []))
+            self._status("analyzing_reference",
+                         f"Using reviewed reference analysis ({n_layers} layers)",
+                         {"layers": n_layers, "cached": True})
+        elif reference_url and self.reference_analyzer:
+            self._status("analyzing_reference",
+                         f"Analyzing YouTube reference ({ref_start_sec}s - {ref_end_sec}s)...")
+            reference_analysis = self.reference_analyzer.analyze(
+                reference_url, start_sec=ref_start_sec, end_sec=ref_end_sec)
+            if reference_analysis and "_error" not in reference_analysis:
                 n_layers = len(reference_analysis.get("layers", []))
                 self._status("analyzing_reference",
                              f"   Reference analyzed: {n_layers} layers identified",
                              {"layers": n_layers})
             else:
+                err_reason = (reference_analysis or {}).get("_error", "unknown")
                 self._status("analyzing_reference",
-                             "   Reference analysis failed, continuing without it")
+                             f"   Reference analysis failed: {err_reason}. Continuing without it.")
+                reference_analysis = None
 
         # Step 1: Interpret the prompt
         self._status("interpreting", "Step 1: Interpreting prompt...")
-        config = self.interpreter.interpret(
-            prompt,
-            duration_sec=duration_sec,
-            mode=mode,
-            reference_analysis=reference_analysis,
-        )
+        if planner_mode == "reference_direct":
+            if not reference_analysis:
+                raise ValueError("Reference Direct planner requires a successful reference analysis")
+            config = self.interpreter.config_from_reference_direct(
+                prompt=prompt,
+                duration_sec=duration_sec,
+                reference_analysis=reference_analysis,
+                approach=approach,
+            )
+        else:
+            config = self.interpreter.interpret(
+                prompt,
+                duration_sec=duration_sec,
+                mode=mode,
+                reference_analysis=reference_analysis,
+                layer_plan=layer_plan,
+                approach=approach,
+            )
         self._status("interpreting",
                       f"   -> {config.title} ({len(config.layers)} layers, mood: {config.mood})",
                       {"title": config.title, "layers": len(config.layers), "mood": config.mood})
 
+        if music_length_minutes > 0:
+            config.music_length_sec = music_length_minutes * 60
+
+        config.music_generation_mode = music_generation_mode
         config.loopable = loopable
         if loopable:
             if duration_minutes < 2:
@@ -195,9 +245,9 @@ class SoundscapeOrchestrator:
         self._status("generating_samples", "\nStep 2: Generating layer audio...")
         self._generate_layer_audio(config)
 
-        # Step 3: Render
+        # Step 3: Render (flat mix — matches LiveMixer output)
         self._status("rendering", f"\nStep 3: Rendering ({duration_minutes:.1f} min)...")
-        final_audio = self.engine.render(config)
+        final_audio = self.engine.render_flat(config)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         safe_title = "".join(c if c.isalnum() or c in " -_" else "" for c in config.title)

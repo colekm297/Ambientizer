@@ -5,6 +5,8 @@ Two animation modes:
   - AI Animation: Grok Imagine Video (image-to-video) — $0.05/sec, up to 15s clips
   - Ken Burns: Free local ffmpeg zoom/pan effect (fallback)
 
+Scene stills use grok-imagine-image-quality at 2k / 16:9 for YouTube-ready visuals.
+
 Both get looped to match audio duration and combined into a YouTube-ready MP4.
 """
 
@@ -15,6 +17,7 @@ import requests
 import base64
 from pathlib import Path
 from typing import Optional
+from requests import HTTPError
 
 
 class VisualGenerator:
@@ -38,8 +41,10 @@ class VisualGenerator:
     def generate_image(
         self,
         prompt: str,
-        model: str = "grok-imagine-image",
+        model: str = "grok-imagine-image-quality",
         output_path: Optional[str] = None,
+        resolution: str = "2k",
+        aspect_ratio: str = "16:9",
     ) -> str:
         """Generate a scene image using Grok Imagine API. Returns saved path."""
         if not output_path:
@@ -53,9 +58,11 @@ class VisualGenerator:
                 "model": model,
                 "prompt": prompt,
                 "n": 1,
+                "resolution": resolution,
+                "aspect_ratio": aspect_ratio,
                 "response_format": "b64_json",
             },
-            timeout=60,
+            timeout=120,
         )
         response.raise_for_status()
         data = response.json()
@@ -66,7 +73,10 @@ class VisualGenerator:
         with open(output_path, "wb") as f:
             f.write(image_bytes)
 
-        print(f"  Generated image: {output_path} ({len(image_bytes) / 1024:.0f} KB)")
+        print(
+            f"  Generated image: {output_path} ({len(image_bytes) / 1024:.0f} KB, "
+            f"{model}, {resolution}, {aspect_ratio})"
+        )
         return output_path
 
     # ── AI Video (Grok Imagine Video) ─────────────────────
@@ -118,7 +128,12 @@ class VisualGenerator:
             },
             timeout=30,
         )
-        resp.raise_for_status()
+        try:
+            resp.raise_for_status()
+        except HTTPError as e:
+            body = resp.text[:2000] if resp.text else ""
+            status(f"xAI video request failed: HTTP {resp.status_code} {body}")
+            raise RuntimeError(f"xAI video request failed: HTTP {resp.status_code} {body}") from e
         request_id = resp.json()["request_id"]
         status(f"Video queued (id: {request_id}). Waiting for render...")
 
@@ -134,6 +149,71 @@ class VisualGenerator:
         status(f"AI animation ready: {output_path} ({size_mb:.1f} MB)")
         return output_path
 
+    def extend_video(
+        self,
+        video_path: str,
+        prompt: str,
+        duration: int = 10,
+        output_path: Optional[str] = None,
+        on_status=None,
+    ) -> str:
+        """
+        Extend an existing video with Grok Imagine Video.
+
+        The xAI extensions endpoint accepts a public URL, file_id, or base64 data URI.
+        We use a data URI so local preview clips and uploads can be extended without
+        first publishing them anywhere.
+        """
+        if not output_path:
+            stem = Path(video_path).stem
+            output_path = str(self.output_dir / f"{stem}_extension.mp4")
+
+        duration = max(1, min(10, int(duration)))
+        if not prompt:
+            prompt = "Continue the same slow ambient motion seamlessly. Keep the camera movement gentle, atmospheric, and loop-friendly."
+
+        with open(video_path, "rb") as f:
+            video_b64 = base64.b64encode(f.read()).decode("utf-8")
+        data_uri = f"data:video/mp4;base64,{video_b64}"
+
+        def status(msg):
+            print(f"  {msg}")
+            if on_status:
+                on_status(msg)
+
+        status(f"Submitting video extension request ({duration}s)...")
+        resp = requests.post(
+            "https://api.x.ai/v1/videos/extensions",
+            headers=self._auth_headers(),
+            json={
+                "model": "grok-imagine-video",
+                "prompt": prompt,
+                "video": {"url": data_uri},
+                "duration": duration,
+            },
+            timeout=60,
+        )
+        try:
+            resp.raise_for_status()
+        except HTTPError as e:
+            body = resp.text[:2000] if resp.text else ""
+            status(f"xAI video extension failed: HTTP {resp.status_code} {body}")
+            raise RuntimeError(f"xAI video extension failed: HTTP {resp.status_code} {body}") from e
+
+        request_id = resp.json()["request_id"]
+        status(f"Video extension queued (id: {request_id}). Waiting for render...")
+        video_url = self._poll_video(request_id, on_status=on_status)
+
+        status("Downloading video extension...")
+        video_resp = requests.get(video_url, timeout=120)
+        video_resp.raise_for_status()
+        with open(output_path, "wb") as f:
+            f.write(video_resp.content)
+
+        size_mb = len(video_resp.content) / (1024 * 1024)
+        status(f"Video extension ready: {output_path} ({size_mb:.1f} MB)")
+        return output_path
+
     def _poll_video(self, request_id: str, timeout: int = 600, interval: int = 5, on_status=None) -> str:
         """Poll the xAI video endpoint until the video is ready. Returns the video URL."""
         headers = {"Authorization": f"Bearer {self.api_key}"}
@@ -145,6 +225,16 @@ class VisualGenerator:
                 headers=headers,
                 timeout=15,
             )
+            try:
+                result.raise_for_status()
+            except HTTPError as e:
+                body = result.text[:2000] if result.text else ""
+                if result.status_code == 429:
+                    if on_status:
+                        on_status("xAI is rate-limiting the status check; waiting and retrying...")
+                    time.sleep(min(30, interval * 2))
+                    continue
+                raise RuntimeError(f"xAI video poll failed: HTTP {result.status_code} {body}") from e
             data = result.json()
             status = data.get("status")
 
@@ -209,6 +299,63 @@ class VisualGenerator:
 
     # ── Shared utilities ──────────────────────────────────
 
+    def concat_videos(self, video_paths: list[str], output_path: str) -> str:
+        """Join video clips into one MP4, re-encoding for codec/resolution safety."""
+        if len(video_paths) < 2:
+            raise ValueError("Need at least two videos to concatenate")
+
+        inputs = []
+        filter_inputs = []
+        for idx, path in enumerate(video_paths):
+            inputs.extend(["-i", path])
+            filter_inputs.append(f"[{idx}:v:0]")
+
+        filter_complex = "".join(filter_inputs) + f"concat=n={len(video_paths)}:v=1:a=0[v]"
+        cmd = [
+            "ffmpeg", "-y",
+            *inputs,
+            "-filter_complex", filter_complex,
+            "-map", "[v]",
+            "-c:v", "libx264",
+            "-preset", "fast",
+            "-crf", "20",
+            "-pix_fmt", "yuv420p",
+            "-an",
+            output_path,
+        ]
+
+        print(f"  Concatenating {len(video_paths)} video segment(s)...")
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
+        if result.returncode != 0:
+            raise RuntimeError(f"ffmpeg concat failed: {result.stderr[-1000:]}")
+
+        print(f"  Concatenated video: {output_path}")
+        return output_path
+
+    def slow_video(self, video_path: str, speed: float, output_path: str) -> str:
+        """Create a real slowed-down MP4 clip for preview/export."""
+        speed = max(0.25, min(1.0, float(speed)))
+        setpts = 1.0 / speed
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", video_path,
+            "-filter:v", f"setpts={setpts:.6f}*PTS",
+            "-c:v", "libx264",
+            "-preset", "fast",
+            "-crf", "20",
+            "-pix_fmt", "yuv420p",
+            "-an",
+            output_path,
+        ]
+
+        print(f"  Slowing video to {speed:.2f}x...")
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
+        if result.returncode != 0:
+            raise RuntimeError(f"ffmpeg slow video failed: {result.stderr[-1000:]}")
+
+        print(f"  Slowed video: {output_path}")
+        return output_path
+
     def loop_video(
         self,
         video_path: str,
@@ -261,7 +408,8 @@ class VisualGenerator:
             "-map", "1:a:0",
             "-c:v", "copy",
             "-c:a", "aac",
-            "-b:a", "192k",
+            "-b:a", "320k",
+            "-cutoff", "20000",
             "-shortest",
             output_path,
         ]
