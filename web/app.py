@@ -43,14 +43,16 @@ from dotenv import load_dotenv
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from orchestrator import SoundscapeOrchestrator
-from audio_engine import AudioEngine, SampleLibrary, detect_key, harmonize_layers
+from audio_engine import AudioEngine, SampleLibrary, detect_key, harmonize_layers, prepare_musical_loop
 from mix_master import MixMasterAgent
 from feedback_adjuster import FeedbackAdjuster
 from sample_generator import ElevenLabsSampleGenerator
 from pydub import AudioSegment
 from schemas import GenerationMode, SoundscapeConfig, LayerConfig, LayerType, EffectsChain, PartSnapshot
 from visual_generator import VisualGenerator
-from youtube_publisher import YouTubePublisher
+from youtube_publisher import YouTubePublisher, YouTubeAuthError, RECONNECT_MESSAGE, _is_invalid_grant
+from retry_utils import retry_with_backoff, is_transient_api_error
+from gemini_limiter import gemini_limiter
 
 load_dotenv()
 
@@ -62,6 +64,151 @@ jobs_lock = threading.Lock()
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 JOBS_DIR = PROJECT_ROOT / "saved_jobs"
 JOBS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+class GenerationCanceled(Exception):
+    """Raised inside the generation worker when the user cancels a job."""
+
+
+class LongTaskCanceled(Exception):
+    """Raised when the user stops a background export/visual task."""
+
+
+_long_tasks: dict[str, dict] = {}
+_long_tasks_lock = threading.Lock()
+
+
+def _long_task_snapshot(job_id: str) -> dict | None:
+    with _long_tasks_lock:
+        task = _long_tasks.get(job_id)
+        return dict(task) if task else None
+
+
+def _long_task_start(job_id: str, task_type: str, message: str = "Working..."):
+    with _long_tasks_lock:
+        existing = _long_tasks.get(job_id)
+        if existing and existing.get("status") == "running":
+            raise RuntimeError(
+                f"A {existing.get('task_type', 'task')} is already running for this track"
+            )
+        _long_tasks[job_id] = {
+            "task_type": task_type,
+            "status": "running",
+            "message": message,
+            "cancel_requested": False,
+            "subprocess": None,
+            "result": {},
+        }
+
+
+def _long_task_update(job_id: str, **fields):
+    with _long_tasks_lock:
+        if job_id in _long_tasks:
+            _long_tasks[job_id].update(fields)
+
+
+def _long_task_check_cancel(job_id: str):
+    with _long_tasks_lock:
+        if _long_tasks.get(job_id, {}).get("cancel_requested"):
+            raise LongTaskCanceled("Stopped by user")
+
+
+def _long_task_set_subprocess(job_id: str, proc: subprocess.Popen):
+    with _long_tasks_lock:
+        if job_id in _long_tasks:
+            _long_tasks[job_id]["subprocess"] = proc
+
+
+def _long_task_finish(job_id: str, status: str, message: str = "", result: dict | None = None):
+    with _long_tasks_lock:
+        if job_id not in _long_tasks:
+            return
+        _long_tasks[job_id]["status"] = status
+        _long_tasks[job_id]["message"] = message
+        if result is not None:
+            _long_tasks[job_id]["result"] = result
+        _long_tasks[job_id]["subprocess"] = None
+        _long_tasks[job_id]["cancel_requested"] = False
+
+
+def _long_task_cancel(job_id: str) -> bool:
+    proc = None
+    with _long_tasks_lock:
+        task = _long_tasks.get(job_id)
+        if not task:
+            return False
+        task["cancel_requested"] = True
+        if task.get("status") == "running":
+            task["status"] = "canceled"
+            task["message"] = "Stopped by user"
+        proc = task.get("subprocess")
+    if proc and proc.poll() is None:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+    return True
+
+
+def _run_ffmpeg_cancellable(job_id: str, cmd: list[str], timeout: int = 3600):
+    """Run ffmpeg, checking for user cancellation while the process runs."""
+    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    _long_task_set_subprocess(job_id, proc)
+    deadline = time.time() + timeout
+    while proc.poll() is None:
+        _long_task_check_cancel(job_id)
+        if time.time() > deadline:
+            proc.kill()
+            raise RuntimeError("ffmpeg timed out")
+        time.sleep(0.3)
+    if proc.returncode != 0:
+        raise RuntimeError(f"ffmpeg failed (exit {proc.returncode})")
+
+
+def _start_background_task(job_id: str, task_type: str, message: str, worker):
+    try:
+        _long_task_start(job_id, task_type, message)
+    except RuntimeError as e:
+        return jsonify({"error": str(e)}), 409
+
+    def run():
+        try:
+            worker()
+        except LongTaskCanceled:
+            _long_task_finish(job_id, "canceled", "Stopped by user")
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            _long_task_finish(job_id, "error", str(e))
+
+    threading.Thread(target=run, daemon=True).start()
+    return jsonify({"status": "running", "task_type": task_type})
+
+
+def _invalidate_flat_cache(job_id: str):
+    """Delete cached flat mix so it gets re-rendered on next request."""
+    flat_path = str(PROJECT_ROOT / "output" / f"{job_id}_flat.wav")
+    export_loop_path = str(PROJECT_ROOT / "output" / f"{job_id}_export_loop.wav")
+    for path in (flat_path, export_loop_path):
+        if os.path.exists(path):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
+
+def _ensure_export_loop_audio(job_id: str, config) -> str:
+    """Build or return cached seamless loop cell used for video export."""
+    export_loop_path = str(PROJECT_ROOT / "output" / f"{job_id}_export_loop.wav")
+    if os.path.exists(export_loop_path):
+        return export_loop_path
+
+    engine = _get_engine()
+    loop_audio = engine.render_export_loop(config)
+    loop_audio.export(export_loop_path, format="wav")
+    print(f"  [export] Created export loop cell for {job_id}: {len(loop_audio)/1000:.1f}s")
+    return export_loop_path
 
 
 def _save_job(job_id: str):
@@ -101,6 +248,10 @@ def _save_job(job_id: str):
         "yt_tags": job.get("yt_tags"),
         "yt_privacy": job.get("yt_privacy"),
         "parts": [p.to_dict() for p in job.get("parts", [])],
+        "alternate_pairs": job.get("alternate_pairs", []),
+        "stems": job.get("stems"),
+        "stem_files": job.get("stem_files"),
+        "favorite": job.get("favorite", False),
     }
 
     path = JOBS_DIR / f"{job_id}.json"
@@ -156,6 +307,10 @@ def _load_saved_jobs():
                 "yt_tags": data.get("yt_tags"),
                 "yt_privacy": data.get("yt_privacy"),
                 "parts": [PartSnapshot.from_dict(p) for p in data.get("parts", [])],
+                "alternate_pairs": data.get("alternate_pairs", []),
+                "stems": data.get("stems"),
+                "stem_files": data.get("stem_files"),
+                "favorite": data.get("favorite", False),
             }
             loaded += 1
         except Exception as e:
@@ -243,7 +398,56 @@ def create_orchestrator(mastering: bool = True) -> SoundscapeOrchestrator:
     )
 
 
-PREVIEW_SECONDS = None  # None = render at full requested duration
+
+def _start_stem_separation(job_id: str, audio_path: str, variation: str):
+    """Run stem separation in the background so generation can finish first."""
+
+    def worker():
+        try:
+            generator = _get_sample_generator()
+            if not generator:
+                raise RuntimeError("ElevenLabs generator unavailable")
+            stem_paths = generator.separate_stems(audio_path, variation)
+            print(f"  [stems] Got {len(stem_paths)} stems: {list(stem_paths.keys())}")
+            with jobs_lock:
+                job = jobs.get(job_id)
+                if not job:
+                    return
+                job["stems"] = {
+                    name: f"/api/audio/{job_id}/stem/{name}"
+                    for name in stem_paths
+                }
+                job["stem_files"] = stem_paths
+                job["stems_status"] = "ready"
+                job["progress_message"] = f"Stems ready ({len(stem_paths)} tracks)"
+            _save_job(job_id)
+        except Exception as e:
+            import traceback
+            print(f"  Stem separation failed (non-fatal): {e}")
+            traceback.print_exc()
+            with jobs_lock:
+                if job_id in jobs:
+                    jobs[job_id]["stems_status"] = "failed"
+                    jobs[job_id]["stems_error"] = str(e)
+            _save_job(job_id)
+
+    with jobs_lock:
+        jobs[job_id]["stems_status"] = "processing"
+    threading.Thread(target=worker, daemon=True).start()
+
+
+def _layer_has_audio(layer) -> bool:
+    if not layer.generated_audio_path:
+        return False
+    path = _resolve_audio_path(layer.generated_audio_path)
+    if not path or not os.path.exists(path):
+        return False
+    try:
+        from pydub import AudioSegment
+        audio = AudioSegment.from_file(path)
+        return audio.max_dBFS != float("-inf") and audio.max_dBFS > -55
+    except Exception:
+        return True
 
 
 def _serialize_layers(config: SoundscapeConfig) -> list[dict]:
@@ -260,10 +464,11 @@ def _serialize_layers(config: SoundscapeConfig) -> list[dict]:
             "swell_period_sec": layer.swell_period_sec,
             "start_sec": layer.start_sec,
             "end_sec": layer.end_sec,
+            "repeat_every_sec": layer.repeat_every_sec,
             "elevenlabs_prompt": layer.elevenlabs_prompt or "",
             "loop": layer.loop,
             "independent_loop": layer.independent_loop,
-            "has_audio": bool(layer.generated_audio_path),
+            "has_audio": _layer_has_audio(layer),
             "effects": {
                 "low_pass_hz": layer.effects.low_pass_hz if layer.effects else None,
                 "high_pass_hz": layer.effects.high_pass_hz if layer.effects else None,
@@ -277,6 +482,10 @@ def run_generation(
     job_id: str, prompt: str, duration: float,
     mastering: bool, mode: str = "ambient", reference_url: str = None,
     loopable: bool = True, music_length: float = 0,
+    ref_start_sec: int = 0, ref_end_sec: int = 600,
+    layer_plan: list = None, approach: str = "unified",
+    stem_separation: str = "none", reference_analysis: dict = None,
+    planner_mode: str = "claude", music_generation_mode: str = "text",
 ):
     """
     Background worker: generates samples via ElevenLabs + renders a short
@@ -286,6 +495,8 @@ def run_generation(
     def on_status(stage: str, message: str, data: dict):
         with jobs_lock:
             job = jobs[job_id]
+            if job.get("status") == "canceled" or job.get("cancel_requested"):
+                raise GenerationCanceled("Generation stopped by user")
             job["stage"] = stage
             job["progress_message"] = message
             job["logs"].append({"time": datetime.now().isoformat(), "message": message})
@@ -303,23 +514,76 @@ def run_generation(
             on_status=on_status,
             mode=gen_mode,
             reference_url=reference_url or None,
+            reference_analysis=reference_analysis,
+            planner_mode=planner_mode,
+            music_generation_mode=music_generation_mode,
             loopable=loopable,
+            ref_start_sec=ref_start_sec,
+            ref_end_sec=ref_end_sec,
+            music_length_minutes=music_length,
+            layer_plan=layer_plan,
+            approach=approach,
         )
 
-        if music_length > 0:
-            result.final_config.music_length_sec = music_length * 60
-
         with jobs_lock:
-            jobs[job_id]["status"] = "complete"
+            if jobs[job_id].get("status") == "canceled" or jobs[job_id].get("cancel_requested"):
+                raise GenerationCanceled("Generation stopped by user")
             jobs[job_id]["output_path"] = result.output_path
             jobs[job_id]["raw_output_path"] = result.raw_output_path
             jobs[job_id]["config"] = result.final_config
             jobs[job_id]["audio_path"] = result.raw_output_path
 
+        # Stem separation runs in the background so the user can listen immediately.
+        print(f"  [stems] stem_separation={stem_separation!r}, approach={approach!r}")
+        stem_target_path = None
+        if stem_separation and stem_separation != "none":
+            config = result.final_config
+            musical_layer = next(
+                (l for l in config.layers if l.layer_type == LayerType.MUSICAL and l.generated_audio_path),
+                None
+            )
+            print(f"  [stems] musical_layer={'found: ' + musical_layer.name if musical_layer else 'NONE'}")
+            if musical_layer:
+                stem_target_path = musical_layer.generated_audio_path
+            else:
+                print("  [stems] No musical layer with audio found — skipping stem separation")
+
+        # Mark complete — user can play while stems finish in the background.
+        with jobs_lock:
+            if jobs[job_id].get("status") == "canceled" or jobs[job_id].get("cancel_requested"):
+                raise GenerationCanceled("Generation stopped by user")
+            jobs[job_id]["status"] = "complete"
+            jobs[job_id]["stage"] = "complete"
+            jobs[job_id]["progress_message"] = (
+                "Generation complete — separating stems in background..."
+                if stem_target_path else "Generation complete"
+            )
+        _save_job(job_id)
+
+        if stem_target_path and _get_sample_generator():
+            _start_stem_separation(job_id, stem_target_path, stem_separation)
+        elif stem_separation and stem_separation != "none":
+            print(f"  [stems] Skipping — generator unavailable")
+
+    except GenerationCanceled as e:
+        with jobs_lock:
+            jobs[job_id]["status"] = "canceled"
+            jobs[job_id]["stage"] = "canceled"
+            jobs[job_id]["progress_message"] = str(e)
+            jobs[job_id]["logs"].append({
+                "time": datetime.now().isoformat(),
+                "message": str(e),
+            })
         _save_job(job_id)
 
     except Exception as e:
         with jobs_lock:
+            if jobs[job_id].get("status") == "canceled" or jobs[job_id].get("cancel_requested"):
+                jobs[job_id]["status"] = "canceled"
+                jobs[job_id]["stage"] = "canceled"
+                jobs[job_id]["progress_message"] = "Generation stopped by user"
+                _save_job(job_id)
+                return
             jobs[job_id]["status"] = "error"
             jobs[job_id]["error"] = str(e)
             jobs[job_id]["logs"].append({
@@ -338,15 +602,206 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/api/credits")
+def get_credits():
+    """Fetch real credit balance from ElevenLabs subscription API."""
+    api_key = os.environ.get("ELEVENLABS_API_KEY")
+    if not api_key:
+        return jsonify({"error": "No ElevenLabs API key configured"}), 500
+    try:
+        from elevenlabs.client import ElevenLabs as ELClient
+        client = ELClient(api_key=api_key)
+        sub = client.user.subscription.get()
+        used = getattr(sub, "character_count", 0)
+        limit = getattr(sub, "character_limit", 0)
+        remaining = max(0, limit - used)
+        reset_unix = getattr(sub, "next_character_count_reset_unix", None)
+        return jsonify({
+            "used": used,
+            "limit": limit,
+            "remaining": remaining,
+            "reset_unix": reset_unix,
+            "tier": getattr(sub, "tier", "unknown"),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/gemini-usage")
+def get_gemini_usage():
+    """Return local Gemini rate-limit tracking."""
+    return jsonify(gemini_limiter.get_usage())
+
+
+@app.route("/api/gemini-limits", methods=["POST"])
+def set_gemini_limits():
+    """Let the user adjust RPM/RPD limits to match their AI Studio plan."""
+    data = request.get_json(force=True, silent=True) or {}
+    rpm = data.get("rpm")
+    rpd = data.get("rpd")
+    if rpm is not None:
+        gemini_limiter.set_limits(rpm=int(rpm))
+    if rpd is not None:
+        gemini_limiter.set_limits(rpd=int(rpd))
+    return jsonify(gemini_limiter.get_usage())
+
+
+@app.route("/api/analyze-reference", methods=["POST"])
+def analyze_reference():
+    """
+    Run the reference analyzer on a YouTube URL upfront so the user can see
+    what Gemini found before generating.  Returns a human-readable summary
+    and a suggested soundscape prompt derived from the analysis.
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    url = (data.get("url") or "").strip()
+    start_sec = int(data.get("start_sec", 0))
+    end_sec = int(data.get("end_sec", 600))
+
+    if not url:
+        return jsonify({"error": "No YouTube URL provided"}), 400
+
+    gemini_key = os.environ.get("GEMINI_API_KEY")
+    if not gemini_key:
+        return jsonify({"error": "GEMINI_API_KEY not set"}), 500
+
+    usage = gemini_limiter.get_usage()
+    if usage["rpd_used"] >= usage["rpd_limit"]:
+        return jsonify({
+            "error": f"Gemini daily limit reached ({usage['rpd_used']}/{usage['rpd_limit']} requests today). "
+                     f"Upgrade your plan at https://aistudio.google.com or wait until tomorrow.",
+            "gemini_usage": usage,
+        }), 429
+
+    from reference_analyzer import ReferenceAnalyzer
+    analyzer = ReferenceAnalyzer(gemini_key)
+    analysis = analyzer.analyze(url, start_sec=start_sec, end_sec=end_sec)
+
+    if not analysis or "_error" in analysis:
+        usage = gemini_limiter.get_usage()
+        reason = (analysis or {}).get("_error", "Unknown failure")
+        return jsonify({
+            "error": reason,
+            "gemini_usage": usage,
+        }), 422
+
+    # Build human-readable summary
+    summary_parts = []
+    feel = analysis.get("overall_feel", "")
+    if feel:
+        summary_parts.append(feel)
+    if analysis.get("_model_used"):
+        summary_parts.append(f"Gemini model: {analysis['_model_used']}")
+
+    layers = analysis.get("layers", [])
+    if layers:
+        layer_names = [
+            f"{l.get('sound', 'unknown')} ({l.get('confidence', '?')})"
+            if l.get("confidence") else l.get("sound", "unknown")
+            for l in layers
+        ]
+        summary_parts.append(f"Layers detected: {', '.join(layer_names)}")
+
+    identity = analysis.get("track_identity", {})
+    if identity:
+        ident_parts = []
+        if identity.get("primary_style"):
+            ident_parts.append(f"Style: {identity['primary_style']}")
+        if identity.get("movement"):
+            ident_parts.append(f"Movement: {identity['movement']}")
+        if identity.get("songlike_score"):
+            ident_parts.append(f"Songlike: {identity['songlike_score']}/10")
+        if ident_parts:
+            summary_parts.append(" | ".join(ident_parts))
+
+    timeline = analysis.get("timeline", [])
+    if timeline:
+        timeline_bits = [
+            f"{t.get('time', '?')}: {t.get('what_changes', '')}"
+            for t in timeline[:4]
+            if t.get("what_changes")
+        ]
+        if timeline_bits:
+            summary_parts.append("Timeline: " + " / ".join(timeline_bits))
+
+    mix = analysis.get("mix_qualities", {})
+    if mix:
+        mix_desc = []
+        if mix.get("spaciousness"):
+            mix_desc.append(f"Space: {mix['spaciousness']}")
+        if mix.get("frequency_balance"):
+            mix_desc.append(f"Freq balance: {mix['frequency_balance']}")
+        if mix_desc:
+            summary_parts.append(" | ".join(mix_desc))
+
+    # Prefer Gemini's direct music prompt so the visible prompt matches the
+    # listening model's analysis. Claude is only a fallback for old responses.
+    recreate = analysis.get("recreate_with", [])
+    suggested_prompt = (analysis.get("direct_elevenlabs_prompt") or "").strip()
+    do_not_include = analysis.get("do_not_include", [])
+    if suggested_prompt and do_not_include:
+        suggested_prompt += "\n\nAvoid: " + ", ".join(str(x) for x in do_not_include[:10])
+
+    if not suggested_prompt and recreate:
+        descriptions = [r.get("elevenlabs_prompt", "") for r in recreate if r.get("elevenlabs_prompt")]
+        if descriptions:
+            # Use Claude to synthesize into one coherent prompt
+            anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+            if anthropic_key:
+                try:
+                    import anthropic
+                    client = anthropic.Anthropic(api_key=anthropic_key)
+                    layers_text = "\n".join(f"- {r.get('layer_name', 'Layer')}: {r.get('elevenlabs_prompt', '')}" for r in recreate)
+                    @retry_with_backoff(max_retries=3, base_delay=2.0, retryable_check=is_transient_api_error)
+                    def _call_summarize():
+                        return client.messages.create(
+                            model="claude-sonnet-4-20250514",
+                            max_tokens=300,
+                            messages=[{
+                                "role": "user",
+                                "content": f"""A YouTube reference track was analyzed. Here's what was found:
+
+Overall feel: {feel}
+
+Layers:
+{layers_text}
+
+Write a concise soundscape prompt (2-3 sentences) that captures the essence of this reference. \
+Describe the sound world as if instructing a musician to recreate this atmosphere. \
+Be specific about instruments, textures, spatial qualities, and mood. \
+Output ONLY the prompt text, nothing else.""",
+                            }],
+                        )
+
+                    msg = _call_summarize()
+                    suggested_prompt = msg.content[0].text.strip().strip('"')
+                except Exception as e:
+                    print(f"  Claude summarize failed: {e}")
+                    suggested_prompt = feel
+
+    return jsonify({
+        "summary": "\n\n".join(summary_parts),
+        "suggested_prompt": suggested_prompt or feel,
+        "analysis": analysis,
+        "layers": [
+            {"name": r.get("layer_name", "?"), "type": r.get("layer_type", "sfx"),
+             "prompt": r.get("elevenlabs_prompt", "")}
+            for r in recreate
+        ],
+        "overall_feel": feel,
+    })
+
+
 @app.route("/api/enhance-prompt", methods=["POST"])
 def enhance_prompt():
     """
     Research the user's rough idea via web search, then use Claude to craft
-    a rich, detailed soundscape prompt from the context.
+    a rich, detailed soundscape prompt AND a structured layer plan.
     """
     data = request.get_json(force=True, silent=True) or {}
     raw_prompt = data.get("prompt", "").strip()
     mode = data.get("mode", "ambient")
+    approach = data.get("approach", "unified")
     if not raw_prompt:
         return jsonify({"error": "No prompt provided"}), 400
 
@@ -355,14 +810,14 @@ def enhance_prompt():
     if not anthropic_key:
         return jsonify({"error": "ANTHROPIC_API_KEY not set"}), 500
 
-    # Step 1: Web search via Gemini for context about the reference
     search_context = ""
-    if gemini_key:
+    if gemini_key and gemini_limiter.wait_if_needed(timeout=30):
         try:
             from google import genai
             from google.genai import types
             client = genai.Client(api_key=gemini_key)
             search_tool = types.Tool(google_search=types.GoogleSearch())
+            gemini_limiter.record_call("enhance_search")
             response = client.models.generate_content(
                 model="gemini-2.5-flash",
                 contents=f'What is "{raw_prompt}"? Give a concise summary focusing on the setting, '
@@ -375,42 +830,93 @@ def enhance_prompt():
         except Exception as e:
             print(f"  Gemini search failed (non-fatal): {e}")
 
-    # Step 2: Claude crafts the enhanced prompt
     import anthropic
     client = anthropic.Anthropic(api_key=anthropic_key)
 
+    ENHANCE_SYSTEM = """You are an expert ambient SOUNDSCAPE designer. You create immersive sonic environments \
+for background listening — audio that plays for hours while people study, work, sleep, or relax.
+
+CRITICAL: You are NOT writing songs. You are designing soundscapes. No verse/chorus structure, no \
+song-like progressions. Think evolving textures, slow harmonic drift, ambient character.
+
+For MUSICAL mode + Unified approach: 1 rich musical layer containing ALL instruments and environmental atmosphere in a single generation. Do NOT add a separate atmosphere/SFX layer.
+For MUSICAL mode + Multi-Layer approach: 2-4 musical layers. Use a quiet Background Pad (type "musical") for texture — never type "base"/"mid"/"detail" (those produce choppy repetitive SFX).
+For AMBIENT mode: 2-3 continuous environmental texture layers (type "base" or "mid"). Prompts must describe STEADY beds — no "occasional" sounds, no discrete hits.
+
+OUTPUT FORMAT: Return a JSON object with:
+{
+  "enhanced_prompt": "the enhanced prompt text",
+  "layers": [
+    {
+      "name": "short evocative name",
+      "role": "Main Music" or "Atmosphere" or "Texture" etc.,
+      "type": "musical" or "base" or "mid" or "detail",
+      "instruments": ["instrument1", "instrument2"],
+      "prompt_preview": "Detailed generation prompt (200-400 chars for musical, 50-150 for SFX)",
+      "est_credits": 3600
+    }
+  ]
+}
+
+Credit estimation: musical layers cost ~30 credits/sec, SFX layers cost ~20 credits/sec × 5 seconds = 100 cr.
+
+The enhanced_prompt should be vivid, production-ready (2-4 sentences). Name specific instruments, \
+tempo, key, effects. The layer plan shows what Claude will generate — users can edit before committing.
+
+SOUNDSCAPE EMPHASIS: Use words like "drifting", "evolving", "continuous", "textural", "ambient". \
+Avoid: "verse", "chorus", "bridge", "drop", "beat", "hook". Include "continuous, never-ending" \
+in musical prompts since audio will be looped.
+
+Output ONLY valid JSON, no markdown fences."""
+
     context_block = ""
     if search_context:
-        context_block = f"\n\nHere is research context about this topic:\n{search_context}"
+        context_block = f"\n\nRESEARCH CONTEXT:\n{search_context}"
 
-    message = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=400,
-        messages=[{
-            "role": "user",
-            "content": f"""The user wants to create a {mode} soundscape inspired by this idea:
-"{raw_prompt}"{context_block}
+    layer_structure = ""
+    if mode == "musical" and approach == "unified":
+        layer_structure = "\nLAYER STRUCTURE: 1 musical layer only — weave environmental atmosphere into the same generation. No separate SFX layer."
+    elif mode == "musical":
+        layer_structure = "\nLAYER STRUCTURE: 2-4 musical layers. Background texture = type 'musical' pad, never 'base'/'mid'/'detail'."
+    else:
+        layer_structure = "\nLAYER STRUCTURE: 2-3 continuous environmental texture layers. Steady beds only — no occasional/discrete sounds."
 
-Write a vivid, detailed soundscape prompt (2-4 sentences) that captures the essence of this idea.
-Be specific about:
-- The setting/environment (where are we?)
-- The mood and emotional quality
-- Specific sounds, textures, or musical qualities to include
-- Time of day, weather, or atmosphere if relevant
+    @retry_with_backoff(max_retries=3, base_delay=2.0, retryable_check=is_transient_api_error)
+    def _call_enhance():
+        return client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=1200,
+            system=ENHANCE_SYSTEM,
+            messages=[{
+                "role": "user",
+                "content": f"""Create a {mode} soundscape from this idea:
+"{raw_prompt}"{context_block}{layer_structure}
 
-Write it as a direct description of what the soundscape should sound like, as if describing
-a scene the listener will be immersed in. Don't explain what you're doing — just write the prompt.
+Be specific about instruments, key, tempo, spatial qualities, and emotional character.
+Remember: this is a SOUNDSCAPE, not a song. Evolving textures, slow drift, ambient character.""",
+            }],
+        )
 
-Output ONLY the enhanced prompt text, nothing else.""",
-        }],
-    )
+    message = _call_enhance()
+    raw_response = message.content[0].text.strip()
+    if raw_response.startswith("```"):
+        raw_response = raw_response.split("\n", 1)[1]
+    if raw_response.endswith("```"):
+        raw_response = raw_response.rsplit("```", 1)[0]
+    raw_response = raw_response.strip()
 
-    enhanced = message.content[0].text.strip()
-    enhanced = enhanced.strip('"')
+    try:
+        result = json.loads(raw_response)
+        enhanced = result.get("enhanced_prompt", raw_prompt)
+        layers = result.get("layers", [])
+    except (json.JSONDecodeError, KeyError):
+        enhanced = raw_response.strip('"')
+        layers = []
 
     return jsonify({
         "enhanced_prompt": enhanced,
         "research_summary": search_context[:300] + "..." if len(search_context) > 300 else search_context,
+        "layers": layers,
     })
 
 
@@ -427,7 +933,20 @@ def api_generate():
     mastering = data.get("mastering", True)
     mode = data.get("mode", "ambient")
     reference_url = data.get("reference_url", "").strip() or None
+    ref_start_sec = int(data.get("ref_start_sec", 0))
+    ref_end_sec = int(data.get("ref_end_sec", 600))
     loopable = data.get("loopable", True)
+    layer_plan = data.get("layer_plan")
+    reference_analysis = data.get("reference_analysis")
+    approach = data.get("approach", "unified")
+    stem_separation = data.get("stem_separation", "none")
+    planner_mode = data.get("planner_mode", "claude")
+    music_generation_mode = data.get("music_generation_mode", "text")
+
+    print(f"  [generate] mode={mode}, approach={approach}, stem_separation={stem_separation}, "
+          f"layer_plan={'yes (' + str(len(layer_plan)) + ' layers)' if layer_plan else 'no'}, "
+          f"reference_analysis={'yes' if reference_analysis else 'no'}, "
+          f"planner_mode={planner_mode}, music_generation_mode={music_generation_mode}")
 
     job_id = str(uuid.uuid4())[:8]
     with jobs_lock:
@@ -438,6 +957,7 @@ def api_generate():
             "music_length": music_length,
             "mastering": mastering,
             "mode": mode,
+            "approach": approach,
             "reference_url": reference_url,
             "status": "running",
             "stage": "starting",
@@ -452,16 +972,84 @@ def api_generate():
             "feedback_history": [],
             "error": None,
             "created_at": datetime.now().isoformat(),
+            "stems": None,
+            "stem_files": None,
         }
 
     thread = threading.Thread(
         target=run_generation,
-        args=(job_id, prompt, duration, mastering, mode, reference_url, loopable, music_length),
+        args=(job_id, prompt, duration, mastering, mode, reference_url, loopable,
+              music_length, ref_start_sec, ref_end_sec, layer_plan, approach,
+              stem_separation, reference_analysis, planner_mode, music_generation_mode),
         daemon=True,
     )
     thread.start()
 
     return jsonify({"job_id": job_id})
+
+
+@app.route("/api/cancel/<job_id>", methods=["POST"])
+def api_cancel_generation(job_id: str):
+    """Best-effort cancellation for an active generation job."""
+    with jobs_lock:
+        job = jobs.get(job_id)
+        if not job:
+            return jsonify({"error": "Job not found"}), 404
+        if job.get("status") not in ("running", "stitching"):
+            return jsonify({"status": job.get("status"), "message": "Job is not running"})
+        job["cancel_requested"] = True
+        job["status"] = "canceled"
+        job["stage"] = "canceled"
+        job["progress_message"] = "Generation stop requested"
+        job["logs"].append({
+            "time": datetime.now().isoformat(),
+            "message": "Generation stop requested by user",
+        })
+    _save_job(job_id)
+    return jsonify({"status": "canceled"})
+
+
+@app.route("/api/task-status/<job_id>")
+def api_task_status(job_id: str):
+    """Poll a background export/visual task."""
+    task = _long_task_snapshot(job_id)
+    if not task:
+        return jsonify({"status": "idle"})
+    payload = {
+        "status": task.get("status", "idle"),
+        "task_type": task.get("task_type"),
+        "message": task.get("message", ""),
+    }
+    payload.update(task.get("result") or {})
+    return jsonify(payload)
+
+
+@app.route("/api/cancel-task/<job_id>", methods=["POST"])
+def api_cancel_task(job_id: str):
+    """Stop a background task or active generation for this job."""
+    with jobs_lock:
+        job = jobs.get(job_id)
+        if not job:
+            return jsonify({"error": "Job not found"}), 404
+
+    canceled = _long_task_cancel(job_id)
+
+    with jobs_lock:
+        job = jobs.get(job_id)
+        if job and job.get("status") in ("running", "stitching"):
+            job["cancel_requested"] = True
+            job["status"] = "canceled"
+            job["stage"] = "canceled"
+            job["progress_message"] = "Generation stop requested"
+            job.setdefault("logs", []).append({
+                "time": datetime.now().isoformat(),
+                "message": "Generation stop requested by user",
+            })
+            canceled = True
+    if canceled:
+        _save_job(job_id)
+        return jsonify({"status": "canceled"})
+    return jsonify({"status": "idle", "message": "Nothing to cancel"})
 
 
 @app.route("/api/status/<job_id>")
@@ -501,7 +1089,24 @@ def api_status(job_id: str):
         "yt_description": job.get("yt_description", ""),
         "yt_tags": job.get("yt_tags", ""),
         "yt_privacy": job.get("yt_privacy", "unlisted"),
+        "alternate_pairs": job.get("alternate_pairs", []),
+        "stems": job.get("stems"),
+        "stems_status": job.get("stems_status"),
+        "stems_error": job.get("stems_error"),
     })
+
+
+@app.route("/api/alternate-pairs/<job_id>", methods=["POST"])
+def save_alternate_pairs(job_id: str):
+    """Save or clear alternate layer pairs for a job."""
+    with jobs_lock:
+        job = jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+    data = request.get_json(force=True)
+    job["alternate_pairs"] = data.get("pairs", [])
+    _save_job(job_id)
+    return jsonify({"ok": True})
 
 
 @app.route("/api/feedback/<job_id>", methods=["POST"])
@@ -573,25 +1178,37 @@ def submit_feedback(job_id: str):
 
             layer.generated_audio_path = None
 
-            path = generator.generate_layer_audio(
-                layer=layer,
-                mood=revised_config.mood,
-                setting=revised_config.setting,
-                use_cache=False,
-                root_key=revised_config.root_key,
-                track_duration_sec=revised_config.duration_sec,
-                music_length_sec=revised_config.music_length_sec,
-            )
+            reroll_counts = job.setdefault("reroll_counts", {})
+            seed = reroll_counts.get(layer_name, 0) + 1
+            reroll_counts[layer_name] = seed
+
+            try:
+                path = generator.generate_layer_audio(
+                    layer=layer,
+                    mood=revised_config.mood,
+                    setting=revised_config.setting,
+                    root_key=revised_config.root_key,
+                    track_duration_sec=revised_config.duration_sec,
+                    music_length_sec=revised_config.music_length_sec,
+                    reroll_seed=seed,
+                )
+            except Exception as e:
+                from sample_generator import QuotaExhaustedError, SpendingLimitError
+                if isinstance(e, (QuotaExhaustedError, SpendingLimitError)):
+                    return jsonify({"error": str(e)}), 402
+                print(f"  [feedback regen] {layer_name} failed: {e}")
+                regen_summaries.append(f"{layer_name} (regen failed: {e})")
+                path = ""
             if path:
                 layer.generated_audio_path = path
                 api = "Music API" if layer.layer_type == LayerType.MUSICAL else "SFX API"
-                action = "re-rolled" if not new_prompt else f"regenerated via {api}"
-                regen_summaries.append(f"{layer_name} ({action})")
+                action_label = "re-rolled" if not new_prompt else f"regenerated via {api}"
+                regen_summaries.append(f"{layer_name} ({action_label})")
 
     # Re-render at full duration (fast — samples are cached)
     try:
         engine = _get_engine()
-        new_audio = engine.render(revised_config)
+        new_audio = engine.render_flat(revised_config)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         safe_title = "".join(c if c.isalnum() or c in " -_" else "" for c in revised_config.title)
@@ -606,6 +1223,7 @@ def submit_feedback(job_id: str):
         changes_summary += ("; " if changes_summary != "No visible changes" else "") + \
             "Regenerated: " + ", ".join(regen_summaries)
 
+    _invalidate_flat_cache(job_id)
     with jobs_lock:
         jobs[job_id]["config"] = revised_config
         jobs[job_id]["audio_path"] = audio_path
@@ -748,16 +1366,26 @@ def layer_action(job_id: str):
         if not generator:
             return jsonify({"error": "ELEVENLABS_API_KEY required"}), 500
 
+        reroll_counts = job.setdefault("reroll_counts", {})
+        seed = reroll_counts.get(layer_name, 0) + 1
+        reroll_counts[layer_name] = seed
+
         layer.generated_audio_path = None
-        path = generator.generate_layer_audio(
-            layer=layer,
-            mood=config.mood,
-            setting=config.setting,
-            use_cache=False,
-            root_key=config.root_key,
-            track_duration_sec=config.duration_sec,
-            music_length_sec=config.music_length_sec,
-        )
+        try:
+            path = generator.generate_layer_audio(
+                layer=layer,
+                mood=config.mood,
+                setting=config.setting,
+                root_key=config.root_key,
+                track_duration_sec=config.duration_sec,
+                music_length_sec=config.music_length_sec,
+                reroll_seed=seed,
+            )
+        except Exception as e:
+            from sample_generator import QuotaExhaustedError, SpendingLimitError
+            if isinstance(e, (QuotaExhaustedError, SpendingLimitError)):
+                return jsonify({"error": str(e)}), 402
+            return jsonify({"error": f"Regeneration failed for '{layer_name}': {e}"}), 500
         if path:
             layer.generated_audio_path = path
         api = "Music" if layer.layer_type == LayerType.MUSICAL else "SFX"
@@ -787,15 +1415,20 @@ def layer_action(job_id: str):
             return jsonify({"error": "ELEVENLABS_API_KEY required"}), 500
 
         layer.generated_audio_path = None
-        path = generator.generate_layer_audio(
-            layer=layer,
-            mood=config.mood,
-            setting=config.setting,
-            use_cache=False,
-            root_key=config.root_key,
-            track_duration_sec=config.duration_sec,
-            music_length_sec=config.music_length_sec,
-        )
+        try:
+            path = generator.generate_layer_audio(
+                layer=layer,
+                mood=config.mood,
+                setting=config.setting,
+                root_key=config.root_key,
+                track_duration_sec=config.duration_sec,
+                music_length_sec=config.music_length_sec,
+            )
+        except Exception as e:
+            from sample_generator import QuotaExhaustedError, SpendingLimitError
+            if isinstance(e, (QuotaExhaustedError, SpendingLimitError)):
+                return jsonify({"error": str(e)}), 402
+            return jsonify({"error": f"Regeneration failed for '{layer_name}': {e}"}), 500
         if path:
             layer.generated_audio_path = path
         api = "Music" if layer.layer_type == LayerType.MUSICAL else "SFX"
@@ -815,16 +1448,26 @@ def layer_action(job_id: str):
             new_type = LayerType.MID
 
         is_musical = new_type == LayerType.MUSICAL
+        if is_musical and not any(
+            w in new_prompt.lower()
+            for w in ("continuous", "sustained", "seamless", "never-ending", "throughout")
+        ):
+            new_prompt = (
+                f"{new_prompt}. Continuous sustained texture throughout, "
+                "seamless loop, no long silent gaps."
+            )
+
         is_base = new_type == LayerType.BASE
         new_layer = LayerConfig(
             name=new_name,
             layer_type=new_type,
             sample_tags=[],
-            volume_db=-14.0 if is_base else -16.0,
+            volume_db=-8.0 if is_musical else (-14.0 if is_base else -16.0),
             pan=0.0,
             loop=is_base or is_musical,
             fade_in_sec=3.0,
             fade_out_sec=3.0,
+            independent_loop=is_musical,
             effects=EffectsChain(
                 reverb_amount=0.4,
                 reverb_room_size=0.6,
@@ -838,21 +1481,34 @@ def layer_action(job_id: str):
         if not generator:
             return jsonify({"error": "ELEVENLABS_API_KEY required"}), 500
 
-        path = generator.generate_layer_audio(
-            layer=new_layer,
-            mood=config.mood,
-            setting=config.setting,
-            use_cache=True,
-            root_key=config.root_key,
-            track_duration_sec=config.duration_sec,
-            music_length_sec=config.music_length_sec,
-        )
+        try:
+            path = generator.generate_layer_audio(
+                layer=new_layer,
+                mood=config.mood,
+                setting=config.setting,
+                use_cache=True,
+                root_key=config.root_key,
+                track_duration_sec=config.duration_sec,
+                music_length_sec=config.music_length_sec,
+                additive=True,
+            )
+        except Exception as e:
+            from sample_generator import QuotaExhaustedError, SpendingLimitError
+            if isinstance(e, (QuotaExhaustedError, SpendingLimitError)):
+                return jsonify({"error": str(e)}), 402
+            print(f"  [add-layer] Generation exception for '{new_name}': {e}")
+            path = ""
         if path:
             new_layer.generated_audio_path = path
+            print(f"  [add-layer] Generated audio for '{new_name}': {path}")
+        else:
+            print(f"  [add-layer] WARNING: No audio generated for '{new_name}'")
 
         config.layers.append(new_layer)
         api = "Music" if is_musical else "SFX"
         change_desc = f"Added {new_name} ({new_type_str}) via {api} API"
+        if not path:
+            change_desc += " (audio generation failed — try regenerating)"
 
     elif action == "update_params":
         layer = next((l for l in config.layers if l.name == layer_name), None)
@@ -900,27 +1556,38 @@ def layer_action(job_id: str):
         if "end_sec" in params:
             layer.end_sec = max(0.0, float(params["end_sec"]))
             parts.append(f"end={layer.end_sec:.0f}s")
+        if "repeat_every_sec" in params:
+            layer.repeat_every_sec = max(0.0, float(params["repeat_every_sec"]))
+            parts.append(f"repeat={layer.repeat_every_sec:.0f}s")
 
         change_desc = f"{layer_name}: {', '.join(parts)}" if parts else f"No changes to {layer_name}"
 
     else:
         return jsonify({"error": f"Unknown action: {action}"}), 400
 
-    # Re-render at full duration (fast — samples are cached)
-    try:
-        engine = _get_engine()
-        new_audio = engine.render(config)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        safe_title = "".join(c if c.isalnum() or c in " -_" else "" for c in config.title)
-        audio_filename = f"{safe_title}_action_{timestamp}.wav"
-        audio_path = str(PROJECT_ROOT / "output" / audio_filename)
-        new_audio.export(audio_path, format="wav")
-    except Exception as e:
-        return jsonify({"error": f"Re-render failed: {e}"}), 500
+    # Actions that only change config (not audio files) can skip the expensive
+    # full re-render when the live mixer is handling playback client-side.
+    skip_render = action in ("regenerate", "regenerate_with_prompt", "add",
+                             "mute", "unmute", "update_params", "remove")
 
+    audio_path = job.get("audio_path")
+    if not skip_render:
+        try:
+            engine = _get_engine()
+            new_audio = engine.render_flat(config)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            safe_title = "".join(c if c.isalnum() or c in " -_" else "" for c in config.title)
+            audio_filename = f"{safe_title}_action_{timestamp}.wav"
+            audio_path = str(PROJECT_ROOT / "output" / audio_filename)
+            new_audio.export(audio_path, format="wav")
+        except Exception as e:
+            return jsonify({"error": f"Re-render failed: {e}"}), 500
+
+    _invalidate_flat_cache(job_id)
     with jobs_lock:
         jobs[job_id]["config"] = config
-        jobs[job_id]["audio_path"] = audio_path
+        if audio_path:
+            jobs[job_id]["audio_path"] = audio_path
         jobs[job_id]["mastered_path"] = None
 
     _save_job(job_id)
@@ -962,7 +1629,7 @@ def finalize(job_id: str):
         full_config.duration_sec = job["duration"] * 60
 
         engine = _get_engine()
-        full_audio = engine.render(full_config)
+        full_audio = engine.render_flat(full_config)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         safe_title = "".join(c if c.isalnum() or c in " -_" else "" for c in full_config.title)
@@ -1018,8 +1685,14 @@ def ai_feedback(job_id: str):
         genai.configure(api_key=gemini_key)
         model = genai.GenerativeModel("gemini-2.5-flash")
 
-        with open(audio_path, "rb") as f:
-            audio_data = f.read()
+        MAX_FEEDBACK_SEC = 120
+        snippet = AudioSegment.from_file(audio_path)
+        if len(snippet) > MAX_FEEDBACK_SEC * 1000:
+            snippet = snippet[:MAX_FEEDBACK_SEC * 1000]
+        import io
+        buf = io.BytesIO()
+        snippet.export(buf, format="wav")
+        audio_data = buf.getvalue()
 
         config = job.get("config")
         prompt_desc = config.title if config else job.get("prompt", "ambient soundscape")
@@ -1084,56 +1757,163 @@ def api_layer_audio(job_id: str, layer_name: str):
     with jobs_lock:
         job = jobs.get(job_id)
     if not job:
+        print(f"  [layer-audio] 404: job {job_id} not found")
         abort(404)
 
     config = job.get("config")
     if not config:
+        print(f"  [layer-audio] 404: job {job_id} has no config")
         abort(404)
 
     from urllib.parse import unquote
     layer_name = unquote(layer_name)
     layer = next((l for l in config.layers if l.name == layer_name), None)
-    if not layer or not layer.generated_audio_path:
+    if not layer:
+        available = [l.name for l in config.layers]
+        print(f"  [layer-audio] 404: layer '{layer_name}' not in config. Available: {available}")
+        abort(404)
+    if not layer.generated_audio_path:
+        print(f"  [layer-audio] 404: layer '{layer_name}' has no generated_audio_path")
         abort(404)
 
     path = _resolve_audio_path(layer.generated_audio_path)
     if not path:
+        print(f"  [layer-audio] 404: file not found for '{layer_name}': {layer.generated_audio_path}")
         abort(404)
 
-    # Only musical layers need crossfading — they have natural fade-outs
-    # baked in by ElevenLabs. SFX layers are already generated with loop=True
-    # and should be served as-is.
-    from schemas import LayerType
-    if layer.layer_type == LayerType.MUSICAL:
-        loopable_path = path.replace(".wav", "_loop.wav")
-        if not os.path.exists(loopable_path):
+    if layer.layer_type == LayerType.MUSICAL and getattr(config, "loopable", True):
+        safe_layer = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in layer_name)[:80]
+        src_stamp = int(os.path.getmtime(path))
+        safe_loop_path = PROJECT_ROOT / "output" / f"{job_id}_{safe_layer}_{src_stamp}_loopv3.wav"
+        if not safe_loop_path.exists():
             try:
-                from pydub import AudioSegment as AS
-                from audio_engine import make_loopable
-                audio = AS.from_wav(path)
-                # Long crossfade (20% of clip, 15-60s) to fully mask the
-                # natural fade-out that AI music generation adds at the end
-                crossfade_ms = max(15000, min(60000, len(audio) // 5))
-                audio = make_loopable(audio, crossfade_ms)
-                audio.export(loopable_path, format="wav")
-                print(f"  Created loopable version for {layer_name}: {len(audio)/1000:.0f}s (xfade {crossfade_ms/1000:.0f}s)")
+                src = AudioSegment.from_file(path)
+                cf_ms = int(min(getattr(config, "crossfade_seconds", 15.0), 15.0) * 1000)
+                looped = prepare_musical_loop(src, cf_ms)
+                looped.export(safe_loop_path, format="wav")
+                path = str(safe_loop_path)
             except Exception as e:
-                print(f"  Crossfade failed for {layer_name}: {e}")
-                loopable_path = path
-        return send_file(loopable_path, mimetype="audio/wav", as_attachment=False)
+                print(f"  [layer-audio] loop prep failed for '{layer_name}', serving raw: {e}")
+        else:
+            path = str(safe_loop_path)
 
     return send_file(path, mimetype="audio/wav", as_attachment=False)
 
 
+@app.route("/api/audio/<job_id>/stem/<stem_name>")
+def api_stem_audio(job_id: str, stem_name: str):
+    """Serve an individual stem audio file."""
+    with jobs_lock:
+        job = jobs.get(job_id)
+    if not job:
+        abort(404)
+    stem_files = job.get("stem_files", {})
+    if not stem_files or stem_name not in stem_files:
+        abort(404)
+    raw_path = stem_files[stem_name]
+    if not raw_path:
+        abort(404)
+    path = os.path.join(PROJECT_ROOT, raw_path) if not os.path.isabs(raw_path) else raw_path
+    if not os.path.exists(path):
+        abort(404)
+
+    config = job.get("config")
+    if config and getattr(config, "loopable", True):
+        src_stamp = int(os.path.getmtime(path))
+        safe_stem = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in stem_name)[:80]
+        loop_path = PROJECT_ROOT / "output" / f"{job_id}_stem_{safe_stem}_{src_stamp}_loopv3.wav"
+        if not loop_path.exists():
+            try:
+                src = AudioSegment.from_file(path)
+                cf_ms = int(min(getattr(config, "crossfade_seconds", 15.0), 15.0) * 1000)
+                looped = prepare_musical_loop(src, cf_ms)
+                looped.export(loop_path, format="wav")
+                print(f"  [stem-audio] Created loop-prepped stem: {loop_path.name}")
+            except Exception as e:
+                print(f"  [stem-audio] loop prep failed for '{stem_name}', serving raw: {e}")
+            else:
+                path = str(loop_path)
+        else:
+            path = str(loop_path)
+
+    mime = "audio/mpeg" if path.endswith(".mp3") else "audio/wav"
+    return send_file(path, mimetype=mime, as_attachment=False)
+
+
 @app.route("/api/audio/<job_id>")
 def api_audio(job_id: str):
-    """Serve the current audio file (raw during feedback, mastered initially)."""
+    """Serve a flat mix (volume+pan only, no baked-in effects) matching the LiveMixer."""
     with jobs_lock:
         job = jobs.get(job_id)
     if not job:
         abort(404)
 
-    # Prefer feedback-adjusted audio, then mastered, then raw
+    config = job.get("config")
+    if not config:
+        path = (
+            _resolve_audio_path(job.get("audio_path"))
+            or _resolve_audio_path(job.get("output_path"))
+            or _resolve_audio_path(job.get("raw_output_path"))
+        )
+        if not path:
+            abort(404)
+        return send_file(path, mimetype="audio/wav", as_attachment=False)
+
+    has_layers = any(
+        l.generated_audio_path and os.path.exists(l.generated_audio_path)
+        for l in config.layers
+    )
+    if not has_layers:
+        path = (
+            _resolve_audio_path(job.get("audio_path"))
+            or _resolve_audio_path(job.get("output_path"))
+            or _resolve_audio_path(job.get("raw_output_path"))
+        )
+        if not path:
+            abort(404)
+        return send_file(path, mimetype="audio/wav", as_attachment=False)
+
+    flat_path = str(PROJECT_ROOT / "output" / f"{job_id}_flat.wav")
+    if not os.path.exists(flat_path):
+        try:
+            engine = _get_engine()
+            flat_audio = engine.render_flat(config)
+            flat_audio.export(flat_path, format="wav")
+            print(f"  [api_audio] Created flat mix for {job_id}: {len(flat_audio)/1000:.0f}s")
+        except Exception as e:
+            print(f"  [api_audio] Flat render failed for {job_id}: {e}")
+            import traceback; traceback.print_exc()
+            abort(500, description=f"Failed to render flat mix: {e}")
+
+    return send_file(flat_path, mimetype="audio/wav", as_attachment=False)
+
+
+@app.route("/api/audio/<job_id>/download")
+def api_audio_download(job_id: str):
+    """Download the flat mix (same audio as LiveMixer playback)."""
+    with jobs_lock:
+        job = jobs.get(job_id)
+    if not job:
+        abort(404)
+
+    flat_path = str(PROJECT_ROOT / "output" / f"{job_id}_flat.wav")
+    config = job.get("config")
+    if config and not os.path.exists(flat_path):
+        has_layers = any(
+            l.generated_audio_path and os.path.exists(l.generated_audio_path)
+            for l in config.layers
+        )
+        if has_layers:
+            try:
+                engine = _get_engine()
+                flat_audio = engine.render_flat(config)
+                flat_audio.export(flat_path, format="wav")
+            except Exception:
+                flat_path = None
+
+    if flat_path and os.path.exists(flat_path):
+        return send_file(flat_path, mimetype="audio/wav", as_attachment=True)
+
     path = (
         _resolve_audio_path(job.get("audio_path"))
         or _resolve_audio_path(job.get("output_path"))
@@ -1141,27 +1921,6 @@ def api_audio(job_id: str):
     )
     if not path:
         abort(404)
-
-    return send_file(path, mimetype="audio/wav", as_attachment=False)
-
-
-@app.route("/api/audio/<job_id>/download")
-def api_audio_download(job_id: str):
-    """Download the best available audio (mastered if finalized)."""
-    with jobs_lock:
-        job = jobs.get(job_id)
-    if not job:
-        abort(404)
-
-    path = (
-        _resolve_audio_path(job.get("mastered_path"))
-        or _resolve_audio_path(job.get("output_path"))
-        or _resolve_audio_path(job.get("audio_path"))
-        or _resolve_audio_path(job.get("raw_output_path"))
-    )
-    if not path:
-        abort(404)
-
     return send_file(path, mimetype="audio/wav", as_attachment=True)
 
 
@@ -1224,7 +1983,7 @@ def auto_harmonize(job_id: str):
 
     try:
         engine = _get_engine()
-        new_audio = engine.render(config)
+        new_audio = engine.render_flat(config)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         safe_title = "".join(c if c.isalnum() or c in " -_" else "" for c in config.title)
         audio_filename = f"{safe_title}_harmonized_{timestamp}.wav"
@@ -1233,6 +1992,7 @@ def auto_harmonize(job_id: str):
     except Exception as e:
         return jsonify({"error": f"Re-render failed: {e}"}), 500
 
+    _invalidate_flat_cache(job_id)
     with jobs_lock:
         jobs[job_id]["config"] = config
         jobs[job_id]["audio_path"] = audio_path
@@ -1270,18 +2030,28 @@ def export_extended(job_id: str):
     data = request.get_json(force=True, silent=True) or {}
     target_minutes = float(data.get("target_minutes", 60))
     target_minutes = max(1, min(480, target_minutes))
+    fade_in_sec = float(data.get("fade_in_sec", 20))
 
-    try:
+    def worker():
+        _long_task_update(job_id, message=f"Exporting {int(target_minutes)} minute looped audio...")
         source = AudioSegment.from_file(audio_path)
         source_ms = len(source)
         target_ms = int(target_minutes * 60 * 1000)
 
         import math
         repeats = math.ceil(target_ms / source_ms)
-        extended = source * repeats
+        extended = AudioSegment.empty()
+        for i in range(repeats):
+            _long_task_check_cancel(job_id)
+            extended += source
+            if i % 4 == 3:
+                _long_task_update(
+                    job_id,
+                    message=f"Tiling audio... {min(100, int(len(extended) / target_ms * 100))}%",
+                )
         extended = extended[:target_ms]
 
-        fade_in_ms = int(float(data.get("fade_in_sec", 20)) * 1000)
+        fade_in_ms = int(fade_in_sec * 1000)
         if fade_in_ms > 0:
             extended = extended.fade_in(min(fade_in_ms, len(extended) // 4))
         extended = extended.fade_out(5000)
@@ -1292,19 +2062,22 @@ def export_extended(job_id: str):
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"{safe_title}_{int(target_minutes)}min_{timestamp}.wav"
         output_path = str(PROJECT_ROOT / "output" / filename)
+
+        _long_task_update(job_id, message="Writing WAV file...")
+        _long_task_check_cancel(job_id)
         extended.export(output_path, format="wav")
 
         with jobs_lock:
             jobs[job_id]["extended_path"] = output_path
 
-        return jsonify({
-            "status": "ready",
+        _long_task_finish(job_id, "done", "Export complete", {
             "download_url": f"/api/audio/{job_id}/extended",
             "duration_minutes": target_minutes,
         })
 
-    except Exception as e:
-        return jsonify({"error": f"Export failed: {e}"}), 500
+    return _start_background_task(
+        job_id, "extended_audio", f"Exporting {int(target_minutes)} minute looped audio...", worker
+    )
 
 
 @app.route("/api/audio/<job_id>/extended")
@@ -1322,9 +2095,19 @@ def api_audio_extended(job_id: str):
 
 @app.route("/api/history")
 def api_history():
-    """Return a list of recent generation jobs."""
+    """Return recent generation jobs, always including favorites and exported videos."""
     with jobs_lock:
         history = sorted(jobs.values(), key=lambda j: j["created_at"], reverse=True)
+        recent = history[:50]
+        favorites = [j for j in history if j.get("favorite", False)]
+        with_videos = [j for j in history if j.get("visual_video_path")]
+
+    by_id = {j["job_id"]: j for j in recent}
+    for j in favorites:
+        by_id[j["job_id"]] = j
+    for j in with_videos:
+        by_id[j["job_id"]] = j
+    visible_history = sorted(by_id.values(), key=lambda j: j["created_at"], reverse=True)
 
     return jsonify([
         {
@@ -1334,9 +2117,29 @@ def api_history():
             "duration": j["duration"],
             "feedback_count": len(j.get("feedback_history", [])),
             "created_at": j["created_at"],
+            "favorite": j.get("favorite", False),
+            "visual_image_url": f"/api/visual/image/{j['job_id']}/view" if j.get("visual_image_path") else None,
+            "visual_clip_url": f"/api/visual/clip/{j['job_id']}/view" if j.get("visual_clip_path") else None,
+            "visual_video_url": f"/api/visual/video/{j['job_id']}/download" if j.get("visual_video_path") else None,
+            "youtube_url": j.get("youtube_url"),
         }
-        for j in history[:20]
+        for j in visible_history
     ])
+
+
+@app.route("/api/favorite/<job_id>", methods=["POST"])
+def toggle_favorite(job_id: str):
+    """Toggle the favorite flag on a job."""
+    with jobs_lock:
+        job = jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+
+    new_val = not job.get("favorite", False)
+    with jobs_lock:
+        jobs[job_id]["favorite"] = new_val
+    _save_job(job_id)
+    return jsonify({"favorite": new_val})
 
 
 # ────────────────────────────────────────────────────────
@@ -1446,6 +2249,7 @@ def stitch_parts_endpoint(job_id: str):
             output_path = str(PROJECT_ROOT / "output" / f"stitched_{job_id}.wav")
             result.export(output_path, format="wav")
 
+            _invalidate_flat_cache(job_id)
             with jobs_lock:
                 jobs[job_id]["audio_path"] = output_path
                 jobs[job_id]["raw_output_path"] = output_path
@@ -1528,30 +2332,28 @@ def generate_visual_image(job_id: str):
     if not gen:
         return jsonify({"error": "XAI_API_KEY not configured"}), 500
 
-    try:
-        config = job.get("config")
-        safe_title = "ambientizer"
-        if config:
-            safe_title = "".join(c if c.isalnum() or c in " -_" else "" for c in config.title)
+    config = job.get("config")
+    safe_title = "ambientizer"
+    if config:
+        safe_title = "".join(c if c.isalnum() or c in " -_" else "" for c in config.title)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_path = str(PROJECT_ROOT / "output" / f"{safe_title}_visual_{timestamp}.png")
 
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_path = str(PROJECT_ROOT / "output" / f"{safe_title}_visual_{timestamp}.png")
-
+    def worker():
+        _long_task_update(job_id, message="Generating scene image...")
         image_path = gen.generate_image(prompt, output_path=output_path)
+        _long_task_check_cancel(job_id)
 
         with jobs_lock:
             jobs[job_id]["visual_image_path"] = image_path
             jobs[job_id]["visual_image_prompt"] = prompt
-
         _save_job(job_id)
 
-        return jsonify({
-            "status": "ready",
+        _long_task_finish(job_id, "done", "Image ready", {
             "image_url": f"/api/visual/image/{job_id}/view?t={time.time()}",
         })
 
-    except Exception as e:
-        return jsonify({"error": f"Image generation failed: {e}"}), 500
+    return _start_background_task(job_id, "image", "Generating scene image...", worker)
 
 
 @app.route("/api/visual/image/<job_id>/view")
@@ -1590,42 +2392,174 @@ def generate_visual_clip(job_id: str):
     mode = data.get("mode", "ai")
     motion_prompt = data.get("motion_prompt", "").strip()
 
-    gen = _get_visual_generator()
-    if not gen:
-        return jsonify({"error": "XAI_API_KEY not configured"}), 500
-
     config = job.get("config")
     safe_title = "ambientizer"
     if config:
         safe_title = "".join(c if c.isalnum() or c in " -_" else "" for c in config.title)
 
+    if mode == "ai" and not _get_visual_generator():
+        return jsonify({"error": "XAI_API_KEY not configured"}), 500
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    start_message = "Grok is animating your image (1-3 min)..." if mode == "ai" else "Creating Ken Burns clip..."
 
-    try:
+    def worker():
+        _long_task_update(job_id, message=start_message)
         if mode == "ai":
-            if not motion_prompt:
-                motion_prompt = "Slow, subtle ambient motion. Gentle atmospheric movement, drifting light, peaceful and dreamy. Cinematic, minimal camera movement."
-
+            gen = _get_visual_generator()
+            if not gen:
+                raise RuntimeError("XAI_API_KEY not configured")
+            mp = motion_prompt or (
+                "Slow, subtle ambient motion. Gentle atmospheric movement, drifting light, "
+                "peaceful and dreamy. Cinematic, minimal camera movement."
+            )
             clip_path = str(PROJECT_ROOT / "output" / f"{safe_title}_aiclip_{timestamp}.mp4")
-            gen.animate_image(image_path, motion_prompt, duration=10, output_path=clip_path)
+            gen.animate_image(image_path, mp, duration=10, output_path=clip_path)
         else:
+            gen = VisualGenerator(xai_api_key="", output_dir=str(PROJECT_ROOT / "output"))
             clip_path = str(PROJECT_ROOT / "output" / f"{safe_title}_kb_{timestamp}.mp4")
             gen.create_ken_burns_video(image_path, duration_sec=30, output_path=clip_path)
+
+        _long_task_check_cancel(job_id)
 
         with jobs_lock:
             jobs[job_id]["visual_clip_path"] = clip_path
             jobs[job_id]["visual_clip_mode"] = mode
-
         _save_job(job_id)
 
-        return jsonify({
-            "status": "ready",
+        _long_task_finish(job_id, "done", "Clip ready", {
             "clip_url": f"/api/visual/clip/{job_id}/view?t={time.time()}",
             "mode": mode,
         })
 
-    except Exception as e:
-        return jsonify({"error": f"Clip generation failed: {e}"}), 500
+    return _start_background_task(job_id, "clip", start_message, worker)
+
+
+@app.route("/api/visual/upload-video/<job_id>", methods=["POST"])
+def upload_custom_video(job_id: str):
+    """Accept a user-uploaded video file to use as the visual clip."""
+    with jobs_lock:
+        job = jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+
+    if "file" not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
+
+    f = request.files["file"]
+    if not f.filename:
+        return jsonify({"error": "Empty filename"}), 400
+
+    allowed = {".mp4", ".webm", ".mov", ".avi", ".mkv"}
+    ext = os.path.splitext(f.filename)[1].lower()
+    if ext not in allowed:
+        return jsonify({"error": f"Unsupported format ({ext}). Use MP4, WebM, MOV, AVI, or MKV."}), 400
+
+    out_path = str(PROJECT_ROOT / "output" / f"{job_id}_custom_video{ext}")
+    f.save(out_path)
+
+    with jobs_lock:
+        jobs[job_id]["visual_clip_path"] = out_path
+        jobs[job_id]["visual_clip_mode"] = "custom"
+
+    _save_job(job_id)
+
+    return jsonify({
+        "status": "ready",
+        "clip_url": f"/api/visual/clip/{job_id}/view?t={time.time()}",
+        "mode": "custom",
+    })
+
+
+@app.route("/api/visual/extend/<job_id>", methods=["POST"])
+def extend_visual_clip(job_id: str):
+    """Append one Grok-generated continuation segment to the current preview clip."""
+    with jobs_lock:
+        job = jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+
+    clip_path = job.get("visual_clip_path")
+    if not clip_path or not os.path.exists(clip_path):
+        return jsonify({"error": "No clip generated yet. Create or upload a clip first."}), 400
+
+    gen = _get_visual_generator()
+    if not gen:
+        return jsonify({"error": "XAI_API_KEY not configured"}), 500
+
+    data = request.get_json(force=True, silent=True) or {}
+    prompt = data.get("prompt", "").strip()
+    duration = int(data.get("duration", 10) or 10)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    stem = Path(clip_path).stem
+    extended_path = str(PROJECT_ROOT / "output" / f"{stem}_extended_{timestamp}.mp4")
+
+    def worker():
+        _long_task_update(job_id, message="Grok is extending the current clip (+10s)...")
+        gen.extend_video(clip_path, prompt, duration=duration, output_path=extended_path)
+        _long_task_check_cancel(job_id)
+
+        with jobs_lock:
+            jobs[job_id]["visual_clip_path"] = extended_path
+            jobs[job_id]["visual_clip_mode"] = "extended"
+            jobs[job_id]["visual_video_path"] = None
+        _save_job(job_id)
+
+        _long_task_finish(job_id, "done", "Clip extended", {
+            "clip_url": f"/api/visual/clip/{job_id}/view?t={time.time()}",
+            "mode": "extended",
+        })
+
+    return _start_background_task(job_id, "extend", "Grok is extending the current clip (+10s)...", worker)
+
+
+@app.route("/api/visual/slow/<job_id>", methods=["POST"])
+def slow_visual_clip(job_id: str):
+    """Create a slowed-down preview clip and make it the active export source."""
+    with jobs_lock:
+        job = jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+
+    clip_path = job.get("visual_clip_path")
+    if not clip_path or not os.path.exists(clip_path):
+        return jsonify({"error": "No clip generated yet. Create or upload a clip first."}), 400
+
+    data = request.get_json(force=True, silent=True) or {}
+    try:
+        speed = float(data.get("speed", 0.5))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Invalid speed value"}), 400
+
+    if speed < 0.25 or speed > 1.0:
+        return jsonify({"error": "Speed must be between 0.25x and 1x"}), 400
+
+    gen = VisualGenerator(xai_api_key="", output_dir=str(PROJECT_ROOT / "output"))
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    stem = Path(clip_path).stem
+    speed_tag = str(speed).replace(".", "p")
+    slowed_path = str(PROJECT_ROOT / "output" / f"{stem}_speed_{speed_tag}_{timestamp}.mp4")
+
+    def worker():
+        _long_task_update(job_id, message=f"Creating {speed}x slowed clip...")
+        gen.slow_video(clip_path, speed, slowed_path)
+        _long_task_check_cancel(job_id)
+
+        with jobs_lock:
+            jobs[job_id]["visual_clip_path"] = slowed_path
+            jobs[job_id]["visual_clip_mode"] = "slowed"
+            jobs[job_id]["visual_video_path"] = None
+        _save_job(job_id)
+
+        _long_task_finish(job_id, "done", "Speed applied", {
+            "clip_url": f"/api/visual/clip/{job_id}/view?t={time.time()}",
+            "mode": "slowed",
+            "speed": speed,
+        })
+
+    return _start_background_task(job_id, "slow", f"Creating {speed}x slowed clip...", worker)
 
 
 @app.route("/api/visual/clip/<job_id>/view")
@@ -1659,68 +2593,93 @@ def export_visual_video(job_id: str):
     if not clip_path or not os.path.exists(clip_path):
         return jsonify({"error": "No clip generated yet. Create a clip first."}), 400
 
-    audio_path = (
-        _resolve_audio_path(job.get("mastered_path"))
-        or _resolve_audio_path(job.get("audio_path"))
+    # Use the flat mix (matches LiveMixer output) for video export
+    config = job.get("config")
+    flat_path = str(PROJECT_ROOT / "output" / f"{job_id}_flat.wav")
+    audio_path = flat_path if os.path.exists(flat_path) else (
+        _resolve_audio_path(job.get("audio_path"))
         or _resolve_audio_path(job.get("output_path"))
         or _resolve_audio_path(job.get("raw_output_path"))
     )
-    if not audio_path:
+    can_render_loop = bool(
+        config and any(
+            l.generated_audio_path and os.path.exists(l.generated_audio_path)
+            for l in config.layers
+        )
+    )
+    if not audio_path and not can_render_loop:
         return jsonify({"error": "No audio available"}), 400
 
     data = request.get_json(force=True, silent=True) or {}
     target_minutes = float(data.get("duration_minutes", 0))
 
-    gen = _get_visual_generator()
-    if not gen:
-        return jsonify({"error": "XAI_API_KEY not configured"}), 500
+    def worker():
+        if config and can_render_loop:
+            _long_task_update(job_id, message="Rendering seamless audio loop cell...")
+            _long_task_check_cancel(job_id)
+            resolved_audio = _ensure_export_loop_audio(job_id, config)
+        else:
+            resolved_audio = (
+                _resolve_audio_path(job.get("audio_path"))
+                or _resolve_audio_path(job.get("output_path"))
+                or _resolve_audio_path(job.get("raw_output_path"))
+            )
+        if not resolved_audio:
+            raise RuntimeError("No audio available")
 
-    try:
-        source_audio = AudioSegment.from_file(audio_path)
-        audio_duration_sec = len(source_audio) / 1000.0
+        probe = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+             "-of", "csv=p=0", resolved_audio],
+            capture_output=True, text=True, timeout=10,
+        )
+        loop_duration_sec = float(probe.stdout.strip())
+        target_sec = target_minutes * 60 if target_minutes > 0 else loop_duration_sec
 
-        target_sec = target_minutes * 60 if target_minutes > 0 else audio_duration_sec
-        if target_sec > audio_duration_sec + 5:
-            import math
-            crossfade_ms = 3000
-            repeats = math.ceil(target_sec / audio_duration_sec)
-            extended = source_audio
-            for _ in range(repeats - 1):
-                extended = extended.append(source_audio, crossfade=crossfade_ms)
-            extended = extended[:int(target_sec * 1000)]
-            extended = extended.fade_in(20000)
-            extended = extended.fade_out(5000)
-            ext_path = audio_path.replace(".wav", f"_{int(target_minutes)}min_video.wav")
-            extended.export(ext_path, format="wav")
-            audio_path = ext_path
-            audio_duration_sec = target_sec
-
-        config = job.get("config")
         safe_title = "ambientizer"
         if config:
             safe_title = "".join(c if c.isalnum() or c in " -_" else "" for c in config.title)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-        looped_path = str(PROJECT_ROOT / "output" / f"{safe_title}_looped_{timestamp}.mp4")
-        gen.loop_video(clip_path, audio_duration_sec, output_path=looped_path)
-
         final_path = str(PROJECT_ROOT / "output" / f"{safe_title}_final_{timestamp}.mp4")
-        gen.combine_audio_video(looped_path, audio_path, output_path=final_path)
+
+        cmd = [
+            "ffmpeg", "-y",
+            "-stream_loop", "-1", "-i", clip_path,
+            "-stream_loop", "-1", "-i", resolved_audio,
+            "-map", "0:v:0",
+            "-map", "1:a:0",
+            "-t", str(target_sec),
+            "-c:v", "libx264", "-preset", "fast", "-crf", "20", "-pix_fmt", "yuv420p",
+            "-af", "afade=t=in:st=0:d=8",
+            "-c:a", "aac", "-b:a", "320k", "-cutoff", "20000",
+            final_path,
+        ]
+
+        _long_task_update(
+            job_id,
+            message=f"Looping clip + combining with audio ({target_sec / 60:.0f} min)...",
+        )
+        print(
+            f"  [export] Single-pass export: {target_sec/60:.0f} min, "
+            f"audio loop cell {loop_duration_sec:.1f}s → {final_path}"
+        )
+        _run_ffmpeg_cancellable(job_id, cmd)
+
+        size_mb = os.path.getsize(final_path) / (1024 * 1024)
+        print(f"  [export] Done: {size_mb:.0f} MB")
 
         with jobs_lock:
             jobs[job_id]["visual_video_path"] = final_path
-
         _save_job(job_id)
 
-        return jsonify({
-            "status": "ready",
+        _long_task_finish(job_id, "done", "Export complete", {
             "download_url": f"/api/visual/video/{job_id}/download",
-            "duration_minutes": target_minutes if target_minutes > 0 else audio_duration_sec / 60,
+            "duration_minutes": target_minutes if target_minutes > 0 else loop_duration_sec / 60,
         })
 
-    except Exception as e:
-        return jsonify({"error": f"Video export failed: {e}"}), 500
+    return _start_background_task(
+        job_id, "export", "Looping clip + combining with audio...", worker
+    )
 
 
 @app.route("/api/visual/video/<job_id>/download")
@@ -1734,6 +2693,19 @@ def download_visual_video(job_id: str):
     if not path or not os.path.exists(path):
         abort(404)
     return send_file(path, mimetype="video/mp4", as_attachment=True)
+
+
+@app.route("/api/visual/video/<job_id>/view")
+def view_visual_video(job_id: str):
+    """Serve the final exported video for inline playback."""
+    with jobs_lock:
+        job = jobs.get(job_id)
+    if not job:
+        abort(404)
+    path = job.get("visual_video_path")
+    if not path or not os.path.exists(path):
+        abort(404)
+    return send_file(path, mimetype="video/mp4")
 
 
 # ── YouTube Publishing ────────────────────────────────────
@@ -1755,16 +2727,34 @@ def youtube_status():
         })
 
     if _yt_publisher.is_authenticated:
-        channel = None
         try:
-            channel = _yt_publisher.get_channel_info()
-        except Exception:
-            pass
+            channel = _yt_publisher.validate_connection()
+        except YouTubeAuthError as e:
+            return jsonify({
+                "connected": False,
+                "has_client_secret": True,
+                "needs_reconnect": True,
+                "message": str(e),
+            })
+        except Exception as e:
+            if _is_invalid_grant(e):
+                _yt_publisher.disconnect()
+                return jsonify({
+                    "connected": False,
+                    "has_client_secret": True,
+                    "needs_reconnect": True,
+                    "message": RECONNECT_MESSAGE,
+                })
+            return jsonify({
+                "connected": False,
+                "has_client_secret": True,
+                "message": f"Could not verify YouTube connection: {e}",
+            })
 
         return jsonify({
             "connected": True,
             "has_client_secret": True,
-            "channel": channel or {"name": "YouTube Account", "thumbnail": "", "subscribers": 0},
+            "channel": channel,
         })
 
     return jsonify({
@@ -1939,6 +2929,12 @@ Output ONLY the JSON, nothing else.""",
     return jsonify(metadata)
 
 
+@app.route("/upload")
+def upload_page():
+    """Standalone upload progress window."""
+    return render_template("upload.html")
+
+
 @app.route("/api/youtube/upload/<job_id>", methods=["POST"])
 def youtube_upload(job_id: str):
     """Start a YouTube upload in the background. Returns immediately."""
@@ -1953,6 +2949,16 @@ def youtube_upload(job_id: str):
 
     if not _yt_publisher.is_authenticated:
         return jsonify({"error": "YouTube not connected. Click Connect first."}), 401
+
+    try:
+        _yt_publisher.validate_connection()
+    except YouTubeAuthError as e:
+        return jsonify({"error": str(e), "needs_reconnect": True}), 401
+    except Exception as e:
+        if _is_invalid_grant(e):
+            _yt_publisher.disconnect()
+            return jsonify({"error": RECONNECT_MESSAGE, "needs_reconnect": True}), 401
+        return jsonify({"error": f"YouTube connection check failed: {e}"}), 500
 
     data = request.get_json(force=True, silent=True) or {}
     title = data.get("title", "").strip()
@@ -1978,47 +2984,84 @@ def youtube_upload(job_id: str):
         jobs[job_id]["yt_privacy"] = privacy
     _save_job(job_id)
 
-    def do_upload():
-        def on_progress(pct, msg):
-            with jobs_lock:
-                jobs[job_id]["upload_progress"] = pct
-                jobs[job_id]["upload_message"] = msg
-
-        try:
-            result = _yt_publisher.upload_video(
-                video_path=video_path,
-                title=title,
-                description=description,
-                tags=tags,
-                privacy=privacy,
-                thumbnail_path=thumbnail_path,
-                on_progress=on_progress,
-            )
-            with jobs_lock:
-                jobs[job_id]["youtube_url"] = result["url"]
-                jobs[job_id]["youtube_video_id"] = result["video_id"]
-                jobs[job_id]["upload_status"] = "done"
-                jobs[job_id]["upload_progress"] = 100
-                jobs[job_id]["upload_message"] = result["url"]
-            _save_job(job_id)
-        except Exception as e:
-            with jobs_lock:
-                jobs[job_id]["upload_status"] = "error"
-                jobs[job_id]["upload_message"] = str(e)
-
-    threading.Thread(target=do_upload, daemon=True).start()
+    # Spawn a fully independent subprocess so the upload survives server
+    # restarts / auto-reloads.  Progress is written to a JSON file on disk
+    # that the status endpoint reads.
+    status_file = str(PROJECT_ROOT / "output" / f"{job_id}_upload_status.json")
+    worker_params = json.dumps({
+        "status_file": status_file,
+        "video_path": video_path,
+        "title": title,
+        "description": description,
+        "tags": tags,
+        "privacy": privacy,
+        "thumbnail_path": thumbnail_path,
+        "client_secret": str(PROJECT_ROOT / "client_secret.json"),
+        "token_path": str(PROJECT_ROOT / "youtube_token.json"),
+    })
+    worker_script = str(PROJECT_ROOT / "upload_worker.py")
+    worker_log = str(PROJECT_ROOT / "output" / f"{job_id}_upload_worker.log")
+    print(f"  [YT Upload {job_id[:8]}] Spawning upload worker subprocess → {worker_log}")
+    log_fh = open(worker_log, "w")
+    subprocess.Popen(
+        [sys.executable, "-u", worker_script, worker_params],
+        start_new_session=True,
+        stdout=log_fh,
+        stderr=log_fh,
+    )
     return jsonify({"status": "uploading"})
 
 
 @app.route("/api/youtube/upload-status/<job_id>")
 def youtube_upload_status(job_id: str):
-    """Poll upload progress."""
+    """Poll upload progress from the worker's status file on disk."""
     with jobs_lock:
         job = jobs.get(job_id)
     if not job:
         return jsonify({"error": "Job not found"}), 404
+
+    status_file = PROJECT_ROOT / "output" / f"{job_id}_upload_status.json"
+    if status_file.exists():
+        try:
+            data = json.loads(status_file.read_text())
+        except (json.JSONDecodeError, OSError):
+            data = {}
+
+        # When the worker finishes, persist the result into the job so it
+        # survives in history / _save_job.
+        if data.get("status") == "done" and data.get("youtube_url"):
+            with jobs_lock:
+                jobs[job_id]["youtube_url"] = data["youtube_url"]
+                jobs[job_id]["youtube_video_id"] = data.get("video_id", "")
+                jobs[job_id]["upload_status"] = "done"
+                jobs[job_id]["upload_progress"] = 100
+                jobs[job_id]["upload_message"] = data["youtube_url"]
+            _save_job(job_id)
+
+        elif data.get("status") == "error":
+            with jobs_lock:
+                jobs[job_id]["upload_status"] = "error"
+                jobs[job_id]["upload_message"] = data.get("message", "Upload failed")
+
+        return jsonify({
+            "status": data.get("status", "uploading"),
+            "progress": data.get("progress", 0),
+            "message": data.get("message", ""),
+            "youtube_url": data.get("youtube_url"),
+        })
+
+    # No status file — if the job still says "uploading" it means the worker
+    # died (e.g. server was restarted before the subprocess fix was live).
+    # Report it as failed so the user can retry instead of polling forever.
+    mem_status = job.get("upload_status", "idle")
+    if mem_status == "uploading":
+        mem_status = "error"
+        with jobs_lock:
+            jobs[job_id]["upload_status"] = "error"
+            jobs[job_id]["upload_message"] = "Upload was interrupted (server restarted). Please try again."
+
     return jsonify({
-        "status": job.get("upload_status", "idle"),
+        "status": mem_status,
         "progress": job.get("upload_progress", 0),
         "message": job.get("upload_message", ""),
         "youtube_url": job.get("youtube_url"),
@@ -2031,4 +3074,4 @@ if __name__ == "__main__":
     parser.add_argument("--port", "-p", type=int, default=5050)
     parser.add_argument("--host", default="0.0.0.0")
     cli_args = parser.parse_args()
-    app.run(debug=True, port=cli_args.port, host=cli_args.host)
+    app.run(debug=True, use_reloader=False, port=cli_args.port, host=cli_args.host, threaded=True)

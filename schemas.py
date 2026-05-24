@@ -68,6 +68,7 @@ class LayerConfig:
     # Timeline — when this layer enters/exits within the track (0 = full duration)
     start_sec: float = 0.0
     end_sec: float = 0.0
+    repeat_every_sec: float = 0.0               # Recur at this interval (0 = play once)
 
     # Looping
     independent_loop: bool = False              # Loop at own sample length, not with the mix
@@ -103,6 +104,7 @@ class SoundscapeConfig:
     target_loudness_lufs: float = -18.0     # Target integrated loudness
     duration_sec: float = 300.0             # Render duration
     music_length_sec: float = 0.0           # Music generation length (0 = match track duration)
+    music_generation_mode: str = "text"     # text|composition_plan
     loopable: bool = True                   # Make output seamlessly loopable
     crossfade_seconds: float = 15.0         # Crossfade duration at loop boundary
     root_key: str = ""                      # Harmonic key for tonal coordination (e.g. "C minor")
@@ -141,6 +143,7 @@ class SoundscapeConfig:
                 swell_period_sec=ld.get("swell_period_sec", 20.0),
                 start_sec=ld.get("start_sec", 0.0),
                 end_sec=ld.get("end_sec", 0.0),
+                repeat_every_sec=ld.get("repeat_every_sec", 0.0),
                 independent_loop=ld.get("independent_loop", False),
                 elevenlabs_prompt=ld.get("elevenlabs_prompt"),
                 generated_audio_path=ld.get("generated_audio_path"),
@@ -163,6 +166,8 @@ class SoundscapeConfig:
             energy_curve=energy_curve,
             target_loudness_lufs=d.get("target_loudness_lufs", -18.0),
             duration_sec=d.get("duration_sec", 300.0),
+            music_length_sec=d.get("music_length_sec", 0.0),
+            music_generation_mode=d.get("music_generation_mode", "text"),
             loopable=d.get("loopable", True),
             crossfade_seconds=d.get("crossfade_seconds", 15.0),
             root_key=d.get("root_key", ""),
@@ -223,6 +228,7 @@ class PartSnapshot:
                 swell_period_sec=ld.get("swell_period_sec", 20.0),
                 start_sec=ld.get("start_sec", 0.0),
                 end_sec=ld.get("end_sec", 0.0),
+                repeat_every_sec=ld.get("repeat_every_sec", 0.0),
                 independent_loop=ld.get("independent_loop", False),
                 elevenlabs_prompt=ld.get("elevenlabs_prompt"),
                 generated_audio_path=ld.get("generated_audio_path"),

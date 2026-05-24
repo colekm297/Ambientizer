@@ -6,80 +6,83 @@ scene description and map them to concrete audio parameters.
 """
 
 import json
+import random
+import time
+from pathlib import Path
 from typing import Optional
 from anthropic import Anthropic
 from schemas import SoundscapeConfig, LayerConfig, LayerType, EffectsChain, EnergyCurve, GenerationMode
+from retry_utils import retry_with_backoff, is_transient_api_error
+
+INTERPRETER_LOG_DIR = Path("interpreter_logs")
+INTERPRETER_LOG_DIR.mkdir(exist_ok=True)
+
+MAJOR_KEYS = ["C major", "D major", "Eb major", "E major", "F major", "G major", "Ab major", "Bb major"]
+MINOR_KEYS = ["C minor", "Eb minor", "F minor", "F# minor", "G minor", "Bb minor", "B minor"]
 
 
-SYSTEM_PROMPT = """You are designing ambient soundscapes for BACKGROUND LISTENING — audio that plays \
+SYSTEM_PROMPT = """You are designing ambient SOUNDSCAPES for BACKGROUND LISTENING — audio that plays \
 for hours on YouTube while people study, work, sleep, or relax.
 
-LAYER APPROACH:
-3-4 layers TOTAL. Each layer is generated independently by an AI music/sound API. \
-They cannot hear each other. You coordinate them by locking ALL musical layers to \
-the same key and style.
+THIS IS NOT A SONG. You are creating a soundscape — evolving textures and atmosphere, NOT tracks \
+with verse/chorus/bridge structure. Think Brian Eno "Music for Airports", Stars of the Lid, \
+Grouper, or field recordings blended with subtle tonal elements.
 
-MODES:
-- MUSICAL: 2-3 musical layers + 1 atmosphere SFX layer.
-    1. MAIN MUSIC (required, type "musical"): A COMPLETE ambient music piece with \
-       actual melody and chord progressions. This is the centerpiece — it should \
-       sound like a beautiful, full song on its own. Think Nils Frahm, Brian Eno, \
-       Ólafur Arnalds, lo-fi study beats. It should have enough musicality that \
-       a listener can latch onto it. Include specific instrument(s), key, and style.
-    2. HARMONY PAD (required, type "musical"): A warm sustained pad that fills out \
-       the harmonic spectrum beneath the main music. Continuous, evolving slowly. \
-       Synth pads, strings, or warm textures. Same key as the main music.
-    3. ATMOSPHERE (required, type "base"): Environmental SFX to ground the scene — \
-       rain, wind, room tone, nature sounds, vinyl crackle, etc.
+APPROACH — the user message specifies a "layer_plan" or a mode + approach:
 
-- AMBIENT: 2-3 SFX layers for environmental soundscapes. You can include 1 musical \
-  layer (e.g. soft drone, singing bowl) if it fits.
+A) LAYER PLAN PROVIDED:
+   Follow the plan exactly. Each entry in the plan defines a layer you must output. \
+   Use the plan's name, type, instruments, and prompt as your starting point. \
+   Fill in all technical details (effects, volume, pan, etc.) and refine the prompt \
+   to be maximally effective for the AI music generator. Do NOT add or remove layers.
+
+B) NO PLAN — UNIFIED approach (musical mode):
+   Create exactly 1 layer:
+   MAIN MUSIC (type "musical"): One cohesive piece containing ALL instruments AND subtle \
+   environmental atmosphere woven into the same generation. Do NOT add a separate atmosphere/SFX layer.
+
+C) NO PLAN — MULTI-LAYER approach (musical mode):
+   Create 3-4 musical layers. Each handles a different sonic role (harmonic bed, melodic lead, \
+   textural pad). If you need environmental texture, use a quiet musical Background Pad layer — \
+   NEVER type "base"/"mid"/"detail" (those produce choppy SFX loops). All layers share the same key.
+
+D) NO PLAN — AMBIENT mode:
+   2-3 SFX/environmental layers. You may include 1 subtle musical element (singing bowl, \
+   soft pad) if it fits the scene.
+
+SOUNDSCAPE PRINCIPLES (apply to ALL modes):
+- Favor evolving textures, slow harmonic drift, and gentle layering
+- Avoid catchy melodies, rhythmic hooks, or song-like progressions
+- Musical layers should feel like ambient wallpaper — beautiful but non-intrusive
+- Think "environment" not "performance"
 
 CRITICAL — KEY SELECTION:
-You MUST vary the key. Pick based on mood, but ALWAYS use MAJOR keys unless the user \
-explicitly asks for something dark, sad, or melancholy. \
-Good ambient major keys: C major, D major, Eb major, F major, G major, Ab major, Bb major. \
-NEVER use A minor or D minor — they are overused. If you must use minor, try Bb minor \
-or Eb minor.
+The user message contains a REQUIRED KEY — you MUST use that exact key.
 
-CRITICAL — MUSICAL LAYER COORDINATION:
-ALL musical layers MUST share:
-  - The SAME key
-  - The SAME mood description
-  - DIFFERENT instruments (never the same instrument in two layers)
-Keep tempo very slow (around 50-65 BPM) for ambient music. At this tempo, slight \
-rhythmic differences between layers are unnoticeable and create organic feel.
+PROMPT QUALITY — most important part:
+The "elevenlabs_prompt" drives the AI generator. \
+If a LAYER PLAN or REFERENCE ANALYSIS provides elevenlabs_prompt values, use them VERBATIM. \
+Do NOT rewrite, rephrase, merge, or "improve" prompts that are already provided. Copy them exactly. \
+Only write NEW prompts when no prompt is provided for a layer. \
+When writing new prompts: be rich and specific (200-450 chars), name instruments, tempo, key, mood. \
+The music will be LOOPED — it must NOT wind down, resolve, or end. \
+Always include "continuous, never-ending" in musical prompts.
 
-PROMPT QUALITY — this is the most important part:
-The "elevenlabs_prompt" drives the AI music generator. Write rich, specific prompts. \
-IMPORTANT: The music will be looped, so it must NOT wind down, resolve, or end. \
-Always include "continuous, never-ending" in every musical layer prompt.
+BANNED WORDS in musical prompts: "drone", "freeform", "no tempo", "arrhythmic" \
+(these produce formless noise).
 
-  GOOD main music: "Beautiful ambient piano piece in G major, gentle melodic phrases \
-    with warm reverb, slow tempo around 55 BPM, contemplative and peaceful, soft \
-    dynamics, continuous and never-ending, inspired by Nils Frahm and Ólafur Arnalds"
-  GOOD pad: "Lush warm synthesizer pad in G major, slowly evolving sustained chords, \
-    ambient and enveloping, continuous and never-ending, gentle and warm"
-  BAD: "Freeform drifting drone, no tempo, ambient wash" (too vague, produces formless noise)
-
-DO NOT USE these words in musical prompts: "drone", "freeform", "no tempo", "arrhythmic". \
-These produce formless noise instead of actual music.
-
-DO NOT apply heavy frequency filtering to musical layers. Let them use their full \
-spectrum. Only use effects for subtle shaping:
-  - Main music: no EQ filtering (let it breathe)
-  - Pad: optional gentle low_pass_hz 8000-12000 to soften brightness
-  - Atmosphere SFX: low_pass_hz 8000-10000 to sit behind the music
-
-LOOPING CONTEXT:
-Output will be looped for hours. Sounds should feel continuous — never fading to silence.
+EFFECTS:
+  - Main music: no EQ filtering, moderate reverb
+  - Background pad layers (if any): low_pass_hz 8000-10000, heavy reverb
 
 VOLUME:
-  Main music: -6 to -4 dB (it's the star).
-  Pad: -12 to -8 dB (supportive).
-  Atmosphere SFX: -14 to -10 dB (background).
+  Main music: -4 to -2 dB (foreground)
+  Background pad layers: -18 to -14 dB (barely audible wash)
 
-If the user provides a REFERENCE ANALYSIS, use its style and mood as inspiration.
+NEVER use layer_type "base", "mid", or "detail" in musical mode — they route to a short SFX \
+generator that produces repetitive hits. Environmental texture belongs inside musical layers.
+
+If a REFERENCE ANALYSIS is provided, blend its sonic character with the user's scene.
 
 Output a JSON object matching this schema:
 {
@@ -94,7 +97,7 @@ Output a JSON object matching this schema:
       "name": "descriptive name",
       "layer_type": "base|mid|detail|musical",
       "sample_tags": [],
-      "elevenlabs_prompt": "200-400 chars, rich and specific, include key for musical layers",
+      "elevenlabs_prompt": "200-450 chars, rich and specific",
       "volume_db": -6.0,
       "pan": 0.0,
       "loop": true,
@@ -123,6 +126,17 @@ Output a JSON object matching this schema:
 Output ONLY valid JSON. No explanation, no markdown fences."""
 
 
+_ATMOSPHERE_KEYWORDS = (
+    "atmosphere", "ambient", "wind", "room tone", "environment", "space",
+    "void", "hum", "drone bed", "background", "texture bed",
+)
+
+_DISCRETE_SFX_WORDS = (
+    "occasional", "intermittent", "sparse", "random", "creak", "crack",
+    "drip", "drop", "hit", "tap", "knock", "footstep", "burst", "gust",
+)
+
+
 class ThemeInterpreter:
     """Converts natural language scene descriptions into SoundscapeConfig."""
 
@@ -130,13 +144,234 @@ class ThemeInterpreter:
         self.client = Anthropic(api_key=anthropic_api_key)
         self.model = model
 
+    @staticmethod
+    def _looks_like_atmosphere(layer: LayerConfig) -> bool:
+        text = f"{layer.name} {layer.elevenlabs_prompt or ''}".lower()
+        return any(k in text for k in _ATMOSPHERE_KEYWORDS)
+
+    @staticmethod
+    def _pad_prompt(prompt: str, root_key: str = "") -> str:
+        key_bit = f" in {root_key}" if root_key else ""
+        cleaned = prompt
+        for word in _DISCRETE_SFX_WORDS:
+            cleaned = cleaned.replace(word, "subtle")
+        return (
+            f"Soft sustained ambient pad{key_bit}: {cleaned}. "
+            "Continuous never-ending harmonic wash, extremely slow evolution, "
+            "no discrete events, no hits, no pulses, no rhythmic patterns, seamless loop."
+        )[:450]
+
+    def _convert_to_pad_layer(self, layer: LayerConfig, root_key: str = "") -> LayerConfig:
+        return LayerConfig(
+            name=layer.name,
+            layer_type=LayerType.MUSICAL,
+            sample_tags=layer.sample_tags or ["pad", "texture", "ambient"],
+            volume_db=min(layer.volume_db, -14.0),
+            pan=layer.pan,
+            loop=True,
+            fade_in_sec=max(layer.fade_in_sec, 4.0),
+            fade_out_sec=0.0,
+            independent_loop=True,
+            effects=layer.effects or EffectsChain(reverb_amount=0.45, reverb_room_size=0.85, low_pass_hz=9000),
+            elevenlabs_prompt=self._pad_prompt(layer.elevenlabs_prompt or layer.name, root_key),
+        )
+
+    def _finalize_layers(
+        self,
+        layers: list[LayerConfig],
+        mode: GenerationMode,
+        approach: str,
+        root_key: str = "",
+    ) -> list[LayerConfig]:
+        """Merge choppy atmosphere SFX into music, or convert to sustained pads."""
+        if not layers:
+            return layers
+
+        musical = [l for l in layers if l.layer_type == LayerType.MUSICAL]
+        sfx_like = [l for l in layers if l.layer_type in (LayerType.BASE, LayerType.MID, LayerType.DETAIL)]
+
+        if mode == GenerationMode.MUSICAL and approach == "unified" and musical and sfx_like:
+            main = musical[0]
+            atmo_bits = " ".join(
+                (l.elevenlabs_prompt or l.name).strip(".") for l in sfx_like if (l.elevenlabs_prompt or l.name)
+            )
+            if atmo_bits:
+                main.elevenlabs_prompt = (
+                    f"{main.elevenlabs_prompt} "
+                    f"Subtle integrated background atmosphere: {atmo_bits}. "
+                    "Weave as a continuous environmental bed, not separate hits."
+                )[:1000]
+            return musical
+
+        if mode == GenerationMode.MUSICAL and sfx_like:
+            converted = []
+            for layer in layers:
+                if layer.layer_type in (LayerType.BASE, LayerType.MID, LayerType.DETAIL):
+                    converted.append(self._convert_to_pad_layer(layer, root_key))
+                else:
+                    converted.append(layer)
+            return converted
+
+        for layer in layers:
+            if layer.layer_type in (LayerType.BASE, LayerType.MID) and layer.loop:
+                prompt = layer.elevenlabs_prompt or layer.name
+                if not any(w in prompt.lower() for w in ("continuous", "steady", "seamless")):
+                    layer.elevenlabs_prompt = (
+                        f"{prompt}. Continuous steady environmental bed, no discrete hits or pulses, seamless loop."
+                    )[:450]
+                layer.independent_loop = True
+        return layers
+
+    def config_from_reference_direct(
+        self,
+        prompt: str,
+        duration_sec: float,
+        reference_analysis: dict,
+        approach: str = "unified",
+    ) -> SoundscapeConfig:
+        """Build a config from Gemini reference prompts without Claude rewriting them."""
+        mood_hint = "melancholic and contemplative"
+        feel = reference_analysis.get("overall_feel") or ""
+        if feel:
+            mood_hint = feel[:120]
+
+        recreate = reference_analysis.get("recreate_with", []) or []
+        musical = [r for r in recreate if (r.get("layer_type") or "").lower() == "musical"]
+        sfx = [r for r in recreate if (r.get("layer_type") or "").lower() != "musical"]
+
+        layers: list[LayerConfig] = []
+        if approach == "multilayer":
+            selected_music = musical[:3]
+        else:
+            selected_music = musical
+
+        if selected_music:
+            direct_prompt = (reference_analysis.get("direct_elevenlabs_prompt") or "").strip()
+            do_not = reference_analysis.get("do_not_include", []) or []
+            if approach == "unified" and direct_prompt:
+                avoid = f" Avoid: {', '.join(str(x) for x in do_not[:10])}." if do_not else ""
+                music_prompt = (direct_prompt + avoid)[:900]
+                music_name = "Complete Reference Arrangement"
+            elif approach == "unified" and len(musical) > 1:
+                prompts = [r.get("elevenlabs_prompt", "") for r in musical if r.get("elevenlabs_prompt")]
+                music_prompt = (
+                    "Complete ambient arrangement containing all of these clearly audible elements: "
+                    + " ".join(prompts)
+                )[:900]
+                music_name = "Complete Reference Arrangement"
+            else:
+                music_prompt = selected_music[0].get("elevenlabs_prompt", "")
+                music_name = selected_music[0].get("layer_name", "Complete Reference Arrangement")
+
+            layers.append(LayerConfig(
+                name=music_name,
+                layer_type=LayerType.MUSICAL,
+                sample_tags=["reference", "ambient", "music"],
+                volume_db=-3.0,
+                pan=0.0,
+                loop=True,
+                fade_in_sec=5.0,
+                fade_out_sec=0.0,
+                effects=EffectsChain(reverb_amount=0.35, reverb_room_size=0.75),
+                elevenlabs_prompt=(
+                    f"{music_prompt}. A complete, layered instrumental ambient soundscape arrangement, "
+                    "not a single drone. Keep the melodic/string/pad elements present together with subtle motion. "
+                    "Continuous, never-ending loop. No vocals, no drums, no beat drop, no final cadence, no fade-out ending."
+                )[:1000],
+            ))
+
+            if approach == "multilayer":
+                for r in selected_music[1:]:
+                    layers.append(LayerConfig(
+                        name=r.get("layer_name", "Reference Musical Layer"),
+                        layer_type=LayerType.MUSICAL,
+                        sample_tags=["reference", "ambient", "music"],
+                        volume_db=-9.0,
+                        pan=0.0,
+                        loop=True,
+                        fade_in_sec=5.0,
+                        fade_out_sec=0.0,
+                        effects=EffectsChain(reverb_amount=0.3, reverb_room_size=0.7),
+                        elevenlabs_prompt=(
+                            f"{r.get('elevenlabs_prompt', '')}. Continuous, never-ending ambient layer. "
+                            "No song ending, no fade-out ending."
+                        )[:1000],
+                    ))
+
+        if sfx:
+            r = sfx[0]
+            if approach == "unified" and layers:
+                atmo = r.get("elevenlabs_prompt", "")
+                if atmo:
+                    layers[0].elevenlabs_prompt = (
+                        f"{layers[0].elevenlabs_prompt} "
+                        f"Subtle integrated background atmosphere: {atmo}. "
+                        "Weave as a continuous environmental bed, not separate hits."
+                    )[:1000]
+            else:
+                pad = LayerConfig(
+                    name=r.get("layer_name", "Reference Atmosphere"),
+                    layer_type=LayerType.MUSICAL,
+                    sample_tags=["reference", "atmosphere", "pad"],
+                    volume_db=-16.0,
+                    pan=0.0,
+                    loop=True,
+                    fade_in_sec=4.0,
+                    fade_out_sec=0.0,
+                    independent_loop=True,
+                    effects=EffectsChain(reverb_amount=0.35, reverb_room_size=0.75, low_pass_hz=9000),
+                    elevenlabs_prompt=self._pad_prompt(r.get("elevenlabs_prompt", r.get("layer_name", "Atmosphere"))),
+                )
+                layers.append(pad)
+
+        if not layers:
+            layers.append(LayerConfig(
+                name="Reference-Inspired Music Bed",
+                layer_type=LayerType.MUSICAL,
+                sample_tags=["ambient", "music"],
+                volume_db=-3.0,
+                loop=True,
+                fade_out_sec=0.0,
+                effects=EffectsChain(reverb_amount=0.35, reverb_room_size=0.75),
+                elevenlabs_prompt=(
+                    f"{feel or prompt}. Continuous, never-ending ambient soundscape loop. "
+                    "No vocals, no drums, no final cadence, no fade-out ending."
+                )[:1000],
+            ))
+
+        return SoundscapeConfig(
+            title="Reference Direct Soundscape",
+            description=prompt,
+            mood=mood_hint,
+            setting="reference-inspired atmosphere",
+            time_of_day="",
+            root_key="",
+            layers=layers,
+            master_effects=EffectsChain(reverb_amount=0.2, reverb_room_size=0.5, high_pass_hz=30, low_pass_hz=16000),
+            energy_curve=EnergyCurve(style="steady", min_energy=0.55, max_energy=0.75),
+            target_loudness_lufs=-16.0,
+            duration_sec=duration_sec,
+        )
+
     def build_user_message(
         self,
         prompt: str,
         mode: str,
         reference_analysis: Optional[dict],
+        layer_plan: Optional[list] = None,
+        approach: str = "unified",
     ) -> str:
-        msg = f"USER REQUEST: {prompt}\nMODE: {mode}\n"
+        msg = f"USER REQUEST: {prompt}\nMODE: {mode}\nAPPROACH: {approach}\n"
+
+        if layer_plan:
+            msg += f"""
+LAYER PLAN (user-approved — follow this exactly):
+{json.dumps(layer_plan, indent=2)}
+
+Use each entry as a layer in your output. Match the name, type, and instruments. \
+Use the prompt_preview EXACTLY as the elevenlabs_prompt — do NOT rewrite or rephrase it. \
+Copy it verbatim. Do NOT add or remove layers.
+"""
 
         if reference_analysis:
             recreate = reference_analysis.get('recreate_with', [])
@@ -144,17 +379,38 @@ class ThemeInterpreter:
 REFERENCE ANALYSIS (from a YouTube video the user likes):
 Overall feel: {reference_analysis.get('overall_feel', 'N/A')}
 
-Layer blueprints — use these as your layers:
+Layer blueprints from the reference:
 {json.dumps(recreate, indent=2)}
 
 Mix character: {json.dumps(reference_analysis.get('mix_qualities', {}))}
 
-Use these blueprints as your starting point. Copy the elevenlabs_prompt values. \
-If a layer has "layer_type": "musical", set it as musical in your config.
+BLENDING RULES:
+- The reference tells you WHAT KINDS of sounds to use (instruments, textures, mix style).
+- The user's prompt tells you the SCENE and SETTING.
+- Use the elevenlabs_prompt values from the reference layer blueprints EXACTLY as written — do NOT rewrite or rephrase them. Copy them verbatim into your layers.
+- If the reference has "musical" layers, keep them musical in your config.
 """
 
+        mood_hint = prompt.lower()
+        use_minor = any(w in mood_hint for w in [
+            "melanchol", "dark", "tense", "lonely", "mysterious", "somber",
+            "sad", "eerie", "haunting", "noir", "gloomy",
+        ])
+        suggested_key = random.choice(MINOR_KEYS if use_minor else MAJOR_KEYS)
+        msg += f"\nREQUIRED KEY: {suggested_key}\nYou MUST set root_key to \"{suggested_key}\" and write all musical layer prompts in this key.\n"
         msg += "\nGenerate the SoundscapeConfig JSON."
         return msg
+
+    @retry_with_backoff(max_retries=3, base_delay=2.0, retryable_check=is_transient_api_error)
+    def _call_claude(self, user_message: str) -> str:
+        """Call Claude with retry logic; returns raw response text."""
+        response = self.client.messages.create(
+            model=self.model,
+            max_tokens=4096,
+            system=SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": user_message}],
+        )
+        return response.content[0].text
 
     def interpret(
         self,
@@ -162,6 +418,8 @@ If a layer has "layer_type": "musical", set it as musical in your config.
         duration_sec: float = 300.0,
         mode: GenerationMode = GenerationMode.AMBIENT,
         reference_analysis: Optional[dict] = None,
+        layer_plan: Optional[list] = None,
+        approach: str = "unified",
     ) -> SoundscapeConfig:
         """
         Take a user's natural language prompt and return a structured SoundscapeConfig.
@@ -171,20 +429,33 @@ If a layer has "layer_type": "musical", set it as musical in your config.
             duration_sec: Target duration for the soundscape
             mode: AMBIENT (pure environment) or MUSICAL (ambient music + environment)
             reference_analysis: Optional raw analysis dict from ReferenceAnalyzer
+            layer_plan: Optional list of layer dicts from the Enhance & Plan step
+            approach: 'unified' or 'multi-layer' (musical mode only)
 
         Returns:
             SoundscapeConfig ready to be rendered by the audio engine
         """
-        user_message = self.build_user_message(prompt, mode.value, reference_analysis)
-
-        response = self.client.messages.create(
-            model=self.model,
-            max_tokens=4096,
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": user_message}],
+        user_message = self.build_user_message(
+            prompt, mode.value, reference_analysis, layer_plan, approach
         )
 
-        raw_json = response.content[0].text
+        log_entry = {
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "prompt": prompt,
+            "mode": mode.value,
+            "approach": approach,
+            "has_reference": reference_analysis is not None,
+            "has_layer_plan": bool(layer_plan),
+            "layer_plan_summary": [p.get("name", "?") for p in (layer_plan or [])],
+            "reference_summary": reference_analysis.get("overall_feel", "") if reference_analysis else "",
+            "reference_layers": [
+                r.get("layer_name", "?") for r in (reference_analysis or {}).get("recreate_with", [])
+            ],
+            "full_message_to_claude": user_message,
+        }
+
+        raw_json = self._call_claude(user_message)
+        log_entry["raw_claude_response"] = raw_json
 
         clean = raw_json.strip()
         if clean.startswith("```"):
@@ -197,22 +468,11 @@ If a layer has "layer_type": "musical", set it as musical in your config.
             config_dict = json.loads(clean)
         except json.JSONDecodeError as e:
             print(f"   ⚠ JSON parse failed ({e}), retrying with shorter prompt...")
-            response = self.client.messages.create(
-                model=self.model,
-                max_tokens=4096,
-                system=SYSTEM_PROMPT,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": (
-                            f"USER REQUEST: {prompt}\nMODE: {mode.value}\n\n"
-                            "IMPORTANT: Keep elevenlabs_prompt values under 100 characters each. "
-                            "Use 4 layers maximum. Output ONLY valid JSON, no markdown fences."
-                        ),
-                    }
-                ],
+            raw_json = self._call_claude(
+                f"USER REQUEST: {prompt}\nMODE: {mode.value}\n\n"
+                "IMPORTANT: Keep elevenlabs_prompt values under 100 characters each. "
+                "Use 4 layers maximum. Output ONLY valid JSON, no markdown fences."
             )
-            raw_json = response.content[0].text
             clean = raw_json.strip()
             if clean.startswith("```"):
                 clean = clean.split("\n", 1)[1]
@@ -245,10 +505,13 @@ If a layer has "layer_type": "musical", set it as musical in your config.
                 elevenlabs_prompt=layer_dict.get("elevenlabs_prompt"),
             ))
 
+        root_key = config_dict.get("root_key", "")
+        layers = self._finalize_layers(layers, mode, approach, root_key)
+
         master_fx = EffectsChain(**config_dict.get("master_effects", {}))
         energy = EnergyCurve(**config_dict.get("energy_curve", {}))
 
-        return SoundscapeConfig(
+        config = SoundscapeConfig(
             title=config_dict["title"],
             description=prompt,
             mood=config_dict["mood"],
@@ -261,6 +524,29 @@ If a layer has "layer_type": "musical", set it as musical in your config.
             duration_sec=duration_sec,
             root_key=config_dict.get("root_key", ""),
         )
+
+        log_entry["output_title"] = config.title
+        log_entry["output_key"] = config.root_key
+        log_entry["output_mood"] = config.mood
+        log_entry["output_layers"] = [
+            {
+                "name": l.name,
+                "type": l.layer_type.value,
+                "volume_db": l.volume_db,
+                "elevenlabs_prompt": l.elevenlabs_prompt or "",
+            }
+            for l in config.layers
+        ]
+        try:
+            ts = time.strftime("%Y%m%d_%H%M%S")
+            safe_title = "".join(c if c.isalnum() or c in " -_" else "" for c in config.title)[:40]
+            log_path = INTERPRETER_LOG_DIR / f"{ts}_{safe_title}.json"
+            log_path.write_text(json.dumps(log_entry, indent=2, ensure_ascii=False))
+            print(f"   📋 Interpreter log saved: {log_path}")
+        except Exception as e:
+            print(f"   ⚠ Failed to save interpreter log: {e}")
+
+        return config
 
 
 class DiscoveryConversation:

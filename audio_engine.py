@@ -46,10 +46,10 @@ SAMPLE_RATE = 44100
 
 def make_loopable(audio: AudioSegment, crossfade_ms: int) -> AudioSegment:
     """
-    Make an AudioSegment seamlessly loopable via equal-power crossfade.
+    Make an AudioSegment seamlessly loopable via equal-power crossfade at the END.
 
-    The audio must be LONGER than desired output by at least crossfade_ms.
-    The tail is blended into the head, then trimmed to remove the extra.
+    Preserves the intro at t=0 so playback starts naturally. The final crossfade
+    region blends the tail into the head for an inaudible wrap point.
     """
     if crossfade_ms <= 0 or len(audio) < crossfade_ms * 2:
         return audio
@@ -60,7 +60,7 @@ def make_loopable(audio: AudioSegment, crossfade_ms: int) -> AudioSegment:
         samples = samples.reshape((-1, 2))
 
     crossfade_samples = int(crossfade_ms * audio.frame_rate / 1000)
-    output_samples = len(samples) - crossfade_samples
+    n = len(samples)
 
     t = np.linspace(0, 1, crossfade_samples)
     fade_in = np.sqrt(t)
@@ -70,18 +70,145 @@ def make_loopable(audio: AudioSegment, crossfade_ms: int) -> AudioSegment:
         fade_in = fade_in[:, np.newaxis]
         fade_out = fade_out[:, np.newaxis]
 
-    head = samples[:crossfade_samples].copy()
-    tail = samples[output_samples:].copy()
+    head = samples[:crossfade_samples]
+    tail = samples[n - crossfade_samples:]
+    blended_end = tail * fade_out + head * fade_in
 
-    blended = head * fade_in + tail * fade_out
-    result = samples[:output_samples].copy()
-    result[:crossfade_samples] = blended
+    result = samples.copy()
+    result[n - crossfade_samples:] = blended_end
 
     result = np.clip(result, -32768, 32767).astype(np.int16)
     if channels == 2:
         result = result.flatten()
 
-    return audio._spawn(result.tobytes())[:int(output_samples / audio.frame_rate * 1000)]
+    return audio._spawn(result.tobytes())
+
+
+def _probe_dbfs(audio: AudioSegment, start_ms: int, duration_ms: int) -> float:
+    seg = audio[start_ms:start_ms + duration_ms]
+    if len(seg) == 0:
+        return float("-inf")
+    return seg.dBFS
+
+
+def _trim_generated_fade_out(audio: AudioSegment) -> AudioSegment:
+    """Remove ElevenLabs song-style fade-out tails."""
+    audio_len = len(audio)
+    tail_ms = min(30_000, max(4_000, int(audio_len * 0.22)), audio_len // 3)
+    probe_ms = min(5_000, max(1_500, tail_ms // 3))
+
+    end_probe = _probe_dbfs(audio, audio_len - probe_ms, probe_ms)
+    pre_tail_start = max(0, audio_len - tail_ms - max(5_000, tail_ms))
+    pre_tail_end = max(pre_tail_start + 1, audio_len - tail_ms)
+    pre_tail_probe = _probe_dbfs(audio, pre_tail_start, min(probe_ms, pre_tail_end - pre_tail_start))
+
+    if end_probe == float("-inf") or pre_tail_probe - end_probe >= 6.0:
+        trim_ms = min(tail_ms, audio_len // 3)
+        print(
+            f"   Loop prep: trimmed {trim_ms/1000:.1f}s fade-out "
+            f"(end {end_probe:.1f} dBFS vs pre-tail {pre_tail_probe:.1f} dBFS)",
+            flush=True,
+        )
+        return audio[:-trim_ms]
+    return audio
+
+
+def _trim_generated_fade_in(audio: AudioSegment) -> AudioSegment:
+    """Remove quiet intro ramps so the loop head matches body level."""
+    audio_len = len(audio)
+    probe_ms = min(5_000, max(1_500, audio_len // 60))
+    head_probe = _probe_dbfs(audio, 0, probe_ms)
+    body_start = min(int(audio_len * 0.2), max(probe_ms * 2, audio_len // 5))
+    body_probe = _probe_dbfs(audio, body_start, probe_ms)
+
+    if head_probe == float("-inf") or body_probe - head_probe < 6.0:
+        return audio
+
+    # Walk forward until level is within 3 dB of the steady body.
+    target = body_probe - 3.0
+    step = max(500, probe_ms // 4)
+    trim_ms = 0
+    for start in range(0, min(int(audio_len * 0.35), body_start + probe_ms), step):
+        if _probe_dbfs(audio, start, probe_ms) >= target:
+            trim_ms = start
+            break
+
+    if trim_ms <= 0:
+        trim_ms = min(int(audio_len * 0.12), body_start)
+
+    print(
+        f"   Loop prep: trimmed {trim_ms/1000:.1f}s fade-in "
+        f"(head {head_probe:.1f} dBFS vs body {body_probe:.1f} dBFS)",
+        flush=True,
+    )
+    return audio[trim_ms:]
+
+
+def _find_loop_rotation_ms(audio: AudioSegment, probe_ms: int = 3000) -> int:
+    """Pick a loop start where head energy matches tail energy."""
+    audio_len = len(audio)
+    if audio_len < probe_ms * 6:
+        return 0
+
+    tail_start = max(0, audio_len - probe_ms * 2)
+    tail_probe = _probe_dbfs(audio, tail_start, min(probe_ms, audio_len - tail_start))
+    if tail_probe == float("-inf"):
+        return 0
+
+    best_offset = 0
+    best_delta = float("inf")
+    search_start = int(audio_len * 0.05)
+    search_end = int(audio_len * 0.45)
+    step = max(1000, probe_ms // 2)
+
+    for offset in range(search_start, search_end, step):
+        head_probe = _probe_dbfs(audio, offset, min(probe_ms, audio_len - offset))
+        if head_probe == float("-inf"):
+            continue
+        delta = abs(head_probe - tail_probe)
+        if delta < best_delta:
+            best_delta = delta
+            best_offset = offset
+
+    if best_offset > 0 and best_delta <= 4.0:
+        print(
+            f"   Loop prep: rotated start by {best_offset/1000:.1f}s "
+            f"(head/tail delta {best_delta:.1f} dB)",
+            flush=True,
+        )
+        return best_offset
+    return 0
+
+
+def _rotate_audio(audio: AudioSegment, offset_ms: int) -> AudioSegment:
+    if offset_ms <= 0:
+        return audio
+    return audio[offset_ms:] + audio[:offset_ms]
+
+
+def prepare_musical_loop(audio: AudioSegment, crossfade_ms: int) -> AudioSegment:
+    """
+    Prepare generated music as a reusable ambient loop cell.
+
+    ElevenLabs often treats the requested duration like a complete song with
+    quiet intros and fade-out endings. For soundscapes we trim those fades,
+    rotate to a level-matched loop point, then crossfade the seam so Web Audio
+    looping does not glitch or drop at the wrap.
+    """
+    if crossfade_ms <= 0 or len(audio) < 8_000:
+        return audio
+
+    prepared = _trim_generated_fade_out(audio)
+    prepared = _trim_generated_fade_in(prepared)
+
+    rotation_ms = _find_loop_rotation_ms(prepared)
+    prepared = _rotate_audio(prepared, rotation_ms)
+
+    cf_ms = min(crossfade_ms, 15_000, max(2_000, len(prepared) // 8))
+    if cf_ms > 1_000 and len(prepared) > cf_ms * 2:
+        return make_loopable(prepared, cf_ms)
+
+    return prepared
 
 
 class SampleLibrary:
@@ -351,10 +478,52 @@ class AudioEngine:
         max_cf = config.duration_sec * 0.4
         return int(min(cf, max_cf) * 1000)
 
+    def _loop_cell_ms(self, config: SoundscapeConfig) -> int:
+        """Length of one export loop cell — matches LiveMixer per-layer loops."""
+        if config.music_length_sec > 0:
+            return int(config.music_length_sec * 1000)
+        return int(min(max(config.duration_sec, 30), 120) * 1000)
+
+    def render_export_loop(self, config: SoundscapeConfig) -> AudioSegment:
+        """Render one seamless audio loop cell for long-form video export."""
+        crossfade_ms = self._crossfade_ms_for_duration(config)
+        render_ms = self._loop_cell_ms(config)
+
+        mix = AudioSegment.silent(duration=render_ms, frame_rate=SAMPLE_RATE)
+
+        active_layers = [l for l in config.layers if l.volume_db > -55]
+        gain_offset = self._gain_staging_offset(active_layers)
+
+        for layer in config.layers:
+            sample = self._load_sample_for_layer(layer)
+            if sample is None:
+                continue
+            if layer.layer_type == LayerType.MUSICAL and config.loopable:
+                sample = prepare_musical_loop(sample, crossfade_ms)
+
+            loops = math.ceil(render_ms / len(sample)) + 1
+            layer_audio = (sample * loops)[:render_ms]
+
+            layer_audio = layer_audio + layer.volume_db
+            if gain_offset != 0.0:
+                layer_audio = layer_audio + gain_offset
+
+            pan_val = max(-1.0, min(1.0, layer.pan))
+            if pan_val != 0.0:
+                layer_audio = layer_audio.pan(pan_val)
+
+            layer_audio = self._apply_layer_timing(layer_audio, layer, render_ms)
+            mix = mix.overlay(layer_audio)
+
+        if crossfade_ms > 0 and config.loopable:
+            mix = make_loopable(mix, crossfade_ms)
+
+        return mix
+
     def render(self, config: SoundscapeConfig) -> AudioSegment:
         """Render a complete soundscape from a config."""
         crossfade_ms = self._crossfade_ms_for_duration(config)
-        render_ms = int(config.duration_sec * 1000) + crossfade_ms
+        render_ms = int(config.duration_sec * 1000)
 
         self._auto_stereo_spread(config)
 
@@ -394,22 +563,43 @@ class AudioEngine:
     def _apply_layer_timing(
         self, audio: AudioSegment, layer: LayerConfig, total_ms: int
     ) -> AudioSegment:
-        """If layer has start_sec/end_sec, silence the regions outside that window
-        and apply 2-second fades at the entry/exit points."""
+        """Place layer audio into active windows with fades. Supports repeat_every_sec
+        to create recurring appearances of the layer throughout the track."""
         start_ms = int(layer.start_sec * 1000)
         end_ms = int(layer.end_sec * 1000) if layer.end_sec > 0 else total_ms
-        if start_ms <= 0 and end_ms >= total_ms:
+        repeat_ms = int(getattr(layer, "repeat_every_sec", 0) * 1000)
+
+        if start_ms <= 0 and end_ms >= total_ms and repeat_ms <= 0:
             return audio
+
         FADE_MS = 2000
-        active = audio[start_ms:end_ms]
-        active = active.fade_in(min(FADE_MS, len(active) // 2))
-        active = active.fade_out(min(FADE_MS, len(active) // 2))
-        result = AudioSegment.silent(duration=start_ms, frame_rate=audio.frame_rate)
-        result += active
-        tail = total_ms - len(result)
-        if tail > 0:
-            result += AudioSegment.silent(duration=tail, frame_rate=audio.frame_rate)
-        return result[:total_ms]
+        window_len = end_ms - start_ms
+
+        windows = []
+        if repeat_ms > 0 and window_len > 0:
+            effective_repeat = max(repeat_ms, window_len)
+            ws = start_ms
+            while ws < total_ms:
+                we = min(ws + window_len, total_ms)
+                windows.append((ws, we))
+                ws += effective_repeat
+        else:
+            windows.append((start_ms, min(end_ms, total_ms)))
+
+        result = AudioSegment.silent(duration=total_ms, frame_rate=audio.frame_rate)
+        for ws, we in windows:
+            segment = audio[ws % len(audio) : (ws % len(audio)) + (we - ws)]
+            if len(segment) < (we - ws):
+                segment += audio[:((we - ws) - len(segment))]
+            segment = segment[:we - ws]
+            if len(segment) > FADE_MS * 2:
+                segment = segment.fade_in(FADE_MS).fade_out(FADE_MS)
+            elif len(segment) > 0:
+                half = len(segment) // 2
+                segment = segment.fade_in(half).fade_out(half)
+            result = result.overlay(segment, position=ws)
+
+        return result
 
     def _auto_stereo_spread(self, config: SoundscapeConfig):
         """If all layers are centered (pan=0), auto-distribute across the stereo field."""
@@ -437,6 +627,71 @@ class AudioEngine:
         if n <= 6:
             return -4.0
         return -6.0
+
+    def render_flat(self, config: SoundscapeConfig) -> AudioSegment:
+        """Render a flat mix: raw layers with volume + pan only.
+
+        No effects chain, no frequency slotting, no swell, no master effects.
+        This matches what the LiveMixer plays on the client.
+        """
+        crossfade_ms = self._crossfade_ms_for_duration(config)
+        render_ms = int(config.duration_sec * 1000)
+
+        mix = AudioSegment.silent(duration=render_ms, frame_rate=SAMPLE_RATE)
+
+        active_layers = [l for l in config.layers if l.volume_db > -55]
+        gain_offset = self._gain_staging_offset(active_layers)
+
+        for layer in config.layers:
+            sample = self._load_sample_for_layer(layer)
+            if sample is None:
+                continue
+            if layer.layer_type == LayerType.MUSICAL and config.loopable:
+                sample = prepare_musical_loop(sample, crossfade_ms)
+
+            needs_tiling = len(sample) < render_ms
+            # Per-sample crossfade looping for non-musical layers (drones,
+            # textures) to avoid clicks.  Musical layers skip this because
+            # they may have a deliberate arrangement arc (quiet→loud) and
+            # crossfading the loud tail into the quiet head destroys the intro.
+            # The final mix still gets make_loopable() for overall seamless looping.
+            use_crossfaded_tiling = (
+                needs_tiling and len(sample) > 2000
+                and layer.layer_type != LayerType.MUSICAL
+                and (layer.independent_loop or layer.loop)
+            )
+
+            if use_crossfaded_tiling:
+                sample_cf = min(crossfade_ms, int(len(sample) * 0.25))
+                if sample_cf > 500:
+                    tiled = make_loopable(sample, sample_cf)
+                else:
+                    tiled = sample
+                loops = math.ceil(render_ms / len(tiled)) + 1
+                layer_audio = (tiled * loops)[:render_ms]
+            elif layer.loop or layer.layer_type in (LayerType.BASE, LayerType.MUSICAL):
+                loops = math.ceil(render_ms / len(sample)) + 1
+                layer_audio = (sample * loops)[:render_ms]
+            else:
+                layer_audio = self._render_sparse_layer(
+                    sample, layer, render_ms, config.energy_curve
+                )
+
+            layer_audio = layer_audio + layer.volume_db
+            if gain_offset != 0.0:
+                layer_audio = layer_audio + gain_offset
+
+            pan_val = max(-1.0, min(1.0, layer.pan))
+            if pan_val != 0.0:
+                layer_audio = layer_audio.pan(pan_val)
+
+            layer_audio = self._apply_layer_timing(layer_audio, layer, render_ms)
+            mix = mix.overlay(layer_audio)
+
+        if crossfade_ms > 0:
+            mix = make_loopable(mix, crossfade_ms)
+
+        return mix
 
     def render_preview(self, config: SoundscapeConfig, preview_sec: float = 30.0) -> AudioSegment:
         """
@@ -513,7 +768,8 @@ class AudioEngine:
         needs_tiling = len(sample) < duration_ms
         use_crossfaded_tiling = (
             loopable and needs_tiling and len(sample) > 2000
-            and (layer.independent_loop or layer.layer_type == LayerType.MUSICAL)
+            and layer.layer_type != LayerType.MUSICAL
+            and (layer.independent_loop or layer.loop)
         )
 
         if use_crossfaded_tiling:
@@ -874,7 +1130,7 @@ class AudioEngine:
         for added in part.added_layers:
             config.layers.append(added)
 
-        return self.render(config)
+        return self.render_flat(config)
 
     def stitch_parts(
         self,

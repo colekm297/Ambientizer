@@ -16,6 +16,7 @@ Setup:
 import os
 import json
 import time
+import fcntl
 import httplib2
 from pathlib import Path
 from typing import Optional, Callable
@@ -23,12 +24,13 @@ from typing import Optional, Callable
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from google.auth.transport.requests import Request
+from google.auth.exceptions import RefreshError
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from googleapiclient.errors import HttpError
 
-import os
-os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
+if os.environ.get("FLASK_ENV") == "development" or not os.environ.get("FLASK_ENV"):
+    os.environ.setdefault("OAUTHLIB_INSECURE_TRANSPORT", "1")
 
 SCOPES = [
     "https://www.googleapis.com/auth/youtube.upload",
@@ -47,6 +49,20 @@ DEFAULT_CATEGORY = "10"
 RETRIABLE_STATUS_CODES = [500, 502, 503, 504]
 MAX_RETRIES = 5
 
+RECONNECT_MESSAGE = (
+    "YouTube authorization expired. Go to Publish → Connect YouTube to sign in again. "
+    "If this keeps happening every ~7 days, your Google Cloud OAuth app is likely in "
+    "Testing mode — publish it to Production or reconnect weekly."
+)
+
+
+class YouTubeAuthError(RuntimeError):
+    """Raised when stored OAuth credentials can no longer be refreshed."""
+
+
+def _is_invalid_grant(exc: BaseException) -> bool:
+    return "invalid_grant" in str(exc).lower()
+
 
 class YouTubePublisher:
     """Manages YouTube OAuth and video uploads."""
@@ -58,7 +74,19 @@ class YouTubePublisher:
     ):
         self.client_secret_path = Path(client_secret_path)
         self.token_path = Path(token_path)
+        self._token_lock_path = self.token_path.with_suffix(".lock")
         self._youtube = None
+
+    def _token_lock(self):
+        self._token_lock_path.parent.mkdir(parents=True, exist_ok=True)
+        fh = open(self._token_lock_path, "w")
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        return fh
+
+    @staticmethod
+    def _token_unlock(lock_fh):
+        fcntl.flock(lock_fh.fileno(), fcntl.LOCK_UN)
+        lock_fh.close()
 
     @property
     def has_client_secret(self) -> bool:
@@ -100,21 +128,38 @@ class YouTubePublisher:
         else:
             flow.fetch_token(code=code)
         creds = flow.credentials
-        self.token_path.write_text(creds.to_json())
+        lock_fh = self._token_lock()
+        try:
+            self.token_path.write_text(creds.to_json())
+        finally:
+            self._token_unlock(lock_fh)
         self._youtube = None
         return True
 
     def _get_credentials(self) -> Credentials:
-        if not self.token_path.exists():
-            raise RuntimeError("Not authenticated. Complete OAuth flow first.")
+        lock_fh = self._token_lock()
+        try:
+            if not self.token_path.exists():
+                raise RuntimeError("Not authenticated. Complete OAuth flow first.")
 
-        creds = Credentials.from_authorized_user_file(str(self.token_path), SCOPES)
+            creds = Credentials.from_authorized_user_file(str(self.token_path), SCOPES)
 
-        if creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-            self.token_path.write_text(creds.to_json())
+            if creds.expired and creds.refresh_token:
+                try:
+                    creds.refresh(Request())
+                    self.token_path.write_text(creds.to_json())
+                except RefreshError as e:
+                    self.disconnect()
+                    raise YouTubeAuthError(RECONNECT_MESSAGE) from e
 
-        return creds
+            return creds
+        finally:
+            self._token_unlock(lock_fh)
+
+    def validate_connection(self) -> dict:
+        """Refresh credentials if needed and verify the channel is reachable."""
+        self._youtube = None
+        return self.get_channel_info()
 
     def _get_youtube(self):
         if self._youtube is None:
@@ -235,6 +280,10 @@ class YouTubePublisher:
 
     def disconnect(self):
         """Remove stored credentials."""
-        if self.token_path.exists():
-            self.token_path.unlink()
+        lock_fh = self._token_lock()
+        try:
+            if self.token_path.exists():
+                self.token_path.unlink()
+        finally:
+            self._token_unlock(lock_fh)
         self._youtube = None
