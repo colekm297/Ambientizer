@@ -1,181 +1,115 @@
-# Soundscape Agent
+# Ambientizer
 
-An LLM-powered ambient soundscape generator with an AI listening/critique loop.
+> An AI ambient soundscape studio: prompt → multi-layer composition → real-time browser mixer → AI visuals → YouTube publish → growth automation.
 
-## Architecture
+Ambientizer is a single-user, locally-hosted Flask app that turns a one-paragraph creative brief into a finished YouTube-ready ambient music video. It chains Claude (composition planning), ElevenLabs Music v1 (audio generation), Web Audio API (live mixing in the browser), xAI Grok (cover image), and ffmpeg (final video render and live streaming), and ships with a "Distribute" tab that automates Shorts cutting, SEO metadata, ads briefs, and community-post drafts.
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│                       ORCHESTRATOR                           │
-│                                                              │
-│  User Prompt ──► Theme Interpreter (Claude API)              │
-│                        │                                     │
-│                        ▼                                     │
-│            SoundscapeConfig (with elevenlabs_prompts)         │
-│                        │                                     │
-│                        ▼                                     │
-│          ElevenLabs SFX v2 API (generate each layer)         │
-│                        │                                     │
-│              ┌─────────┴──────────┐                          │
-│              ▼                    │                          │
-│        Audio Engine               │                          │
-│    (mix/layer/effects)            │                          │
-│              │                    │                          │
-│              ▼                    │                          │
-│        .wav segment               │                          │
-│              │                    │                          │
-│              ▼                    │                          │
-│        Audio Critic          max iterations?                 │
-│        (Gemini API)              │                          │
-│              │                    │                          │
-│              ▼                    │                          │
-│        CritiqueResult ───►  Config Adjuster (Claude)         │
-│                                   │                          │
-│                      Adjust MIX (volumes, effects, panning)  │
-│                      Generate new layers if added ──► loop   │
-│                                                              │
-│  Final render ──► raw_mix.wav                                │
-│                        │                                     │
-│                        ▼                                     │
-│              Mix/Master Agent                                │
-│    (librosa analysis → Claude DSP prescription               │
-│     → pedalboard EQ/comp/limit → LUFS normalization)         │
-│                        │                                     │
-│                        ▼                                     │
-│                 mastered.wav                                  │
-└──────────────────────────────────────────────────────────────┘
+See [`AMBIENTIZER_README.md`](./AMBIENTIZER_README.md) for the full architecture deep-dive.
 
-┌──────────────────────────────────────────────────────────────┐
-│                    WEB INTERFACE                              │
-│                                                              │
-│  Browser ──► Flask API ──► Orchestrator (background thread)  │
-│     ▲                            │                          │
-│     └── poll /api/status ◄── on_status callback              │
-└──────────────────────────────────────────────────────────────┘
-```
+## Features
 
-## Components
+- **Prompt → multi-layer SoundscapeConfig** via Claude. Each layer gets its own ElevenLabs Music v1 prompt, fade behavior, panning, and effects chain.
+- **Browser-native live mixer.** Per-layer gain, mute, solo, FX tweaking, and a master fade preview that matches the YouTube export sample-for-sample.
+- **AI-driven mastering** with a loudness/critique feedback loop (Gemini listens, Claude tunes the chain).
+- **Visuals tab.** Generates a scene image with xAI Grok, animates it (Ken Burns / custom video), then renders an MP4 at the correct length.
+- **YouTube publish.** OAuth-based upload with auto-compressed thumbnails (handles the 2 MB cap transparently) and resumable retries.
+- **Distribute tab.**
+  - **Shorts factory** — Gemini picks the most atmospheric segment, ffmpeg renders vertical 9:16 with blurred letterbox or Ken-Burns-on-image.
+  - **SEO metadata v2** — comparable channels, 3 title variants, thumbnail prompt.
+  - **Ads brief generator** — Claude drafts a YouTube Ads campaign brief from the track.
+  - **Community / Reddit / Discord drafts** — copy-paste ready posts; Discord can post directly via webhook.
+  - **24/7 live stream** — ffmpeg RTMP loop pushing your catalog to YouTube Live, with playlist management and status UI.
 
-| Module | Role | Model/Service |
-|--------|------|---------------|
-| `theme_interpreter.py` | Converts natural language to structured config | Claude (Anthropic API) |
-| `sample_generator.py` | Generates audio for each layer on-demand | ElevenLabs SFX v2 API |
-| `audio_engine.py` | Renders soundscape from config + generated audio | pydub + pedalboard |
-| `audio_critic.py` | Listens to rendered audio and critiques it | Gemini 2.5 Flash (Google API) |
-| `config_adjuster.py` | Translates critique into mix changes | Claude (Anthropic API) |
-| `mix_master.py` | Professional mastering (EQ, compression, limiting, LUFS) | Claude + pedalboard + pyloudnorm |
-| `orchestrator.py` | Runs the generate → critique → refine → master loop | — |
-| `schemas.py` | Shared data models (configs, critiques) | — |
-| `web/app.py` | Flask web server with REST API | Flask |
+## Stack
+
+| Layer | Tech |
+|---|---|
+| Backend | Python 3.13, Flask |
+| LLM | Anthropic Claude (Sonnet 4) |
+| Audio gen | ElevenLabs Music v1 + SFX v2 |
+| Audio DSP | pydub, pedalboard, librosa, pyloudnorm |
+| Reference analysis | Google Gemini 2.5 |
+| Client | Vanilla JS + Web Audio API |
+| Visuals | xAI Grok image generation |
+| Video / stream | ffmpeg, ffprobe |
+| YouTube | Google OAuth2 + YouTube Data API v3 |
+
+## Requirements
+
+- **Python 3.13+**
+- **ffmpeg** and **ffprobe** on `PATH` (`brew install ffmpeg` on macOS, `apt install ffmpeg` on Debian/Ubuntu)
+- API keys for:
+  - [Anthropic Claude](https://console.anthropic.com/) — required
+  - [Google Gemini](https://aistudio.google.com/apikey) — required
+  - [ElevenLabs](https://elevenlabs.io/app/settings/api-keys) — required
+  - [xAI Grok](https://console.x.ai/) — optional (only needed for the Visuals tab)
+- A Google Cloud OAuth 2.0 client (Desktop app) with the YouTube Data API enabled, if you want the YouTube publishing / Distribute features.
 
 ## Setup
 
 ```bash
-# Create virtual environment
-python3 -m venv .venv
-source .venv/bin/activate
+git clone https://github.com/colekm297/Ambientizer.git
+cd Ambientizer
 
-# Install dependencies
+python3.13 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 
-# System dependency
-brew install ffmpeg
-
-# Create .env file with your API keys
-cat > .env << 'EOF'
-ANTHROPIC_API_KEY=sk-ant-...
-GEMINI_API_KEY=...
-ELEVENLABS_API_KEY=sk_...
-EOF
+cp .env.example .env
+# edit .env and fill in your keys
 ```
 
-## Environment Variables
+### YouTube OAuth (optional)
+
+Only needed if you want the Publish / Distribute tabs.
+
+1. In [Google Cloud Console](https://console.cloud.google.com/), create a new project.
+2. Enable **YouTube Data API v3**.
+3. Create an **OAuth 2.0 Client ID** of type **Desktop app**.
+4. Download the JSON and save it as `client_secret.json` in the project root.
+5. The first time you click "Connect YouTube" in the app, it'll open a browser to consent.
+
+`client_secret.json` and `youtube_token.json` are in `.gitignore` — they'll never be committed.
+
+## Run
 
 ```bash
-ANTHROPIC_API_KEY="sk-ant-..."     # Required — theme interpreter + config adjuster
-GEMINI_API_KEY="..."               # Required — audio critic (Gemini)
-ELEVENLABS_API_KEY="sk_..."        # Required — AI audio generation
+source .venv/bin/activate
+python -m web.app
 ```
 
-## Usage
+Then open <http://127.0.0.1:5050>.
 
-### CLI
+## Project layout
 
-```bash
-# Full pipeline: ElevenLabs generation + Gemini critique loop + mastering
-python orchestrator.py "cozy rainy café at midnight with soft jazz piano" --duration 2
-
-# Skip critique loop (just generate, render, and master)
-python orchestrator.py "gentle rain on a window at night" --no-iterate --duration 0.5
-
-# Use feature-only critic (no Gemini API needed)
-python orchestrator.py "forest stream at dawn" --critic feature-only --duration 1
-
-# Force regeneration of cached samples
-python orchestrator.py "ocean waves at sunset" --no-cache --duration 0.5
-
-# Skip mastering (raw mix only)
-python orchestrator.py "mountain stream" --no-master --duration 1
-
-# Interactive discovery conversation
-python orchestrator.py --interactive --duration 5
+```
+Ambientizer/
+├── web/                    Flask app, frontend, templates
+│   ├── app.py              ~4000 lines, 70+ REST routes
+│   ├── static/{app,mixer}.js, style.css
+│   └── templates/index.html
+├── theme_interpreter.py    Claude: prompt → SoundscapeConfig
+├── sample_generator.py     ElevenLabs API wrapper + caching
+├── audio_engine.py         DSP: mixing, looping, effects
+├── audio_critic.py         Gemini/Claude audio critique
+├── mix_master.py           AI-driven mastering chain
+├── visual_generator.py     xAI Grok image gen + Ken Burns
+├── youtube_publisher.py    OAuth + resumable upload + thumbnail compressor
+├── upload_worker.py        Detached upload subprocess
+├── distribute_shorts.py    Shorts segment picker + vertical renderer
+├── distribute_stream.py    24/7 RTMP live stream worker
+├── reference_analyzer.py   Gemini reference-track ingest
+├── orchestrator.py         CLI / batch runner
+├── schemas.py              Dataclasses + enums
+└── requirements.txt
 ```
 
-### Web Interface
+## Notes
 
-```bash
-# Start the web server
-python web/app.py --port 5050
+- This is a personal project I built for my own channel; treat it as reference code, not a polished library. Many features assume a single user and a single local machine.
+- The Reddit / Community draft generators produce text only — actual posting through those APIs is rate-limited and TOS-sensitive, so the app deliberately stops at "click to copy". Discord posts are direct because webhooks are explicitly user-controlled.
+- Generated content (`generated_samples/`, `output/`, `saved_jobs/`, `interpreter_logs/`, `loop_demos/`) is gitignored. Your prompts and outputs never leave your machine.
 
-# Open http://localhost:5050 in your browser
-```
+## License
 
-The web UI provides:
-- Prompt input with duration and critic mode selection
-- Real-time generation progress with critique scores
-- Audio player with toggle between Raw and Mastered outputs
-- Download button and generation history
-
-### Python API
-
-```python
-from orchestrator import SoundscapeOrchestrator
-
-agent = SoundscapeOrchestrator(
-    anthropic_api_key="sk-...",
-    gemini_api_key="...",
-    elevenlabs_api_key="sk_...",
-)
-
-result = agent.generate("cozy rainy café at midnight", duration_minutes=60)
-print(f"Saved to: {result.output_path}")
-print(f"Raw mix: {result.raw_output_path}")
-print(f"Final score: {result.final_score:.2f}")
-```
-
-## How It Works
-
-1. **Theme Interpreter** — Claude converts your prompt into a structured config with 3-7 layers, each with a vivid `elevenlabs_prompt` describing the exact sound to generate.
-
-2. **ElevenLabs Generation** — Each layer's audio is generated on-demand via the SFX v2 API. Results are cached by prompt hash so identical sounds aren't regenerated.
-
-3. **Audio Engine** — Layers are mixed together with volume, panning, effects (reverb, compression, filters), and energy curve modulation.
-
-4. **Gemini Critique Loop** — Gemini 2.5 Flash listens to a 25-second preview and critiques the mix. The Config Adjuster (Claude) revises volumes, effects, and panning. This loops until quality threshold is met.
-
-5. **Mix/Master Agent** — After the final render, librosa analyzes the raw mix (5-band energy, stereo width, crest factor, LUFS). Claude prescribes a mastering chain (EQ, compression, limiting). Pedalboard applies the chain and pyloudnorm normalizes to -14 LUFS.
-
-Key insight: ElevenLabs generates audio **once** per layer. The critique loop only adjusts the **mix** — it doesn't regenerate samples unless the adjuster explicitly adds new layers.
-
-## Caching
-
-Generated audio is cached in `generated_samples/` by prompt hash. This means:
-- Same prompt = same cached file, no API call
-- Critique loop iterations don't burn ElevenLabs credits
-- Use `--no-cache` to force regeneration
-
-## Cost
-
-- **ElevenLabs SFX v2**: ~440 credits per 22s clip, ~110K credits/month on Creator plan
-- **Gemini 2.5 Flash**: ~$0.001 per critique call
-- **Claude**: ~$0.01-0.02 per soundscape (interpretation + adjustment)
+[MIT](./LICENSE).

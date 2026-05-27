@@ -2,11 +2,23 @@
 __pycache__/
 *.pyc
 .DS_Store
+
+# Secrets and credentials
 .env
+client_secret*.json
+youtube_token.json
+*.credentials.json
+*.lock
+
+# Generated content and per-user state
 generated_samples/
 output/
 saved_jobs/
 samples/
-client_secret*.json
-youtube_token.json
-*.credentials.json
+interpreter_logs/
+loop_demos/
+
+# Editor / OS noise
+.idea/
+.vscode/
+*.swp

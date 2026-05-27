@@ -61,7 +61,16 @@ class LiveMixer {
     if (ab.byteLength < 100) {
       throw new Error(`Layer "${name}" audio is empty or too small (${ab.byteLength} bytes)`);
     }
+    // If the mixer was destroyed while this layer was fetching (e.g. the user
+    // navigated to a different song and a new initMixer call ran), abort
+    // cleanly instead of crashing on a null ctx.
+    if (!this.ctx) {
+      throw new Error(`Layer "${name}" cancelled: mixer was destroyed mid-load`);
+    }
     const audioBuf = await this.ctx.decodeAudioData(ab);
+    if (!this.ctx) {
+      throw new Error(`Layer "${name}" cancelled: mixer was destroyed during decode`);
+    }
 
     const gain = this.ctx.createGain();
     const pan = this.ctx.createStereoPanner();
@@ -135,7 +144,7 @@ class LiveMixer {
     layer.wetGain.gain.setValueAtTime(amount, this.ctx.currentTime);
   }
 
-  _startSource(layer) {
+  _startSource(layer, startTime) {
     if (layer.source) {
       try { layer.source.stop(); } catch (_) {}
     }
@@ -144,9 +153,10 @@ class LiveMixer {
     src.loop = true;
     src.connect(layer.gain);
 
-    const elapsed = this.ctx.currentTime - this.startedAt;
+    const when = startTime ?? this.ctx.currentTime;
+    const elapsed = when - this.startedAt;
     const offset = elapsed > 0 ? elapsed % layer.buffer.duration : 0;
-    src.start(0, offset);
+    src.start(when, offset);
     layer.source = src;
 
     this._applySwell(layer);
@@ -414,11 +424,31 @@ class LiveMixer {
     if (this.playing) return;
     if (this.ctx.state === "suspended") this.ctx.resume();
 
-    this.startedAt = this.ctx.currentTime - this.pausedAt;
+    const vol = this._masterVolume !== undefined ? this._masterVolume : 1;
+
+    // Anchor everything to a single future timestamp so the gain ramp and
+    // every layer's source.start() are sample-aligned. The prepped buffer's
+    // sample 0 is non-zero (~-20 dBFS), so a hard jump from silence to that
+    // value pops in the speakers. We schedule the ramp from 0 → target over
+    // 50 ms starting exactly when the sources begin emitting samples.
+    // 5-second fade-in matching the export. Runs on every play press
+    // (one-shot per press; loop wraps don't fire play()). On internal loop
+    // wraps the timer schedules its own fade-out → fade-in pair so the
+    // preview matches what the exported file will sound like.
+    const startTime = this.ctx.currentTime + 0.020;
+    const fadeInSec = this._fadeInSec || 5.0;
+    this.masterGain.gain.cancelScheduledValues(startTime);
+    this.masterGain.gain.setValueAtTime(0, startTime);
+    this.masterGain.gain.linearRampToValueAtTime(vol, startTime + fadeInSec);
+    this._suppressMasterFadeUntil = startTime + fadeInSec + 0.050;
+    this._fadeOutScheduled = false;
+    console.log(`[LiveMixer] play() fade-in ${fadeInSec}s, fade-out ${this._fadeOutSec || 0}s [v8]`);
+
+    this.startedAt = startTime - this.pausedAt;
     this.playing = true;
 
     for (const l of Object.values(this.layers)) {
-      this._startSource(l);
+      this._startSource(l, startTime);
     }
     this._startTimer();
   }
@@ -427,6 +457,7 @@ class LiveMixer {
     if (!this.playing) return;
     this.pausedAt = this.ctx.currentTime - this.startedAt;
     this.playing = false;
+    this._fadeOutScheduled = false;
 
     for (const l of Object.values(this.layers)) {
       if (l.source) try { l.source.stop(); } catch (_) {}
@@ -462,18 +493,32 @@ class LiveMixer {
   }
 
   _applyMasterFade(t) {
-    const fadeIn = this._fadeInSec || 0;
+    // During the play() click-suppress ramp, do NOT touch masterGain.gain.
+    // Calling setValueAtTime() here would terminate the linearRampToValueAtTime
+    // scheduled in play() and snap the gain to vol — producing the very click
+    // we're trying to prevent.
+    if (this._suppressMasterFadeUntil && this.ctx.currentTime < this._suppressMasterFadeUntil) {
+      return;
+    }
+
+    // Schedule a smooth fade-out before the playhead reaches the displayed
+    // duration. We don't repeatedly call setValueAtTime each tick — instead we
+    // queue one Web Audio ramp the first time we cross the threshold, then
+    // leave the AudioParam alone until wrap. This makes the preview match the
+    // exported file's fade-out shape exactly.
     const fadeOut = this._fadeOutSec || 0;
-    let fadeGain = 1;
-    if (fadeIn > 0 && t < fadeIn && !this._hasLooped) {
-      fadeGain = t / fadeIn;
+    if (fadeOut > 0 && !this._fadeOutScheduled && t > this.duration - fadeOut) {
+      const remaining = this.duration - t;
+      if (remaining > 0) {
+        const vol = this._masterVolume !== undefined ? this._masterVolume : 1;
+        const now = this.ctx.currentTime;
+        this.masterGain.gain.cancelScheduledValues(now);
+        this.masterGain.gain.setValueAtTime(vol, now);
+        this.masterGain.gain.linearRampToValueAtTime(0, now + remaining);
+        this._fadeOutScheduled = true;
+        console.log(`[LiveMixer] fade-out scheduled: ${remaining.toFixed(2)}s → 0`);
+      }
     }
-    if (!this._looping && fadeOut > 0 && t > this.duration - fadeOut) {
-      fadeGain = Math.min(fadeGain, (this.duration - t) / fadeOut);
-    }
-    fadeGain = Math.max(0, Math.min(1, fadeGain));
-    const vol = this._masterVolume !== undefined ? this._masterVolume : 1;
-    this.masterGain.gain.setValueAtTime(fadeGain * vol, this.ctx.currentTime);
   }
 
   _startTimer() {
@@ -485,9 +530,26 @@ class LiveMixer {
       if (this.onTimeUpdate) this.onTimeUpdate(t, this.duration);
       if (t >= this.duration) {
         if (this._looping !== false) {
-          console.log(`[LiveMixer] loop: t=${t.toFixed(1)}s >= duration=${this.duration}s, seeking to 0`);
+          // Web Audio's src.loop=true is already looping each buffer natively
+          // at its own length. We just shift the timeline so the playhead wraps
+          // visually without disturbing the running audio sources.
           this._hasLooped = true;
-          this.seek(0);
+          this.startedAt += this.duration;
+
+          // Schedule a fresh fade-in on every wrap so the preview keeps showing
+          // what the exported file's intro sounds like, without ever cutting
+          // the running buffer (still seamlessly looping underneath).
+          const fadeIn = this._fadeInSec || 0;
+          if (fadeIn > 0) {
+            const vol = this._masterVolume !== undefined ? this._masterVolume : 1;
+            const now = this.ctx.currentTime;
+            this.masterGain.gain.cancelScheduledValues(now);
+            this.masterGain.gain.setValueAtTime(0, now);
+            this.masterGain.gain.linearRampToValueAtTime(vol, now + fadeIn);
+            this._suppressMasterFadeUntil = now + fadeIn + 0.050;
+            console.log(`[LiveMixer] wrap → fade-in scheduled (${fadeIn}s)`);
+          }
+          this._fadeOutScheduled = false;
         } else {
           console.log(`[LiveMixer] end: t=${t.toFixed(1)}s, looping disabled — stopping`);
           this.pause();

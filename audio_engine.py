@@ -46,10 +46,23 @@ SAMPLE_RATE = 44100
 
 def make_loopable(audio: AudioSegment, crossfade_ms: int) -> AudioSegment:
     """
-    Make an AudioSegment seamlessly loopable via equal-power crossfade at the END.
+    Make an AudioSegment seamlessly loopable.
 
-    Preserves the intro at t=0 so playback starts naturally. The final crossfade
-    region blends the tail into the head for an inaudible wrap point.
+    Structure:  buffer = [middle][blended_end]   length = n - crossfade
+        middle      = samples[cf : n-cf]   (audio minus original head and tail)
+        blended_end = head*fade_in + tail*fade_out  (crossfade region)
+
+    First play starts at buffer[0] = samples[cf] in the original audio — the
+    point just after the natural fade-in ends. That is body-level music, so
+    the listener hears the song begin at full presence, not in the middle of
+    a crossfade.
+
+    Both seam transitions land on consecutive samples in the original audio:
+        end_of_middle → start_of_blended = samples[n-cf-1] → samples[n-cf]
+        end_of_buffer → buffer[0]        = samples[cf-1]   → samples[cf]
+    So the loop wrap is sample-continuous: no discontinuity, no click.
+
+    Output length = original length - crossfade_samples.
     """
     if crossfade_ms <= 0 or len(audio) < crossfade_ms * 2:
         return audio
@@ -59,23 +72,24 @@ def make_loopable(audio: AudioSegment, crossfade_ms: int) -> AudioSegment:
     if channels == 2:
         samples = samples.reshape((-1, 2))
 
-    crossfade_samples = int(crossfade_ms * audio.frame_rate / 1000)
+    cf = int(crossfade_ms * audio.frame_rate / 1000)
     n = len(samples)
+    if n <= 2 * cf:
+        return audio
 
-    t = np.linspace(0, 1, crossfade_samples)
+    t = np.linspace(0, 1, cf, endpoint=False)
     fade_in = np.sqrt(t)
     fade_out = np.sqrt(1 - t)
-
     if channels == 2:
         fade_in = fade_in[:, np.newaxis]
         fade_out = fade_out[:, np.newaxis]
 
-    head = samples[:crossfade_samples]
-    tail = samples[n - crossfade_samples:]
-    blended_end = tail * fade_out + head * fade_in
+    head = samples[:cf]
+    tail = samples[n - cf:]
+    blended_end = head * fade_in + tail * fade_out
 
-    result = samples.copy()
-    result[n - crossfade_samples:] = blended_end
+    middle = samples[cf : n - cf]
+    result = np.concatenate([middle, blended_end], axis=0)
 
     result = np.clip(result, -32768, 32767).astype(np.int16)
     if channels == 2:
@@ -102,7 +116,9 @@ def _trim_generated_fade_out(audio: AudioSegment) -> AudioSegment:
     pre_tail_end = max(pre_tail_start + 1, audio_len - tail_ms)
     pre_tail_probe = _probe_dbfs(audio, pre_tail_start, min(probe_ms, pre_tail_end - pre_tail_start))
 
-    if end_probe == float("-inf") or pre_tail_probe - end_probe >= 6.0:
+    if end_probe == float("-inf") or (
+        pre_tail_probe - end_probe >= 12.0 and end_probe < -40.0
+    ):
         trim_ms = min(tail_ms, audio_len // 3)
         print(
             f"   Loop prep: trimmed {trim_ms/1000:.1f}s fade-out "
@@ -121,20 +137,21 @@ def _trim_generated_fade_in(audio: AudioSegment) -> AudioSegment:
     body_start = min(int(audio_len * 0.2), max(probe_ms * 2, audio_len // 5))
     body_probe = _probe_dbfs(audio, body_start, probe_ms)
 
-    if head_probe == float("-inf") or body_probe - head_probe < 6.0:
+    if head_probe == float("-inf") or body_probe - head_probe < 12.0:
         return audio
 
     # Walk forward until level is within 3 dB of the steady body.
     target = body_probe - 3.0
     step = max(500, probe_ms // 4)
+    max_trim = min(int(audio_len * 0.08), 15_000)
     trim_ms = 0
-    for start in range(0, min(int(audio_len * 0.35), body_start + probe_ms), step):
+    for start in range(0, min(max_trim, body_start + probe_ms), step):
         if _probe_dbfs(audio, start, probe_ms) >= target:
             trim_ms = start
             break
 
     if trim_ms <= 0:
-        trim_ms = min(int(audio_len * 0.12), body_start)
+        trim_ms = min(int(audio_len * 0.06), 8_000)
 
     print(
         f"   Loop prep: trimmed {trim_ms/1000:.1f}s fade-in "
@@ -153,6 +170,10 @@ def _find_loop_rotation_ms(audio: AudioSegment, probe_ms: int = 3000) -> int:
     tail_start = max(0, audio_len - probe_ms * 2)
     tail_probe = _probe_dbfs(audio, tail_start, min(probe_ms, audio_len - tail_start))
     if tail_probe == float("-inf"):
+        return 0
+
+    head_probe = _probe_dbfs(audio, 0, min(probe_ms, audio_len))
+    if head_probe != float("-inf") and tail_probe - head_probe < 12.0:
         return 0
 
     best_offset = 0
@@ -186,29 +207,116 @@ def _rotate_audio(audio: AudioSegment, offset_ms: int) -> AudioSegment:
     return audio[offset_ms:] + audio[:offset_ms]
 
 
+def _trim_dead_silence(audio: AudioSegment, threshold_below_body_db: float = 6.0,
+                       probe_ms: int = 1000, step_ms: int = 250) -> AudioSegment:
+    """Trim both edges of the audio until the level rises to within
+    `threshold_below_body_db` dB of the body level. This preserves a SHORT
+    natural fade (just a few seconds) on each side as the loop boundary
+    instead of a long, full fade.
+    """
+    n = len(audio)
+    body = audio[n // 4 : 3 * n // 4]
+    body_db = body.dBFS
+    if body_db == float("-inf"):
+        return audio
+    target = body_db - threshold_below_body_db
+
+    head_silent = 0
+    for t in range(0, n // 4, step_ms):
+        seg = audio[t:t + probe_ms]
+        if len(seg) == 0:
+            break
+        if seg.dBFS >= target:
+            head_silent = t
+            break
+    tail_silent = 0
+    for t in range(0, n // 4, step_ms):
+        seg = audio[n - t - probe_ms:n - t]
+        if len(seg) == 0:
+            break
+        if seg.dBFS >= target:
+            tail_silent = t
+            break
+    print(
+        f"   Silence trim: body={body_db:.1f} dBFS, target={target:.1f} dBFS, "
+        f"head -{head_silent/1000:.1f}s, tail -{tail_silent/1000:.1f}s",
+        flush=True,
+    )
+    if tail_silent:
+        return audio[head_silent:n - tail_silent]
+    return audio[head_silent:]
+
+
+def _pymusiclooper_loop_pair(path: str, dur_s: float):
+    """Use PyMusicLooper to find the best loop pair. Tries multiple
+    parameter sets, returns (loop_start_ms, loop_end_ms) or None.
+    """
+    try:
+        from pymusiclooper.core import MusicLooper
+    except ImportError:
+        return None
+
+    try:
+        looper = MusicLooper(path)
+    except Exception as e:
+        print(f"   PyMusicLooper load failed: {e}", flush=True)
+        return None
+
+    # Try a series of strategies, prefer longest clean loop.
+    attempts = [
+        # Long loop hinted at fade edges
+        dict(approx_loop_start=5.0, approx_loop_end=max(10.0, dur_s - 5.0)),
+        # Long loop without hints, brute force
+        dict(brute_force=True, min_duration_multiplier=0.85),
+        # Default (any length)
+        dict(),
+    ]
+
+    for kwargs in attempts:
+        try:
+            pairs = looper.find_loop_pairs(**kwargs)
+        except Exception:
+            continue
+        if not pairs:
+            continue
+        best = pairs[0]
+        try:
+            start_ms = int(looper.samples_to_seconds(best.loop_start) * 1000)
+            end_ms = int(looper.samples_to_seconds(best.loop_end) * 1000)
+        except Exception:
+            start_ms = int(best.loop_start * 1000 / 44100)
+            end_ms = int(best.loop_end * 1000 / 44100)
+        return (start_ms, end_ms)
+
+    return None
+
+
 def prepare_musical_loop(audio: AudioSegment, crossfade_ms: int) -> AudioSegment:
     """
-    Prepare generated music as a reusable ambient loop cell.
+    Prepare generated music as a reusable loop cell.
 
-    ElevenLabs often treats the requested duration like a complete song with
-    quiet intros and fade-out endings. For soundscapes we trim those fades,
-    rotate to a level-matched loop point, then crossfade the seam so Web Audio
-    looping does not glitch or drop at the wrap.
+    Strategy (v5): keep the music's natural fade-in and fade-out as the loop
+    boundary. Trim only the dead-silent edges of the file (below -50 dBFS).
+    The remaining audio fades naturally from quiet → body → quiet, so when it
+    wraps, the listener hears the music breathe gently into and out of the
+    seam. Apply a short crossfade at the wrap to mask any micro-click.
     """
     if crossfade_ms <= 0 or len(audio) < 8_000:
         return audio
 
-    prepared = _trim_generated_fade_out(audio)
-    prepared = _trim_generated_fade_in(prepared)
+    trimmed = _trim_dead_silence(audio)
+    dur_s = len(trimmed) / 1000
+    print(
+        f"   Loop prep v5: silence-trimmed {len(audio)/1000:.1f}s -> {dur_s:.1f}s, "
+        f"natural fades preserved as loop boundary",
+        flush=True,
+    )
 
-    rotation_ms = _find_loop_rotation_ms(prepared)
-    prepared = _rotate_audio(prepared, rotation_ms)
-
-    cf_ms = min(crossfade_ms, 15_000, max(2_000, len(prepared) // 8))
-    if cf_ms > 1_000 and len(prepared) > cf_ms * 2:
-        return make_loopable(prepared, cf_ms)
-
-    return prepared
+    # 2 s crossfade: short enough to be inaudible as "double exposure" in
+    # ambient material, long enough that any single melodic note in the
+    # tail region fades in/out gradually instead of jumping in abruptly.
+    cf_ms = min(crossfade_ms, 2000, max(50, len(trimmed) // 20))
+    return make_loopable(trimmed, cf_ms)
 
 
 class SampleLibrary:

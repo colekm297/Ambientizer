@@ -492,6 +492,9 @@ class ElevenLabsSampleGenerator:
                 flush=True,
             )
             audio_seg = audio_seg[start_ms:end_ms]
+            buf = io.BytesIO()
+            audio_seg.export(buf, format="wav")
+            file_bytes = buf.getvalue()
         elif total_sec >= STEM_MAX_SEC + 1:
             print(f"      ✂ Trimming {total_sec:.0f}s → {STEM_MAX_SEC}s for stem API limit")
             audio_seg = audio_seg[:STEM_MAX_SEC * 1000]
@@ -543,11 +546,12 @@ class ElevenLabsSampleGenerator:
             prompt = prompt[:self.MAX_SFX_PROMPT_LENGTH - 3].rsplit(" ", 1)[0] + "..."
 
         if layer.layer_type == LayerType.MUSICAL:
-            lower = prompt.lower()
-            if not any(w in lower for w in ("continuous", "steady", "seamless", "never-ending", "sustained")):
+            if additive and not any(
+                w in prompt.lower() for w in ("0:", "arc", "enter", "mid-way", "seamless")
+            ):
                 prompt = (
-                    f"{prompt}. Continuous sustained instrumental texture throughout, "
-                    "seamless loop, no long silent gaps."
+                    f"{prompt}. Dense sustained texture with one subtle mid-way shift, "
+                    "ending similar to the start for seamless loop, no long silent gaps."
                 )
         elif layer.layer_type in (LayerType.BASE, LayerType.MID) and layer.loop:
             lower = prompt.lower()

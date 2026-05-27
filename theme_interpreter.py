@@ -51,10 +51,10 @@ D) NO PLAN — AMBIENT mode:
    soft pad) if it fits the scene.
 
 SOUNDSCAPE PRINCIPLES (apply to ALL modes):
-- Favor evolving textures, slow harmonic drift, and gentle layering
-- Avoid catchy melodies, rhythmic hooks, or song-like progressions
-- Musical layers should feel like ambient wallpaper — beautiful but non-intrusive
-- Think "environment" not "performance"
+- Favor slow internal movement: elements enter and leave, density shifts, harmonic motion breathes
+- Avoid catchy hooks, verse/chorus/bridge structure, beat drops, and pop song arcs
+- Musical layers should stay beautiful and non-intrusive — background listening, not a performance
+- Think "environment with gentle events" not "frozen wallpaper" or "radio single"
 
 CRITICAL — KEY SELECTION:
 The user message contains a REQUIRED KEY — you MUST use that exact key.
@@ -64,9 +64,17 @@ The "elevenlabs_prompt" drives the AI generator. \
 If a LAYER PLAN or REFERENCE ANALYSIS provides elevenlabs_prompt values, use them VERBATIM. \
 Do NOT rewrite, rephrase, merge, or "improve" prompts that are already provided. Copy them exactly. \
 Only write NEW prompts when no prompt is provided for a layer. \
-When writing new prompts: be rich and specific (200-450 chars), name instruments, tempo, key, mood. \
-The music will be LOOPED — it must NOT wind down, resolve, or end. \
-Always include "continuous, never-ending" in musical prompts.
+When writing new prompts: be rich and specific (250-500 chars), name instruments, tempo, key, mood. \
+The music will be LOOPED — ending density must match the opening so it wraps cleanly. \
+Do NOT ask for a fade-out, final cadence, or song ending.
+
+For musical prompts, include a simple INTERNAL ARRANGEMENT across the full music length, e.g.: \
+"0:00-1:30 core bed only; ~2:30 subtle shimmer enters for ~1 min; 3:00-4:00 slightly fuller harmonic motion; \
+final 30-60s thin back toward opening texture for seamless loop." \
+Scale the arc to the MUSIC LENGTH in the user message. 2-4 gentle events total — not a song structure.
+
+Avoid stasis language: do NOT write "never-ending", "static", "stable sustained energy", \
+"no discrete events", or "ambient wallpaper" in musical prompts.
 
 BANNED WORDS in musical prompts: "drone", "freeform", "no tempo", "arrhythmic" \
 (these produce formless noise).
@@ -115,8 +123,8 @@ Output a JSON object matching this schema:
   ],
   "master_effects": { "reverb_amount": 0.2, "reverb_room_size": 0.4, "low_pass_hz": 16000, "high_pass_hz": 30, "compression_threshold_db": -18.0, "compression_ratio": 1.5 },
   "energy_curve": {
-    "style": "steady|slow_build|rise_and_fall|wave",
-    "peak_position": 0.5,
+    "style": "slow_build|rise_and_fall|wave|steady",
+    "peak_position": 0.55,
     "min_energy": 0.4,
     "max_energy": 1.0
   },
@@ -132,15 +140,34 @@ _ATMOSPHERE_KEYWORDS = (
 )
 
 _DISCRETE_SFX_WORDS = (
-    "occasional", "intermittent", "sparse", "random", "creak", "crack",
+    "occasional", "intermittent", "random", "creak", "crack",
     "drip", "drop", "hit", "tap", "knock", "footstep", "burst", "gust",
 )
+
+
+def _arrangement_hint(duration_sec: float) -> str:
+    """Short arrangement guidance scaled to requested music length."""
+    mins = max(0.5, duration_sec / 60)
+    if mins >= 4:
+        return (
+            "Internal arc across the full length: establish core bed first; around one-third add a subtle "
+            "new element or widen harmony for ~1 min; near two-thirds allow slightly fuller motion; "
+            "final 30-60s return toward opening density for seamless loop. No verse/chorus, no drop, no fade-out."
+        )
+    if mins >= 2:
+        return (
+            "Gentle internal movement across the full length: core bed, one subtle added element mid-way, "
+            "then return toward opening texture by the end for seamless loop. No verse/chorus, no fade-out."
+        )
+    return (
+        "Mostly steady texture with one subtle internal shift mid-way, ending similar to the start for seamless loop."
+    )
 
 
 class ThemeInterpreter:
     """Converts natural language scene descriptions into SoundscapeConfig."""
 
-    def __init__(self, anthropic_api_key: str, model: str = "claude-sonnet-4-20250514"):
+    def __init__(self, anthropic_api_key: str, model: str = "claude-opus-4-7"):
         self.client = Anthropic(api_key=anthropic_api_key)
         self.model = model
 
@@ -157,8 +184,7 @@ class ThemeInterpreter:
             cleaned = cleaned.replace(word, "subtle")
         return (
             f"Soft sustained ambient pad{key_bit}: {cleaned}. "
-            "Continuous never-ending harmonic wash, extremely slow evolution, "
-            "no discrete events, no hits, no pulses, no rhythmic patterns, seamless loop."
+            "Slowly evolving harmonic bed with subtle internal movement, seamless loop, no discrete hits."
         )[:450]
 
     def _convert_to_pad_layer(self, layer: LayerConfig, root_key: str = "") -> LayerConfig:
@@ -274,9 +300,8 @@ class ThemeInterpreter:
                 fade_out_sec=0.0,
                 effects=EffectsChain(reverb_amount=0.35, reverb_room_size=0.75),
                 elevenlabs_prompt=(
-                    f"{music_prompt}. A complete, layered instrumental ambient soundscape arrangement, "
-                    "not a single drone. Keep the melodic/string/pad elements present together with subtle motion. "
-                    "Continuous, never-ending loop. No vocals, no drums, no beat drop, no final cadence, no fade-out ending."
+                    f"{music_prompt}. Layered instrumental ambient arrangement with gentle internal movement. "
+                    f"{_arrangement_hint(duration_sec)} No vocals, no drums, no beat drop."
                 )[:1000],
             ))
 
@@ -293,8 +318,8 @@ class ThemeInterpreter:
                         fade_out_sec=0.0,
                         effects=EffectsChain(reverb_amount=0.3, reverb_room_size=0.7),
                         elevenlabs_prompt=(
-                            f"{r.get('elevenlabs_prompt', '')}. Continuous, never-ending ambient layer. "
-                            "No song ending, no fade-out ending."
+                            f"{r.get('elevenlabs_prompt', '')}. Supporting ambient layer with subtle motion. "
+                            "Loop-friendly ending, no fade-out."
                         )[:1000],
                     ))
 
@@ -334,8 +359,8 @@ class ThemeInterpreter:
                 fade_out_sec=0.0,
                 effects=EffectsChain(reverb_amount=0.35, reverb_room_size=0.75),
                 elevenlabs_prompt=(
-                    f"{feel or prompt}. Continuous, never-ending ambient soundscape loop. "
-                    "No vocals, no drums, no final cadence, no fade-out ending."
+                    f"{feel or prompt}. {_arrangement_hint(duration_sec)} "
+                    "No vocals, no drums, no fade-out ending."
                 )[:1000],
             ))
 
@@ -348,7 +373,7 @@ class ThemeInterpreter:
             root_key="",
             layers=layers,
             master_effects=EffectsChain(reverb_amount=0.2, reverb_room_size=0.5, high_pass_hz=30, low_pass_hz=16000),
-            energy_curve=EnergyCurve(style="steady", min_energy=0.55, max_energy=0.75),
+            energy_curve=EnergyCurve(style="slow_build", peak_position=0.6, min_energy=0.45, max_energy=0.8),
             target_loudness_lufs=-16.0,
             duration_sec=duration_sec,
         )
@@ -360,8 +385,10 @@ class ThemeInterpreter:
         reference_analysis: Optional[dict],
         layer_plan: Optional[list] = None,
         approach: str = "unified",
+        duration_sec: float = 300.0,
     ) -> str:
         msg = f"USER REQUEST: {prompt}\nMODE: {mode}\nAPPROACH: {approach}\n"
+        msg += f"MUSIC LENGTH: {duration_sec / 60:.1f} minutes — musical prompts should include a gentle internal arc scaled to this length.\n"
 
         if layer_plan:
             msg += f"""
@@ -436,7 +463,7 @@ BLENDING RULES:
             SoundscapeConfig ready to be rendered by the audio engine
         """
         user_message = self.build_user_message(
-            prompt, mode.value, reference_analysis, layer_plan, approach
+            prompt, mode.value, reference_analysis, layer_plan, approach, duration_sec
         )
 
         log_entry = {
@@ -509,7 +536,10 @@ BLENDING RULES:
         layers = self._finalize_layers(layers, mode, approach, root_key)
 
         master_fx = EffectsChain(**config_dict.get("master_effects", {}))
-        energy = EnergyCurve(**config_dict.get("energy_curve", {}))
+        energy_data = config_dict.get("energy_curve", {})
+        if mode == GenerationMode.MUSICAL and energy_data.get("style", "steady") == "steady":
+            energy_data = {**energy_data, "style": "slow_build"}
+        energy = EnergyCurve(**energy_data)
 
         config = SoundscapeConfig(
             title=config_dict["title"],
@@ -571,7 +601,7 @@ that captures the full vision. Prefix your final synthesis with "SYNTHESIS:" on 
 
 Be warm and collaborative. Use sensory language. Keep questions concise — one at a time."""
 
-    def __init__(self, anthropic_api_key: str, model: str = "claude-sonnet-4-20250514"):
+    def __init__(self, anthropic_api_key: str, model: str = "claude-opus-4-7"):
         self.client = Anthropic(api_key=anthropic_api_key)
         self.model = model
         self.messages: list[dict] = []
