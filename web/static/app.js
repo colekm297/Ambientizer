@@ -31,6 +31,7 @@
         if (visMixer && visMixer.playing) visMixer.pause();
       }
       if (target === "publish") { checkYouTubeStatus(); refreshPubTrackList(); }
+      if (target === "distribute") { onDistributeTabOpen(); }
     });
   });
 
@@ -44,11 +45,17 @@
   const refStartEl = document.getElementById("ref-start");
   const refEndEl = document.getElementById("ref-end");
   const useReferenceGenerationEl = document.getElementById("use-reference-generation");
-  const durationEl = document.getElementById("duration");
   const musicLengthEl = document.getElementById("music-length");
+  // Track duration is auto-derived as music_length × 2 (min 5 min). Used as
+  // the server-side preview render length; live player derives its own length
+  // from the actual prepped loop length, and exports use the Extended
+  // Duration picker instead.
+  function getDerivedTrackMinutes() {
+    const m = parseFloat(musicLengthEl?.value) || 5;
+    return Math.max(5, m * 2);
+  }
   const plannerModeEl = document.getElementById("planner-mode");
   const musicGenerationModeEl = document.getElementById("music-generation-mode");
-  const loopableEl = document.getElementById("loopable");
   const creditEstimateEl = document.getElementById("credit-estimate");
   const generateBtn = document.getElementById("generate-btn");
   const modeButtons = document.querySelectorAll("[data-mode]");
@@ -71,6 +78,7 @@
   const playerPrompt = document.getElementById("player-prompt");
   const audioPlayer = document.getElementById("audio-player");
   const btnDownload = document.getElementById("btn-download");
+  const btnReprepLoop = document.getElementById("btn-reprep-loop");
 
   const layersPanel = document.getElementById("layers-panel");
   const layersList = document.getElementById("layers-list");
@@ -160,18 +168,17 @@
 
   function updateCreditEstimate() {
     const c = _getCreditCosts();
-    let text = `~${c.total.toLocaleString()} credits to generate`;
+    let text = `${_costLabel(c.total)} to generate`;
     if (c.musicLayers > 0) {
-      text += ` | Music re-roll: ~${c.perMusic.toLocaleString()} cr`;
+      text += ` | Music re-roll: ${_costLabel(c.perMusic)}`;
     }
-    text += ` | SFX re-roll: ~${c.perSfx.toLocaleString()} cr`;
+    text += ` | SFX re-roll: ${_costLabel(c.perSfx)}`;
     if (c.stemCost > 0) {
-      text += ` | Stems: ~${c.stemCost.toLocaleString()} cr`;
+      text += ` | Stems: ${_costLabel(c.stemCost)}`;
     }
     creditEstimateEl.textContent = text;
     creditEstimateEl.classList.toggle("credit-warn", c.total > 3000);
   }
-  durationEl.addEventListener("change", updateCreditEstimate);
   musicLengthEl.addEventListener("change", updateCreditEstimate);
 
   // ── Real credit balance from ElevenLabs API ──────
@@ -183,6 +190,26 @@
   const SESSION_LOG_KEY = "ambientizer_credit_log";
 
   let _lastBalance = null;
+
+  function _creditsToUsd(credits) {
+    if (!_lastBalance || !_lastBalance.usd_per_credit) return null;
+    return credits * _lastBalance.usd_per_credit;
+  }
+
+  function _fmtUsd(usd) {
+    if (usd === null || usd === undefined || isNaN(usd)) return null;
+    if (usd < 0.01) return "<$0.01";
+    if (usd < 1) return `$${usd.toFixed(2)}`;
+    if (usd < 10) return `$${usd.toFixed(2)}`;
+    return `$${usd.toFixed(2)}`;
+  }
+
+  function _costLabel(credits, sep = " · ") {
+    const usd = _creditsToUsd(credits);
+    const usdStr = _fmtUsd(usd);
+    if (usdStr) return `${usdStr}${sep}~${credits.toLocaleString()} cr`;
+    return `~${credits.toLocaleString()} credits`;
+  }
 
   async function fetchCreditBalance() {
     if (creditRefreshBtn) {
@@ -216,7 +243,17 @@
     if (pct <= 0) cls = "credit-danger-text";
     else if (pct < 5) cls = "credit-danger-text";
     else if (pct < 20) cls = "credit-warn-text";
-    creditRemainingEl.innerHTML = `<span class="${cls}">${fmt(d.remaining)}</span> / ${fmt(d.limit)} remaining`;
+
+    let mainLine = `<span class="${cls}">${fmt(d.remaining)}</span> / ${fmt(d.limit)} credits`;
+    if (d.usd_per_credit) {
+      const remainingUsd = d.remaining * d.usd_per_credit;
+      const limitUsd = d.limit * d.usd_per_credit;
+      mainLine = `<span class="${cls}">$${remainingUsd.toFixed(2)}</span> / $${limitUsd.toFixed(2)} remaining ` +
+        `<span class="credit-subtle">(${fmt(d.remaining)} cr)</span>`;
+    } else {
+      mainLine += " remaining";
+    }
+    creditRemainingEl.innerHTML = mainLine;
 
     if (d.reset_unix) {
       const resetDate = new Date(d.reset_unix * 1000);
@@ -275,8 +312,8 @@
     if (!log.entries.length) { creditSessionLog.innerHTML = ""; return; }
     const last5 = log.entries.slice(-5);
     creditSessionLog.innerHTML =
-      last5.map(e => `<div class="log-entry">${e.time} — ${e.label}: ~${e.amount.toLocaleString()} cr</div>`).join("") +
-      `<div class="log-entry" style="font-weight:600;">Session total: ~${log.total.toLocaleString()} credits</div>`;
+      last5.map(e => `<div class="log-entry">${e.time} — ${e.label}: ${_costLabel(e.amount, " · ")}</div>`).join("") +
+      `<div class="log-entry" style="font-weight:600;">Session total: ${_costLabel(log.total, " · ")}</div>`;
   }
 
   if (creditRefreshBtn) creditRefreshBtn.addEventListener("click", () => { fetchCreditBalance(); fetchGeminiUsage(); });
@@ -296,13 +333,11 @@
       stem_separation: currentStemSeparation,
       planner_mode: plannerModeEl?.value || "claude",
       music_generation_mode: musicGenerationModeEl?.value || "text",
-      duration: durationEl.value,
       music_length: musicLengthEl.value,
       reference_url: referenceUrlEl.value,
       ref_start: refStartEl.value,
       ref_end: refEndEl.value,
       ref_use_generation: useReferenceGenerationEl?.checked || false,
-      loopable: loopableEl.checked,
     };
     try { localStorage.setItem(FORM_KEY, JSON.stringify(state)); } catch (_) {}
   }
@@ -329,19 +364,16 @@
       }
       if (plannerModeEl && s.planner_mode) plannerModeEl.value = s.planner_mode;
       if (musicGenerationModeEl && s.music_generation_mode) musicGenerationModeEl.value = s.music_generation_mode;
-      if (s.duration) durationEl.value = s.duration;
       if (s.music_length) musicLengthEl.value = s.music_length;
       if (s.reference_url) referenceUrlEl.value = s.reference_url;
       if (s.ref_start) refStartEl.value = s.ref_start;
       if (s.ref_end) refEndEl.value = s.ref_end;
       if (useReferenceGenerationEl) useReferenceGenerationEl.checked = s.ref_use_generation === true;
-      if (s.loopable !== undefined) loopableEl.checked = s.loopable;
       _updateApproachVisibility();
     } catch (_) {}
   }
 
   promptEl.addEventListener("input", saveFormState);
-  durationEl.addEventListener("change", saveFormState);
   musicLengthEl.addEventListener("change", saveFormState);
   if (plannerModeEl) plannerModeEl.addEventListener("change", saveFormState);
   if (musicGenerationModeEl) musicGenerationModeEl.addEventListener("change", saveFormState);
@@ -349,7 +381,6 @@
   refStartEl.addEventListener("change", saveFormState);
   refEndEl.addEventListener("change", saveFormState);
   if (useReferenceGenerationEl) useReferenceGenerationEl.addEventListener("change", saveFormState);
-  loopableEl.addEventListener("change", saveFormState);
   restoreFormState();
   updateCreditEstimate();
 
@@ -391,10 +422,8 @@
           currentMode = p.mode;
           modeButtons.forEach(b => b.classList.toggle("active", b.dataset.mode === p.mode));
         }
-        if (p.duration) durationEl.value = p.duration;
         if (p.music_length) musicLengthEl.value = p.music_length;
         if (p.reference_url) referenceUrlEl.value = p.reference_url;
-        if (p.loopable !== undefined) loopableEl.checked = p.loopable;
         saveFormState();
         document.getElementById("saved-prompts-dropdown").classList.add("hidden");
       });
@@ -427,10 +456,8 @@
       list.unshift({
         prompt,
         mode: currentMode,
-        duration: durationEl.value,
         music_length: musicLengthEl.value,
         reference_url: referenceUrlEl.value,
-        loopable: loopableEl.checked,
         saved_at: new Date().toISOString(),
       });
       setSavedPrompts(list);
@@ -545,7 +572,7 @@
           <input class="plan-card-name" value="${esc(l.name)}" data-idx="${i}">
           <span class="plan-card-role">${esc(l.role)}</span>
           <span class="layer-type-badge ${l.type}">${l.type}</span>
-          <span class="plan-card-cost">~${(l.est_credits||0).toLocaleString()} cr</span>
+          <span class="plan-card-cost">${_costLabel(l.est_credits||0, " · ")}</span>
           <button class="plan-card-remove" data-idx="${i}" title="Remove layer">&times;</button>
         </div>
         <div class="plan-card-instruments">${chips}
@@ -556,7 +583,7 @@
     });
     html += '</div>';
     html += `<div class="plan-footer">
-      <span class="plan-total">Total: ~${totalCost.toLocaleString()} credits</span>
+      <span class="plan-total">Total: ${_costLabel(totalCost, " · ")}</span>
       <button id="btn-replan" class="btn btn-enhance">Re-Plan</button>
     </div>`;
     planPreview.innerHTML = html;
@@ -781,11 +808,11 @@
 
     const c = _getCreditCosts();
     if (!_canAfford(c.total)) {
-      alert(`Not enough credits. Need ~${c.total.toLocaleString()} but only ${(_lastBalance?.remaining || 0).toLocaleString()} remaining.\n\nAdd credits at elevenlabs.io/subscription`);
+      alert(`Not enough credits. Need ${_costLabel(c.total)} but only ${_costLabel(_lastBalance?.remaining || 0)} remaining.\n\nAdd credits at elevenlabs.io/subscription`);
       return;
     }
-    let confirmMsg = `This will use ~${c.total.toLocaleString()} credits (${c.musicLayers} music @ ${(c.musicSec/60).toFixed(0)}min + ${c.sfxLayers} SFX @ 5s`;
-    if (c.stemCost > 0) confirmMsg += ` + stems ~${c.stemCost.toLocaleString()} cr`;
+    let confirmMsg = `This will use ${_costLabel(c.total)} (${c.musicLayers} music @ ${(c.musicSec/60).toFixed(0)}min + ${c.sfxLayers} SFX @ 5s`;
+    if (c.stemCost > 0) confirmMsg += ` + stems ${_costLabel(c.stemCost)}`;
     confirmMsg += `). Generate?`;
     if (!confirm(confirmMsg)) return;
 
@@ -804,7 +831,7 @@
     try {
       const genBody = {
           prompt,
-          duration: parseFloat(durationEl.value),
+          duration: getDerivedTrackMinutes(),
           music_length: parseFloat(musicLengthEl.value),
           mastering: true,
           mode: currentMode,
@@ -815,7 +842,7 @@
           reference_url: useReferenceGenerationEl?.checked ? referenceUrlEl.value.trim() : "",
           ref_start_sec: parseTimestamp(refStartEl.value),
           ref_end_sec: parseTimestamp(refEndEl.value),
-          loopable: loopableEl.checked,
+          loopable: true,
       };
       if (currentLayerPlan) genBody.layer_plan = currentLayerPlan;
       const plannerUsesReference = genBody.planner_mode === "reference_direct";
@@ -1019,6 +1046,49 @@
     return `${m}:${s.toString().padStart(2, "0")}`;
   }
 
+  function _setSeekLoopMarker(frac) {
+    if (!transportSeek || !transportSeek.parentElement) return;
+    const parent = transportSeek.parentElement;
+    const style = window.getComputedStyle(parent);
+    if (style.position === "static") parent.style.position = "relative";
+
+    let marker = document.getElementById("seek-loop-marker");
+    if (!marker) {
+      marker = document.createElement("div");
+      marker.id = "seek-loop-marker";
+      marker.title = "Loop wrap point";
+      Object.assign(marker.style, {
+        position: "absolute",
+        top: "0",
+        bottom: "0",
+        width: "2px",
+        background: "rgba(120, 200, 255, 0.85)",
+        pointerEvents: "none",
+        boxShadow: "0 0 6px rgba(120, 200, 255, 0.7)",
+        zIndex: "2",
+      });
+      parent.appendChild(marker);
+    }
+
+    const place = () => {
+      const parentRect = parent.getBoundingClientRect();
+      const sliderRect = transportSeek.getBoundingClientRect();
+      if (parentRect.width === 0 || sliderRect.width === 0) {
+        requestAnimationFrame(place);
+        return;
+      }
+      // Slider thumb travels from (left + thumbW/2) to (right - thumbW/2).
+      // Approximate thumb width based on the slider's height.
+      const thumbW = Math.max(12, sliderRect.height);
+      const trackLeft = sliderRect.left - parentRect.left + thumbW / 2;
+      const trackWidth = sliderRect.width - thumbW;
+      const px = trackLeft + trackWidth * frac;
+      marker.style.left = `${px}px`;
+    };
+    place();
+    window.addEventListener("resize", place, { passive: true });
+  }
+
   if (btnPlayPause) {
     btnPlayPause.addEventListener("click", () => {
       if (!mixer) return;
@@ -1132,14 +1202,22 @@
     const loaded = Object.keys(mixer.layers).length;
     console.log(`[Mixer] Loaded ${loaded}/${layersWithAudio.length} layers (${layers.length} total, ${layers.length - layersWithAudio.length} without audio)`);
     if (loaded > 0) {
-      const loopDur = Math.max(
-        ...Object.values(mixer.layers).map(l => l.buffer?.duration || 0)
-      );
-      if (loopDur > 0) {
-        mixer.duration = loopDur;
-        currentTrackDuration = loopDur;
-        transportTotal.textContent = formatTime(loopDur);
-        console.log(`[Mixer] Loop duration synced to ${loopDur.toFixed(1)}s`);
+      const loopLengths = Object.values(mixer.layers)
+        .map(l => l.buffer?.duration || 0)
+        .filter(d => d > 0);
+      if (loopLengths.length) {
+        const maxLoop = Math.max(...loopLengths);
+        const minLoop = Math.min(...loopLengths);
+        console.log(`[Mixer] Layer loop lengths: ${minLoop.toFixed(1)}s–${maxLoop.toFixed(1)}s`);
+        // Set the player to 2x the loop length so the wrap point lands at
+        // the midpoint of the transport bar — listener can hear the loop
+        // boundary in context without watching the clock.
+        const previewDur = maxLoop * 2;
+        mixer.duration = previewDur;
+        currentTrackDuration = previewDur;
+        transportTotal.textContent = formatTime(previewDur);
+        _setSeekLoopMarker(0.5);
+        console.log(`[Mixer] Player duration set to 2x loop = ${previewDur.toFixed(1)}s (wrap at ${maxLoop.toFixed(1)}s)`);
       }
     }
     if (failedLayers.length > 0) {
@@ -1191,7 +1269,10 @@
     audioPlayer.classList.add("hidden");
     mixerBadge.classList.remove("hidden");
 
-    mixer.setMasterFades(8, 5);
+    // Match the YouTube export: 5s fade-in on play, 5s fade-out near the end
+    // of the displayed duration, then fade back in on wrap. Lets the user
+    // preview what the exported file's intro/outro will actually sound like.
+    mixer.setMasterFades(5, 5);
     mixer.play();
     iconPlay.classList.add("hidden");
     iconPause.classList.remove("hidden");
@@ -1204,6 +1285,9 @@
     playerPrompt.textContent = `"${data.prompt}"`;
     fetchCreditBalance();
     btnDownload.onclick = () => finalizeAndDownload(data.job_id);
+    if (btnReprepLoop) {
+      btnReprepLoop.onclick = () => reprepLoopForJob(data);
+    }
     if (data.root_key) currentRootKey = data.root_key;
     _currentStems = data.stems || null;
     if (data.layers && data.layers.length) {
@@ -1366,8 +1450,8 @@
           <label class="layer-toggle" title="Loop this layer on its own cycle for natural variation"><input type="checkbox" class="indep-loop-cb" data-layer="${eName}" ${indepLoop ? "checked" : ""}><span class="layer-toggle-text">Independent loop</span></label>
           <div class="layer-actions">
             ${muteBtn}
-            <button class="layer-btn layer-btn-reroll" data-action="regenerate" data-layer="${eName}" title="${l.layer_type === 'musical' ? 'Re-roll (music layer — costs credits!)' : 'Re-roll (~440 credits)'}">Re-roll</button>
-            <button class="layer-btn layer-btn-vary" data-action="vary" data-layer="${eName}" title="${l.layer_type === 'musical' ? 'Create variation (music layer — costs credits!)' : 'Create variation (~440 credits)'}">Vary</button>
+            <button class="layer-btn layer-btn-reroll" data-action="regenerate" data-layer="${eName}" title="${l.layer_type === 'musical' ? `Re-roll music (~${_costLabel(_getCreditCosts().perMusic)})` : `Re-roll SFX (~${_costLabel(_getCreditCosts().perSfx)})`}">Re-roll</button>
+            <button class="layer-btn layer-btn-vary" data-action="vary" data-layer="${eName}" title="${l.layer_type === 'musical' ? `Create music variation (~${_costLabel(_getCreditCosts().perMusic)})` : `Create SFX variation (~${_costLabel(_getCreditCosts().perSfx)})`}">Vary</button>
             <button class="layer-btn layer-btn-regen" data-action="show-regen" data-layer="${eName}" title="Regenerate with new prompt">New Sound</button>
             <button class="layer-btn layer-btn-remove" data-action="remove" data-layer="${eName}" title="Remove layer">Remove</button>
           </div>
@@ -1516,10 +1600,10 @@
           const cost = isMusic ? _getCreditCosts().perMusic : _getCreditCosts().perSfx;
           const durLabel = isMusic ? `${(_getCreditCosts().musicSec/60).toFixed(0)} min music` : "5s SFX";
           if (!_canAfford(cost)) {
-            alert(`Not enough credits. Need ~${cost.toLocaleString()} but only ${(_lastBalance?.remaining || 0).toLocaleString()} remaining.`);
+            alert(`Not enough credits. Need ${_costLabel(cost)} but only ${_costLabel(_lastBalance?.remaining || 0)} remaining.`);
             return;
           }
-          if (!confirm(`${action === "vary" ? "Vary" : "Re-roll"} "${layerName}" — generates ${durLabel} (~${cost.toLocaleString()} credits). Continue?`)) return;
+          if (!confirm(`${action === "vary" ? "Vary" : "Re-roll"} "${layerName}" — generates ${durLabel} (${_costLabel(cost)}). Continue?`)) return;
           _trackCredits(cost, `${action === "vary" ? "Vary" : "Re-roll"} ${layerName}`);
         }
         performLayerAction(action, layerName);
@@ -1537,10 +1621,10 @@
         const isMusic = newType === "musical" || (!newType && currentLayers.find(l => l.name === layerName)?.layer_type === "musical");
         const cost = isMusic ? _getCreditCosts().perMusic : _getCreditCosts().perSfx;
         if (!_canAfford(cost)) {
-          alert(`Not enough credits. Need ~${cost.toLocaleString()} but only ${(_lastBalance?.remaining || 0).toLocaleString()} remaining.`);
+          alert(`Not enough credits. Need ${_costLabel(cost)} but only ${_costLabel(_lastBalance?.remaining || 0)} remaining.`);
           return;
         }
-        if (!confirm(`Regenerate "${layerName}" with new prompt (~${cost.toLocaleString()} credits). Continue?`)) return;
+        if (!confirm(`Regenerate "${layerName}" with new prompt (${_costLabel(cost)}). Continue?`)) return;
         _trackCredits(cost, `Regen ${layerName}`);
         performRegenWithPrompt(layerName, prompt, newType);
         form.classList.add("hidden");
@@ -1987,10 +2071,10 @@
           const isMusic = btn.dataset.stype === "musical";
           const cost = isMusic ? _getCreditCosts().perMusic : _getCreditCosts().perSfx;
           if (!_canAfford(cost)) {
-            alert(`Not enough credits. Need ~${cost.toLocaleString()} but only ${(_lastBalance?.remaining || 0).toLocaleString()} remaining.`);
+            alert(`Not enough credits. Need ${_costLabel(cost)} but only ${_costLabel(_lastBalance?.remaining || 0)} remaining.`);
             return;
           }
-          if (!confirm(`Add "${btn.dataset.sname}" (${isMusic ? "music" : "SFX"}) — ~${cost.toLocaleString()} credits. Continue?`)) return;
+          if (!confirm(`Add "${btn.dataset.sname}" (${isMusic ? "music" : "SFX"}) — ${_costLabel(cost)}. Continue?`)) return;
           _trackCredits(cost, `Add ${btn.dataset.sname}`);
           btn.disabled = true;
           btn.textContent = "Adding...";
@@ -2279,10 +2363,10 @@
     const isMusic = layerType === "musical";
     const cost = isMusic ? _getCreditCosts().perMusic : _getCreditCosts().perSfx;
     if (!_canAfford(cost)) {
-      alert(`Not enough credits. Need ~${cost.toLocaleString()} but only ${(_lastBalance?.remaining || 0).toLocaleString()} remaining.`);
+      alert(`Not enough credits. Need ${_costLabel(cost)} but only ${_costLabel(_lastBalance?.remaining || 0)} remaining.`);
       return;
     }
-    if (!confirm(`Add "${name}" (${isMusic ? "music" : "SFX"}) — ~${cost.toLocaleString()} credits. Continue?`)) return;
+    if (!confirm(`Add "${name}" (${isMusic ? "music" : "SFX"}) — ${_costLabel(cost)}. Continue?`)) return;
     _trackCredits(cost, `Add ${name}`);
     layerActionPending = true;
     const submitBtn = document.getElementById("add-layer-submit");
@@ -2358,6 +2442,40 @@
 
   feedbackSend.addEventListener("click", () => { const text = feedbackInput.value.trim(); if (text) submitFeedback(text); });
   feedbackInput.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); const text = feedbackInput.value.trim(); if (text) submitFeedback(text); } });
+
+  // ── Re-prep loop (re-run loop algorithm on this song only) ──
+  async function reprepLoopForJob(data) {
+    if (!btnReprepLoop || !data || !data.job_id) return;
+    const jobId = data.job_id;
+    const original = btnReprepLoop.textContent;
+    btnReprepLoop.disabled = true;
+    btnReprepLoop.textContent = "Re-prepping...";
+    try {
+      // Pause any current playback while we swap audio.
+      const wasPlaying = mixer && mixer.playing;
+      if (mixer && mixer.playing) mixer.pause();
+      // Clear the cached loop files on the server.
+      const res = await fetch(`/api/audio/${jobId}/reprep`, { method: "POST" });
+      const out = await res.json();
+      if (out.error) throw new Error(out.error);
+      console.log(`[Reprep] Cleared ${out.deleted} cached loop file(s) for job ${jobId}`);
+      // Re-init the mixer so it re-fetches each layer; the server will
+      // re-run prepare_musical_loop with the current algorithm.
+      const durationSec = (data.duration || 5) * 60;
+      currentTrackDuration = durationSec;
+      await initMixer(jobId, data.layers || [], durationSec);
+      const altPairs = data.alternate_pairs || [];
+      for (const p of altPairs) {
+        if (mixer) mixer.setAlternate(p.layer_a, p.layer_b, p.cycle_sec, p.xfade_sec);
+      }
+      if (wasPlaying && mixer) mixer.play();
+    } catch (err) {
+      alert("Re-prep failed: " + err.message);
+    } finally {
+      btnReprepLoop.disabled = false;
+      btnReprepLoop.textContent = original;
+    }
+  }
 
   // ── Finalize & Download ───────────────────────
   async function finalizeAndDownload(jobId) {
@@ -2749,7 +2867,6 @@
         currentMode = data.mode;
         modeButtons.forEach(b => b.classList.toggle("active", b.dataset.mode === data.mode));
       }
-      if (data.duration) durationEl.value = String(data.duration);
       if (data.reference_url) referenceUrlEl.value = data.reference_url;
       saveFormState();
       if (data.status === "complete") {
@@ -2828,7 +2945,7 @@
     await Promise.all(loadPromises);
     console.log(`[VisMixer] Loaded ${Object.keys(visMixer.layers).length}/${layersWithAudio.length} layers`);
 
-    visMixer.setMasterFades(8, 5);
+    visMixer.setMasterFades(5, 5);
     visMixer.play();
     visIconPlay.classList.add("hidden");
     visIconPause.classList.remove("hidden");
@@ -3724,6 +3841,752 @@
       btnYtUpload.textContent = "Upload to YouTube";
     }
   });
+
+
+  // ═══════════════════════════════════════════════════════
+  //  TAB: Distribute
+  // ═══════════════════════════════════════════════════════
+
+  const distCatalogList = document.getElementById("dist-catalog-list");
+  const distFilter = document.getElementById("dist-filter");
+  const btnDistRefresh = document.getElementById("btn-dist-refresh");
+  const distSelectedPanel = document.getElementById("dist-selected-panel");
+  const distSelectedSummary = document.getElementById("dist-selected-summary");
+  const distSubBtns = document.querySelectorAll(".dist-subnav-btn");
+  const distSubPanels = {
+    shorts: document.getElementById("dist-sub-shorts"),
+    seo: document.getElementById("dist-sub-seo"),
+    ads: document.getElementById("dist-sub-ads"),
+    community: document.getElementById("dist-sub-community"),
+    reddit: document.getElementById("dist-sub-reddit"),
+    discord: document.getElementById("dist-sub-discord"),
+  };
+
+  let distSelectedJobId = null;
+  let distCatalogCache = [];
+
+  async function onDistributeTabOpen() {
+    await refreshDistributeCatalog();
+    await refreshStreamStatus();
+    await refreshDiscordWebhookList();
+  }
+
+  btnDistRefresh.addEventListener("click", refreshDistributeCatalog);
+  distFilter.addEventListener("change", renderDistributeCatalog);
+
+  async function refreshDistributeCatalog() {
+    try {
+      const res = await fetch("/api/distribute/catalog");
+      const data = await res.json();
+      distCatalogCache = Array.isArray(data) ? data : [];
+    } catch (err) {
+      console.error("[Distribute] catalog fetch failed:", err);
+      distCatalogCache = [];
+    }
+    renderDistributeCatalog();
+  }
+
+  function renderDistributeCatalog() {
+    if (!distCatalogList) return;
+    const f = distFilter.value;
+    let rows = distCatalogCache.slice();
+    if (f === "published") rows = rows.filter((r) => r.youtube_url);
+    else if (f === "unpublished") rows = rows.filter((r) => !r.youtube_url);
+    else if (f === "favorites") rows = rows.filter((r) => r.favorite);
+
+    if (rows.length === 0) {
+      distCatalogList.innerHTML = `<p class="form-hint">No tracks with exported videos yet. Export one on the Visuals tab to start.</p>`;
+      return;
+    }
+
+    distCatalogList.innerHTML = rows.map((r) => {
+      const thumb = r.visual_image_url
+        ? `<img src="${r.visual_image_url}?t=${Date.now()}" alt="">`
+        : `<div class="no-thumb">no thumb</div>`;
+      const badges = [];
+      if (r.youtube_url) badges.push(`<span class="badge badge-ready">Published</span>`);
+      else badges.push(`<span class="badge badge-warn">Unpublished</span>`);
+      if (r.shorts_total) badges.push(`<span class="badge">${r.shorts_published}/${r.shorts_total} Shorts</span>`);
+      if (r.has_seo_v2) badges.push(`<span class="badge">SEO v2</span>`);
+      if (r.has_ads_brief) badges.push(`<span class="badge">Ads brief</span>`);
+      return `
+        <div class="distribute-row" data-job-id="${r.job_id}">
+          <div class="dist-thumb">${thumb}</div>
+          <div class="dist-meta">
+            <div class="dist-title">${escapeHtml(r.title || r.prompt.slice(0, 60))}</div>
+            <div class="dist-prompt">${escapeHtml((r.prompt || "").slice(0, 140))}</div>
+            <div class="dist-badges">${badges.join(" ")}</div>
+          </div>
+          <div class="dist-actions">
+            <button class="btn btn-secondary btn-dist-select">Open</button>
+            ${r.youtube_url ? `<a class="btn btn-secondary" href="${r.youtube_url}" target="_blank">YouTube</a>` : ""}
+          </div>
+        </div>
+      `;
+    }).join("");
+
+    distCatalogList.querySelectorAll(".btn-dist-select").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        const row = e.target.closest(".distribute-row");
+        const jobId = row?.dataset?.jobId;
+        if (jobId) selectDistributeRow(jobId);
+      });
+    });
+    if (distSelectedJobId && !rows.find((r) => r.job_id === distSelectedJobId)) {
+      // Selected row is no longer visible — clear selection.
+      distSelectedJobId = null;
+      distSelectedPanel.classList.add("hidden");
+      Object.values(distSubPanels).forEach((p) => p.classList.add("hidden"));
+    }
+  }
+
+  function selectDistributeRow(jobId) {
+    distSelectedJobId = jobId;
+    const row = distCatalogCache.find((r) => r.job_id === jobId);
+    if (!row) return;
+    distSelectedPanel.classList.remove("hidden");
+    distSelectedSummary.innerHTML = `
+      <strong>${escapeHtml(row.title)}</strong>
+      <div class="form-hint">${escapeHtml(row.prompt.slice(0, 200))}</div>
+      <div class="dist-badges">
+        ${row.youtube_url ? `<a class="badge badge-ready" href="${row.youtube_url}" target="_blank">View on YouTube</a>` : `<span class="badge badge-warn">Not uploaded</span>`}
+        <span class="badge">${row.shorts_published}/${row.shorts_total} Shorts published</span>
+        ${!row.youtube_url ? `<button type="button" class="btn btn-secondary btn-small" onclick="window.__attachYoutubeUrl && window.__attachYoutubeUrl('${jobId}')">Attach existing YouTube URL…</button>` : ""}
+      </div>
+    `;
+    // Reset to shorts sub by default.
+    activateDistSubpanel("shorts");
+    refreshShortsList();
+  }
+
+  distSubBtns.forEach((btn) => {
+    btn.addEventListener("click", () => activateDistSubpanel(btn.dataset.sub));
+  });
+
+  function activateDistSubpanel(sub) {
+    distSubBtns.forEach((b) => b.classList.toggle("active", b.dataset.sub === sub));
+    Object.entries(distSubPanels).forEach(([k, panel]) => {
+      panel.classList.toggle("hidden", k !== sub);
+    });
+    if (sub === "shorts") refreshShortsList();
+    if (sub === "seo") renderSeoV2FromCache();
+    if (sub === "ads") renderAdsBriefFromCache();
+    if (sub === "community") renderCommunityFromCache();
+    if (sub === "reddit") renderRedditFromCache();
+    if (sub === "discord") refreshDiscordWebhookList();
+  }
+
+  // ── Shorts factory ────────────────────────────
+  const shortsCountEl = document.getElementById("shorts-count");
+  const shortsModeEl = document.getElementById("shorts-mode");
+  const shortsManualStartGroup = document.getElementById("shorts-manual-start-group");
+  const shortsManualStartEl = document.getElementById("shorts-manual-start");
+  const shortsClipSecEl = document.getElementById("shorts-clip-sec");
+  const shortsVisualModeEl = document.getElementById("shorts-visual-mode");
+  const btnShortsGenerate = document.getElementById("btn-shorts-generate");
+  const shortsStatus = document.getElementById("shorts-status");
+  const shortsList = document.getElementById("shorts-list");
+
+  shortsModeEl.addEventListener("change", () => {
+    shortsManualStartGroup.style.display = shortsModeEl.value === "manual" ? "" : "none";
+  });
+
+  btnShortsGenerate.addEventListener("click", async () => {
+    if (!distSelectedJobId) return;
+    const body = {
+      count: parseInt(shortsCountEl.value, 10),
+      mode: shortsModeEl.value,
+      manual_start_sec: parseFloat(shortsManualStartEl.value) || 0,
+      clip_sec: parseFloat(shortsClipSecEl.value) || 50,
+      visual_mode: shortsVisualModeEl.value,
+    };
+
+    btnShortsGenerate.disabled = true;
+    btnShortsGenerate.textContent = "Generating…";
+    shortsStatus.textContent = "Starting…";
+    try {
+      const res = await fetch(`/api/distribute/shorts/${distSelectedJobId}/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const out = await res.json();
+      if (out.error) throw new Error(out.error);
+      // Poll task-status.
+      const poll = setInterval(async () => {
+        try {
+          const sr = await fetch(`/api/task-status/${distSelectedJobId}`);
+          const sd = await sr.json();
+          shortsStatus.textContent = sd.message || sd.status || "";
+          if (sd.status === "done" || sd.status === "error" || sd.status === "canceled") {
+            clearInterval(poll);
+            btnShortsGenerate.disabled = false;
+            btnShortsGenerate.textContent = "Generate Shorts";
+            await refreshShortsList();
+            await refreshDistributeCatalog();
+          }
+        } catch (e) { /* keep polling */ }
+      }, 1500);
+    } catch (err) {
+      shortsStatus.textContent = "Error: " + err.message;
+      btnShortsGenerate.disabled = false;
+      btnShortsGenerate.textContent = "Generate Shorts";
+    }
+  });
+
+  window.__attachYoutubeUrl = attachYoutubeUrl;
+  async function attachYoutubeUrl(jobId) {
+    console.log("[Distribute] attachYoutubeUrl invoked for", jobId);
+    const url = prompt(
+      "Paste the existing YouTube URL for this job\n" +
+      "(e.g. https://www.youtube.com/watch?v=… or https://youtu.be/…)"
+    );
+    if (!url) return;
+    const applyThumb = confirm(
+      "Also re-apply this job's thumbnail to that video?\n\n" +
+      "OK = compress + upload thumbnail (uses your YouTube quota)\n" +
+      "Cancel = just link the URL, leave the thumbnail alone"
+    );
+    try {
+      const res = await fetch(`/api/distribute/attach-youtube/${jobId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ youtube_url: url, apply_thumbnail: applyThumb }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert("Couldn't attach: " + (data.error || res.statusText));
+        return;
+      }
+      const note = data.thumbnail ? `\n\n${data.thumbnail}` : "";
+      alert(`Linked.${note}`);
+      await refreshDistributeCatalog();
+      selectDistributeRow(jobId);
+    } catch (e) {
+      alert("Network error: " + e.message);
+    }
+  }
+
+  async function refreshShortsList() {
+    if (!distSelectedJobId || !shortsList) return;
+    try {
+      const res = await fetch(`/api/distribute/shorts/${distSelectedJobId}`);
+      const items = await res.json();
+      if (!Array.isArray(items) || items.length === 0) {
+        shortsList.innerHTML = `<p class="form-hint">No Shorts yet. Generate the first ones above.</p>`;
+        return;
+      }
+      shortsList.innerHTML = items.map((s) => {
+        const preview = s.preview_url
+          ? `<video class="short-preview" controls preload="metadata" src="${s.preview_url}"></video>`
+          : `<div class="short-preview-missing">video missing</div>`;
+        const ytLink = s.youtube_url
+          ? `<a class="badge badge-ready" href="${s.youtube_url}" target="_blank">View on YouTube</a>`
+          : `<button class="btn btn-primary btn-short-publish" data-short-id="${s.short_id}">Publish</button>`;
+        return `
+          <div class="short-card" data-short-id="${s.short_id}">
+            ${preview}
+            <div class="short-meta">
+              <div class="form-group">
+                <label>Title</label>
+                <input type="text" class="short-title" value="${escapeHtml(s.yt_title || '')}" maxlength="100">
+              </div>
+              <div class="form-group">
+                <label>Description</label>
+                <textarea class="short-desc" rows="3">${escapeHtml(s.yt_description || '')}</textarea>
+              </div>
+              <div class="form-group">
+                <label>Tags (comma sep)</label>
+                <input type="text" class="short-tags" value="${escapeHtml(Array.isArray(s.yt_tags) ? s.yt_tags.join(', ') : (s.yt_tags || ''))}">
+              </div>
+              <div class="short-card-actions">
+                <button class="btn btn-secondary btn-short-save" data-short-id="${s.short_id}">Save metadata</button>
+                ${ytLink}
+                <button class="btn btn-secondary btn-short-delete" data-short-id="${s.short_id}">Delete</button>
+              </div>
+              <span class="form-hint">Moment: ${escapeHtml(s.moment_description || '')} · ${s.clip_sec || 0}s starting ${s.start_sec ? s.start_sec.toFixed(1) : '0'}s</span>
+              <span class="short-upload-status form-hint" data-short-id="${s.short_id}">${s.upload_status === 'uploading' ? 'Uploading…' : ''}</span>
+            </div>
+          </div>
+        `;
+      }).join("");
+      attachShortHandlers();
+    } catch (err) {
+      console.error("[Shorts] list failed:", err);
+    }
+  }
+
+  function attachShortHandlers() {
+    shortsList.querySelectorAll(".btn-short-save").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const card = btn.closest(".short-card");
+        const shortId = btn.dataset.shortId;
+        const title = card.querySelector(".short-title").value;
+        const description = card.querySelector(".short-desc").value;
+        const tags = card.querySelector(".short-tags").value;
+        btn.disabled = true; btn.textContent = "Saving…";
+        try {
+          const res = await fetch(`/api/distribute/shorts/${shortId}/metadata`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ title, description, tags }),
+          });
+          const out = await res.json();
+          if (out.error) throw new Error(out.error);
+          btn.textContent = "Saved";
+          setTimeout(() => { btn.textContent = "Save metadata"; btn.disabled = false; }, 1500);
+        } catch (e) {
+          btn.textContent = "Save metadata"; btn.disabled = false;
+          alert("Save failed: " + e.message);
+        }
+      });
+    });
+
+    shortsList.querySelectorAll(".btn-short-delete").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const shortId = btn.dataset.shortId;
+        if (!confirm("Delete this Short?")) return;
+        await fetch(`/api/distribute/shorts/${shortId}`, { method: "DELETE" });
+        await refreshShortsList();
+        await refreshDistributeCatalog();
+      });
+    });
+
+    shortsList.querySelectorAll(".btn-short-publish").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const card = btn.closest(".short-card");
+        const shortId = btn.dataset.shortId;
+        const title = card.querySelector(".short-title").value.trim();
+        if (!title) { alert("Title required."); return; }
+        const description = card.querySelector(".short-desc").value;
+        const tags = card.querySelector(".short-tags").value;
+        btn.disabled = true; btn.textContent = "Publishing…";
+        try {
+          const res = await fetch(`/api/distribute/shorts/${shortId}/publish`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ title, description, tags, privacy: "public" }),
+          });
+          const out = await res.json();
+          if (out.error) throw new Error(out.error);
+          pollShortUploadStatus(shortId);
+        } catch (e) {
+          btn.disabled = false; btn.textContent = "Publish";
+          alert("Publish failed: " + e.message);
+        }
+      });
+    });
+  }
+
+  function pollShortUploadStatus(shortId) {
+    const statusEl = shortsList.querySelector(`.short-upload-status[data-short-id="${shortId}"]`);
+    if (statusEl) statusEl.textContent = "Uploading…";
+    const interval = setInterval(async () => {
+      try {
+        const r = await fetch(`/api/distribute/shorts/${shortId}/upload-status`);
+        const d = await r.json();
+        if (statusEl) statusEl.textContent = d.message || d.status || "";
+        if (d.status === "done" || d.status === "error") {
+          clearInterval(interval);
+          await refreshShortsList();
+          await refreshDistributeCatalog();
+        }
+      } catch (e) { /* keep polling */ }
+    }, 2000);
+  }
+
+  // ── SEO v2 ────────────────────────────────────
+  const seoComparablesEl = document.getElementById("seo-comparables");
+  const btnSeoV2 = document.getElementById("btn-seo-v2");
+  const seoOutput = document.getElementById("seo-v2-output");
+
+  btnSeoV2.addEventListener("click", async () => {
+    if (!distSelectedJobId) return;
+    btnSeoV2.disabled = true; btnSeoV2.textContent = "Generating…";
+    seoOutput.innerHTML = "<p class='form-hint'>Working…</p>";
+    try {
+      const comparable_channels = seoComparablesEl.value.split(",").map((s) => s.trim()).filter(Boolean);
+      const res = await fetch(`/api/distribute/seo-v2/${distSelectedJobId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ comparable_channels }),
+      });
+      const out = await res.json();
+      if (out.error) throw new Error(out.error);
+      renderSeoV2(out);
+    } catch (e) {
+      seoOutput.innerHTML = `<p class="form-hint">Error: ${escapeHtml(e.message)}</p>`;
+    }
+    btnSeoV2.disabled = false; btnSeoV2.textContent = "Generate SEO v2";
+  });
+
+  function renderSeoV2(out) {
+    const titles = (out.title_variants || []).map((t, i) => `
+      <div class="seo-title-row">
+        <strong>Title ${i + 1}:</strong>
+        <span class="seo-title-value">${escapeHtml(t)}</span>
+        <button class="btn btn-secondary btn-copy" data-copy-text="${escapeHtml(t)}">Copy</button>
+      </div>
+    `).join("");
+    seoOutput.innerHTML = `
+      <h4>Title variants</h4>
+      ${titles || "<p>(none)</p>"}
+      <h4>Description</h4>
+      <pre class="seo-block">${escapeHtml(out.description || "")}</pre>
+      <button class="btn btn-secondary btn-copy" data-copy-text="${escapeHtml(out.description || '')}">Copy description</button>
+      <h4>Tags</h4>
+      <pre class="seo-block">${escapeHtml(Array.isArray(out.tags) ? out.tags.join(", ") : (out.tags || ""))}</pre>
+      <h4>Thumbnail prompt</h4>
+      <pre class="seo-block">${escapeHtml(out.thumbnail_prompt || "")}</pre>
+      <button class="btn btn-secondary btn-copy" data-copy-text="${escapeHtml(out.thumbnail_prompt || '')}">Copy thumbnail prompt</button>
+    `;
+    attachCopyHandlers(seoOutput);
+  }
+
+  async function renderSeoV2FromCache() {
+    if (!distSelectedJobId) return;
+    try {
+      const res = await fetch(`/api/status/${distSelectedJobId}`);
+      const data = await res.json();
+      if (data.seo_v2) renderSeoV2(data.seo_v2);
+      else seoOutput.innerHTML = "<p class='form-hint'>No SEO v2 generated for this track yet.</p>";
+    } catch (e) { /* ignore */ }
+  }
+
+  // ── Ads brief ─────────────────────────────────
+  const adsComparablesEl = document.getElementById("ads-comparables");
+  const adsBudgetEl = document.getElementById("ads-budget");
+  const btnAdsBrief = document.getElementById("btn-ads-brief");
+  const adsOutput = document.getElementById("ads-brief-output");
+
+  btnAdsBrief.addEventListener("click", async () => {
+    if (!distSelectedJobId) return;
+    btnAdsBrief.disabled = true; btnAdsBrief.textContent = "Generating…";
+    adsOutput.innerHTML = "<p class='form-hint'>Working…</p>";
+    try {
+      const comparable_channels = adsComparablesEl.value.split(",").map((s) => s.trim()).filter(Boolean);
+      const res = await fetch(`/api/distribute/ads/brief/${distSelectedJobId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ comparable_channels, budget_range: adsBudgetEl.value }),
+      });
+      const out = await res.json();
+      if (out.error) throw new Error(out.error);
+      renderAdsBrief(out.brief_md);
+      await refreshDistributeCatalog();
+    } catch (e) {
+      adsOutput.innerHTML = `<p class="form-hint">Error: ${escapeHtml(e.message)}</p>`;
+    }
+    btnAdsBrief.disabled = false; btnAdsBrief.textContent = "Generate Ads brief";
+  });
+
+  function renderAdsBrief(md) {
+    adsOutput.innerHTML = `
+      <pre class="ads-brief-block">${escapeHtml(md || "")}</pre>
+      <button class="btn btn-secondary btn-copy" data-copy-text="${escapeHtml(md || '')}">Copy brief</button>
+    `;
+    attachCopyHandlers(adsOutput);
+  }
+
+  async function renderAdsBriefFromCache() {
+    if (!distSelectedJobId) return;
+    try {
+      const res = await fetch(`/api/distribute/ads/brief/${distSelectedJobId}`);
+      const out = await res.json();
+      if (out.brief_md) renderAdsBrief(out.brief_md);
+      else adsOutput.innerHTML = "<p class='form-hint'>No ads brief yet for this track.</p>";
+    } catch (e) { /* ignore */ }
+  }
+
+  // ── Community ─────────────────────────────────
+  const communityOutput = document.getElementById("community-output");
+  document.querySelectorAll("[data-community-style]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (!distSelectedJobId) return;
+      const style = btn.dataset.communityStyle;
+      btn.disabled = true;
+      const orig = btn.textContent;
+      btn.textContent = "Writing…";
+      try {
+        const res = await fetch(`/api/distribute/community/draft/${distSelectedJobId}?style=${encodeURIComponent(style)}`, { method: "POST" });
+        const out = await res.json();
+        if (out.error) throw new Error(out.error);
+        renderCommunity(out);
+      } catch (e) {
+        communityOutput.innerHTML = `<p class="form-hint">Error: ${escapeHtml(e.message)}</p>`;
+      }
+      btn.disabled = false; btn.textContent = orig;
+    });
+  });
+
+  function renderCommunity(out) {
+    communityOutput.innerHTML = `
+      <h4>${escapeHtml(out.style)} draft</h4>
+      <pre class="seo-block">${escapeHtml(out.body || "")}</pre>
+      <button class="btn btn-secondary btn-copy" data-copy-text="${escapeHtml(out.body || '')}">Copy</button>
+      <a class="btn btn-secondary" href="${out.studio_url}" target="_blank">Open YouTube Studio Community</a>
+    `;
+    attachCopyHandlers(communityOutput);
+  }
+
+  async function renderCommunityFromCache() {
+    if (!distSelectedJobId) return;
+    try {
+      const res = await fetch(`/api/status/${distSelectedJobId}`);
+      const data = await res.json();
+      const drafts = data.community_drafts || {};
+      const keys = Object.keys(drafts);
+      if (keys.length === 0) {
+        communityOutput.innerHTML = "<p class='form-hint'>No community drafts yet. Pick a style above.</p>";
+        return;
+      }
+      // Show the most recent draft.
+      const sorted = keys.sort((a, b) => (drafts[b].generated_at || "").localeCompare(drafts[a].generated_at || ""));
+      const top = sorted[0];
+      renderCommunity({ style: top, body: drafts[top].body, studio_url: "https://studio.youtube.com/channel/UC/community" });
+    } catch (e) { /* ignore */ }
+  }
+
+  // ── Reddit ────────────────────────────────────
+  const redditSubEl = document.getElementById("reddit-sub");
+  const redditContextEl = document.getElementById("reddit-context");
+  const btnRedditDraft = document.getElementById("btn-reddit-draft");
+  const redditOutput = document.getElementById("reddit-output");
+
+  btnRedditDraft.addEventListener("click", async () => {
+    if (!distSelectedJobId) return;
+    btnRedditDraft.disabled = true; btnRedditDraft.textContent = "Writing…";
+    redditOutput.innerHTML = "<p class='form-hint'>Working…</p>";
+    try {
+      const res = await fetch(`/api/distribute/reddit/draft/${distSelectedJobId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subreddit: redditSubEl.value.trim(),
+          context_hint: redditContextEl.value.trim(),
+        }),
+      });
+      const out = await res.json();
+      if (out.error) throw new Error(out.error);
+      renderReddit(out);
+    } catch (e) {
+      redditOutput.innerHTML = `<p class="form-hint">Error: ${escapeHtml(e.message)}</p>`;
+    }
+    btnRedditDraft.disabled = false; btnRedditDraft.textContent = "Generate Reddit draft";
+  });
+
+  function renderReddit(out) {
+    redditOutput.innerHTML = `
+      <h4>r/${escapeHtml(out.subreddit || "")}</h4>
+      <div class="form-group">
+        <label>Title</label>
+        <input type="text" class="reddit-title-out" value="${escapeHtml(out.title || '')}">
+      </div>
+      <div class="form-group">
+        <label>Body</label>
+        <textarea class="reddit-body-out" rows="8">${escapeHtml(out.body || "")}</textarea>
+      </div>
+      <a class="btn btn-primary" href="${out.submit_url}" target="_blank">Open Reddit submit page (prefilled)</a>
+      <button class="btn btn-secondary btn-copy" data-copy-text="${escapeHtml(out.body || '')}">Copy body</button>
+    `;
+    attachCopyHandlers(redditOutput);
+  }
+
+  async function renderRedditFromCache() {
+    if (!distSelectedJobId) return;
+    try {
+      const res = await fetch(`/api/status/${distSelectedJobId}`);
+      const data = await res.json();
+      const drafts = data.reddit_drafts || {};
+      const keys = Object.keys(drafts);
+      if (keys.length === 0) {
+        redditOutput.innerHTML = "<p class='form-hint'>No Reddit drafts yet.</p>";
+        return;
+      }
+      const sorted = keys.sort((a, b) => (drafts[b].generated_at || "").localeCompare(drafts[a].generated_at || ""));
+      const sub = sorted[0];
+      const draft = drafts[sub];
+      const submit_url = `https://www.reddit.com/r/${sub}/submit?title=${encodeURIComponent(draft.title || '')}&text=${encodeURIComponent(draft.body || '')}&kind=self`;
+      renderReddit({ subreddit: sub, title: draft.title, body: draft.body, submit_url });
+    } catch (e) { /* ignore */ }
+  }
+
+  // ── Discord ───────────────────────────────────
+  const discordWebhookSelect = document.getElementById("discord-webhook-name");
+  const discordContextEl = document.getElementById("discord-context");
+  const btnDiscordPost = document.getElementById("btn-discord-post");
+  const btnDiscordAddWebhook = document.getElementById("btn-discord-add-webhook");
+  const discordOutput = document.getElementById("discord-output");
+  const discordWebhooksState = document.getElementById("discord-webhooks-state");
+
+  async function refreshDiscordWebhookList() {
+    try {
+      const res = await fetch("/api/distribute/secrets");
+      const out = await res.json();
+      const names = out.discord_webhook_names || [];
+      discordWebhookSelect.innerHTML = names.length
+        ? names.map((n) => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join("")
+        : `<option value="">— no webhooks saved —</option>`;
+      discordWebhooksState.innerHTML = names.length
+        ? `<p class="form-hint">${names.length} webhook${names.length === 1 ? '' : 's'} saved.</p>`
+        : `<p class="form-hint">No Discord webhooks saved yet. Click "Add webhook" to store one.</p>`;
+    } catch (e) { /* ignore */ }
+  }
+
+  btnDiscordAddWebhook.addEventListener("click", async () => {
+    const name = prompt("Webhook name (any short label, e.g. 'main'):");
+    if (!name) return;
+    const url = prompt("Discord webhook URL (server settings → Integrations → Webhooks):");
+    if (!url) return;
+    await fetch("/api/distribute/secrets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ discord_webhooks: { [name]: url } }),
+    });
+    await refreshDiscordWebhookList();
+  });
+
+  btnDiscordPost.addEventListener("click", async () => {
+    if (!distSelectedJobId) return;
+    const webhook_name = discordWebhookSelect.value;
+    if (!webhook_name) { alert("Add a webhook first."); return; }
+    btnDiscordPost.disabled = true; btnDiscordPost.textContent = "Posting…";
+    discordOutput.innerHTML = "<p class='form-hint'>Working…</p>";
+    try {
+      const res = await fetch(`/api/distribute/discord/post/${distSelectedJobId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ webhook_name, context_hint: discordContextEl.value.trim() }),
+      });
+      const out = await res.json();
+      if (out.error) throw new Error(out.error);
+      discordOutput.innerHTML = `
+        <p class="form-hint">Posted via webhook "${escapeHtml(out.webhook_name)}".</p>
+        <pre class="seo-block">${escapeHtml(out.body)}</pre>
+      `;
+    } catch (e) {
+      discordOutput.innerHTML = `<p class="form-hint">Error: ${escapeHtml(e.message)}</p>`;
+    }
+    btnDiscordPost.disabled = false; btnDiscordPost.textContent = "Generate & post to Discord";
+  });
+
+  // ── Live stream ───────────────────────────────
+  const streamStatusEl = document.getElementById("stream-status");
+  const streamPlaylistCountEl = document.getElementById("stream-playlist-count");
+  const streamStartedEl = document.getElementById("stream-started");
+  const streamErrorEl = document.getElementById("stream-error");
+  const streamUrlEl = document.getElementById("stream-url");
+  const streamKeyEl = document.getElementById("stream-key");
+  const btnStreamSaveKey = document.getElementById("btn-stream-save-key");
+  const btnStreamRebuild = document.getElementById("btn-stream-rebuild");
+  const btnStreamStart = document.getElementById("btn-stream-start");
+  const btnStreamStop = document.getElementById("btn-stream-stop");
+
+  async function refreshStreamStatus() {
+    try {
+      const res = await fetch("/api/distribute/stream/status");
+      const s = await res.json();
+      streamStatusEl.textContent = s.status || "unknown";
+      streamPlaylistCountEl.textContent = s.playlist_tracks ?? "—";
+      streamStartedEl.textContent = s.started_at || "—";
+      if (s.last_error) {
+        streamErrorEl.textContent = s.last_error;
+        streamErrorEl.classList.remove("hidden");
+      } else {
+        streamErrorEl.classList.add("hidden");
+      }
+      if (s.rtmp_url) streamUrlEl.value = s.rtmp_url;
+      btnStreamStart.disabled = s.status === "running";
+      btnStreamStop.disabled = s.status !== "running";
+    } catch (e) { /* ignore */ }
+  }
+
+  btnStreamSaveKey.addEventListener("click", async () => {
+    btnStreamSaveKey.disabled = true; btnStreamSaveKey.textContent = "Saving…";
+    try {
+      await fetch("/api/distribute/secrets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          youtube_stream_url: streamUrlEl.value.trim(),
+          youtube_stream_key: streamKeyEl.value.trim(),
+        }),
+      });
+      btnStreamSaveKey.textContent = "Saved";
+      streamKeyEl.value = "";
+      setTimeout(() => { btnStreamSaveKey.textContent = "Save stream settings"; btnStreamSaveKey.disabled = false; }, 1500);
+    } catch (e) {
+      alert("Save failed: " + e.message);
+      btnStreamSaveKey.disabled = false; btnStreamSaveKey.textContent = "Save stream settings";
+    }
+  });
+
+  btnStreamRebuild.addEventListener("click", async () => {
+    btnStreamRebuild.disabled = true; btnStreamRebuild.textContent = "Rebuilding…";
+    try {
+      const res = await fetch("/api/distribute/stream/playlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const out = await res.json();
+      alert(`Playlist rebuilt — ${out.tracks} track(s).`);
+      await refreshStreamStatus();
+    } catch (e) {
+      alert("Rebuild failed: " + e.message);
+    }
+    btnStreamRebuild.disabled = false; btnStreamRebuild.textContent = "Rebuild playlist from catalog";
+  });
+
+  btnStreamStart.addEventListener("click", async () => {
+    if (!confirm("Start the YouTube Live stream now? Make sure 'Go Live' is set up in YouTube Studio.")) return;
+    btnStreamStart.disabled = true; btnStreamStart.textContent = "Starting…";
+    try {
+      const res = await fetch("/api/distribute/stream/start", { method: "POST" });
+      const out = await res.json();
+      if (out.error) throw new Error(out.error);
+      await refreshStreamStatus();
+    } catch (e) {
+      alert("Start failed: " + e.message);
+    }
+    btnStreamStart.textContent = "Start stream";
+  });
+
+  btnStreamStop.addEventListener("click", async () => {
+    if (!confirm("Stop the live stream?")) return;
+    btnStreamStop.disabled = true; btnStreamStop.textContent = "Stopping…";
+    try {
+      await fetch("/api/distribute/stream/stop", { method: "POST" });
+      await refreshStreamStatus();
+    } catch (e) {
+      alert("Stop failed: " + e.message);
+    }
+    btnStreamStop.textContent = "Stop stream";
+  });
+
+  // Poll stream status every 30s while the Distribute tab is open.
+  setInterval(() => {
+    if (document.getElementById("tab-distribute").classList.contains("active")) {
+      refreshStreamStatus();
+    }
+  }, 30000);
+
+  // ── Shared helpers ────────────────────────────
+  function attachCopyHandlers(scope) {
+    scope.querySelectorAll(".btn-copy").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const text = btn.dataset.copyText || "";
+        try {
+          await navigator.clipboard.writeText(text);
+          const orig = btn.textContent;
+          btn.textContent = "Copied!";
+          setTimeout(() => { btn.textContent = orig; }, 1200);
+        } catch (e) {
+          alert("Copy failed: " + e.message);
+        }
+      });
+    });
+  }
 
 
   // ═══════════════════════════════════════════════════════

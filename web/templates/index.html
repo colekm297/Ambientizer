@@ -19,6 +19,7 @@
             <button class="tab-btn active" data-tab="create">Create</button>
             <button class="tab-btn" data-tab="visuals">Visuals</button>
             <button class="tab-btn" data-tab="publish">Publish</button>
+            <button class="tab-btn" data-tab="distribute">Distribute</button>
         </nav>
 
         <!-- ═══════════════════════════════════════════════ -->
@@ -112,38 +113,21 @@
                 </div>
                 <div class="form-row">
                     <div class="form-group">
-                        <label for="duration">Track Duration</label>
-                        <select id="duration">
-                            <option value="1">1 minute</option>
-                            <option value="2">2 minutes</option>
-                            <option value="5" selected>5 minutes</option>
-                            <option value="10">10 minutes</option>
-                            <option value="15">15 minutes</option>
-                            <option value="30">30 minutes</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
                         <label for="music-length">Music Length</label>
                         <select id="music-length">
-                            <option value="0.5" selected>30 sec</option>
+                            <option value="0.5">30 sec</option>
                             <option value="1">1 min</option>
                             <option value="2">2 min</option>
                             <option value="3">3 min</option>
-                            <option value="5">5 min</option>
+                            <option value="5" selected>5 min</option>
                             <option value="10">10 min (max)</option>
                         </select>
-                        <span class="form-hint">Unique music before it loops. 30s sounds great for ambient — the engine crossfades it seamlessly.</span>
+                        <span class="form-hint">Unique music ElevenLabs generates before it loops. Longer = room for subtle internal movement (new elements, density shifts) while staying loop-friendly. Player auto-shows two loops; export length is set on the Export button.</span>
                     </div>
                 </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label class="toggle-label">
-                            <input type="checkbox" id="loopable" checked>
-                            <span class="toggle-text">Seamless loop</span>
-                        </label>
-                        <span class="form-hint">Crossfades end into beginning for gapless tiling</span>
-                    </div>
-                </div>
+<!-- Seamless loop is always enabled. (Previously a checkbox that could
+                     silently get stuck OFF in localStorage and disable loop prep,
+                     causing the audio to drop into silence between loops.) -->
                 <div id="credit-balance" class="credit-balance">
                     <div class="credit-balance-header">
                         <span class="credit-balance-label">ElevenLabs Credits</span>
@@ -225,6 +209,7 @@
                 <audio id="audio-player" controls class="hidden"></audio>
                 <div class="player-actions">
                     <button id="btn-download" class="btn btn-secondary">Download WAV</button>
+                    <button id="btn-reprep-loop" class="btn btn-secondary" title="Re-run loop prep on this song with the current algorithm (only affects this song)">↻ Re-prep loop</button>
                     <div class="export-extended">
                         <select id="extended-duration">
                             <option value="30">30 min</option>
@@ -609,9 +594,219 @@
 
         </div>
 
+        <!-- ═══════════════════════════════════════════════ -->
+        <!--  TAB: Distribute                                -->
+        <!-- ═══════════════════════════════════════════════ -->
+        <div id="tab-distribute" class="tab-content">
+
+            <!-- Catalog -->
+            <section class="panel distribute-panel">
+                <h2>Catalog</h2>
+                <p class="form-hint">Channel-wide growth ops over every track that has an exported video. Different from Publish (single-track upload).</p>
+                <div class="distribute-toolbar">
+                    <select id="dist-filter">
+                        <option value="all">All</option>
+                        <option value="published">Published</option>
+                        <option value="unpublished">Unpublished</option>
+                        <option value="favorites">Favorites</option>
+                    </select>
+                    <button id="btn-dist-refresh" class="btn btn-secondary">Refresh</button>
+                </div>
+                <div id="dist-catalog-list" class="distribute-catalog"></div>
+            </section>
+
+            <!-- Sub-feature switcher -->
+            <section id="dist-selected-panel" class="panel distribute-panel hidden">
+                <h2>Selected track</h2>
+                <div id="dist-selected-summary" class="distribute-summary"></div>
+                <nav class="distribute-subnav">
+                    <button class="dist-subnav-btn active" data-sub="shorts">Shorts</button>
+                    <button class="dist-subnav-btn" data-sub="seo">SEO v2</button>
+                    <button class="dist-subnav-btn" data-sub="ads">Ads brief</button>
+                    <button class="dist-subnav-btn" data-sub="community">Community</button>
+                    <button class="dist-subnav-btn" data-sub="reddit">Reddit</button>
+                    <button class="dist-subnav-btn" data-sub="discord">Discord</button>
+                </nav>
+            </section>
+
+            <!-- Shorts sub-panel -->
+            <section id="dist-sub-shorts" class="panel distribute-panel distribute-sub hidden">
+                <h3>Shorts factory</h3>
+                <p class="form-hint">Generate 30-60s vertical clips from this track for daily YouTube Shorts.</p>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="shorts-count">How many?</label>
+                        <select id="shorts-count">
+                            <option value="1">1</option>
+                            <option value="2">2</option>
+                            <option value="3" selected>3</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="shorts-mode">Segment</label>
+                        <select id="shorts-mode">
+                            <option value="auto" selected>Auto (Gemini picks atmospheric moment)</option>
+                            <option value="first">First 50s</option>
+                            <option value="middle">Middle 50s</option>
+                            <option value="last">Last 50s</option>
+                            <option value="manual">Manual start time</option>
+                        </select>
+                    </div>
+                    <div class="form-group" id="shorts-manual-start-group" style="display:none">
+                        <label for="shorts-manual-start">Manual start (sec)</label>
+                        <input type="number" id="shorts-manual-start" min="0" step="1" value="60">
+                    </div>
+                    <div class="form-group">
+                        <label for="shorts-clip-sec">Clip length</label>
+                        <select id="shorts-clip-sec">
+                            <option value="30">30s</option>
+                            <option value="45">45s</option>
+                            <option value="50" selected>50s</option>
+                            <option value="60">60s</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="shorts-visual-mode">Visual</label>
+                        <select id="shorts-visual-mode">
+                            <option value="auto" selected>Auto (use video if present)</option>
+                            <option value="crop">Vertical crop of parent video</option>
+                            <option value="image">Ken Burns on scene image</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="distribute-actions">
+                    <button id="btn-shorts-generate" class="btn btn-primary">Generate Shorts</button>
+                    <span id="shorts-status" class="form-hint"></span>
+                </div>
+                <div id="shorts-list" class="shorts-list"></div>
+            </section>
+
+            <!-- SEO v2 sub-panel -->
+            <section id="dist-sub-seo" class="panel distribute-panel distribute-sub hidden">
+                <h3>SEO metadata v2</h3>
+                <p class="form-hint">3 title variants + a thumbnail prompt. Optionally seed with comparable channels.</p>
+                <div class="form-group">
+                    <label for="seo-comparables">Comparable channels (optional)</label>
+                    <input type="text" id="seo-comparables" placeholder="@TaosWinds, @MyNoise, @SoundscapeStudio">
+                    <span class="form-hint">Comma-separated handles. Claude uses these as style exemplars.</span>
+                </div>
+                <button id="btn-seo-v2" class="btn btn-primary">Generate SEO v2</button>
+                <div id="seo-v2-output" class="distribute-output"></div>
+            </section>
+
+            <!-- Ads brief sub-panel -->
+            <section id="dist-sub-ads" class="panel distribute-panel distribute-sub hidden">
+                <h3>YouTube Ads brief</h3>
+                <p class="form-hint">Paste-ready Google Ads campaign. Claude analyzes the track + comparable channels.</p>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="ads-comparables">Comparable channels</label>
+                        <input type="text" id="ads-comparables" placeholder="@TaosWinds, @MyNoise">
+                    </div>
+                    <div class="form-group">
+                        <label for="ads-budget">Daily budget (USD)</label>
+                        <select id="ads-budget">
+                            <option value="5-20" selected>$5–20</option>
+                            <option value="20-50">$20–50</option>
+                            <option value="50-150">$50–150</option>
+                        </select>
+                    </div>
+                </div>
+                <button id="btn-ads-brief" class="btn btn-primary">Generate Ads brief</button>
+                <div id="ads-brief-output" class="distribute-output"></div>
+            </section>
+
+            <!-- Community sub-panel -->
+            <section id="dist-sub-community" class="panel distribute-panel distribute-sub hidden">
+                <h3>Community post draft</h3>
+                <p class="form-hint">YouTube has no Community write API — generates a draft to paste into YouTube Studio.</p>
+                <div class="distribute-actions">
+                    <button class="btn btn-secondary" data-community-style="teaser">Teaser</button>
+                    <button class="btn btn-secondary" data-community-style="poll">"Which world next?" Poll</button>
+                    <button class="btn btn-secondary" data-community-style="world_request">Open ask</button>
+                </div>
+                <div id="community-output" class="distribute-output"></div>
+            </section>
+
+            <!-- Reddit sub-panel -->
+            <section id="dist-sub-reddit" class="panel distribute-panel distribute-sub hidden">
+                <h3>Reddit post draft</h3>
+                <p class="form-hint">Tailored to a subreddit's culture. We don't post for you — you paste via the prefilled submit link.</p>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="reddit-sub">Subreddit</label>
+                        <input type="text" id="reddit-sub" placeholder="ambientmusic" value="ambientmusic">
+                    </div>
+                    <div class="form-group" style="flex:2">
+                        <label for="reddit-context">Context hint (optional)</label>
+                        <input type="text" id="reddit-context" placeholder="e.g., new release, made for the book Project Hail Mary">
+                    </div>
+                </div>
+                <button id="btn-reddit-draft" class="btn btn-primary">Generate Reddit draft</button>
+                <div id="reddit-output" class="distribute-output"></div>
+            </section>
+
+            <!-- Discord sub-panel -->
+            <section id="dist-sub-discord" class="panel distribute-panel distribute-sub hidden">
+                <h3>Discord announcement</h3>
+                <p class="form-hint">For servers you own. Saves a webhook URL, then posts directly via Discord webhook.</p>
+                <div id="discord-webhooks-state"></div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="discord-webhook-name">Webhook name</label>
+                        <select id="discord-webhook-name"></select>
+                    </div>
+                    <div class="form-group" style="flex:2">
+                        <label for="discord-context">Context hint (optional)</label>
+                        <input type="text" id="discord-context" placeholder="">
+                    </div>
+                </div>
+                <div class="distribute-actions">
+                    <button id="btn-discord-post" class="btn btn-primary">Generate &amp; post to Discord</button>
+                    <button id="btn-discord-add-webhook" class="btn btn-secondary">Add webhook</button>
+                </div>
+                <div id="discord-output" class="distribute-output"></div>
+            </section>
+
+            <!-- Live stream -->
+            <section class="panel distribute-panel">
+                <h2>24/7 Live stream</h2>
+                <p class="form-hint">Push an unattended ambient loop to YouTube Live. Direct RTMP from this machine — your computer must stay on while streaming.</p>
+                <div id="stream-status-block" class="stream-status-block">
+                    <div class="form-row">
+                        <div><strong>Status:</strong> <span id="stream-status">checking…</span></div>
+                        <div><strong>Tracks in playlist:</strong> <span id="stream-playlist-count">—</span></div>
+                        <div><strong>Started:</strong> <span id="stream-started">—</span></div>
+                    </div>
+                    <div id="stream-error" class="stream-error hidden"></div>
+                </div>
+
+                <details class="stream-config">
+                    <summary>Stream settings (YouTube Live RTMP key)</summary>
+                    <div class="form-group">
+                        <label for="stream-url">RTMP ingest URL</label>
+                        <input type="text" id="stream-url" placeholder="rtmp://a.rtmp.youtube.com/live2" value="rtmp://a.rtmp.youtube.com/live2">
+                    </div>
+                    <div class="form-group">
+                        <label for="stream-key">Stream key (kept locally, never sent to anyone but YouTube)</label>
+                        <input type="password" id="stream-key" placeholder="xxxx-xxxx-xxxx-xxxx-xxxx">
+                        <span class="form-hint">YouTube Studio → Create → Go live → Stream → Stream key. Save once, then start.</span>
+                    </div>
+                    <button id="btn-stream-save-key" class="btn btn-secondary">Save stream settings</button>
+                </details>
+
+                <div class="distribute-actions">
+                    <button id="btn-stream-rebuild" class="btn btn-secondary">Rebuild playlist from catalog</button>
+                    <button id="btn-stream-start" class="btn btn-primary">Start stream</button>
+                    <button id="btn-stream-stop" class="btn btn-secondary">Stop stream</button>
+                </div>
+            </section>
+
+        </div>
+
     </div>
 
-    <script src="/static/mixer.js?v={{ range(1,99999) | random }}"></script>
-    <script src="/static/app.js?v={{ range(1,99999) | random }}"></script>
+    <script src="/static/mixer.js?v={{ mixer_v }}"></script>
+    <script src="/static/app.js?v={{ app_v }}"></script>
 </body>
 </html>

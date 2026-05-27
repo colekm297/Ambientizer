@@ -36,6 +36,7 @@ import uuid
 import threading
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 from flask import Flask, render_template, request, jsonify, send_file, abort
 from dotenv import load_dotenv
@@ -53,10 +54,13 @@ from visual_generator import VisualGenerator
 from youtube_publisher import YouTubePublisher, YouTubeAuthError, RECONNECT_MESSAGE, _is_invalid_grant
 from retry_utils import retry_with_backoff, is_transient_api_error
 from gemini_limiter import gemini_limiter
+import distribute_shorts
+import distribute_stream
 
 load_dotenv()
 
 app = Flask(__name__)
+app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0  # Never cache static files during dev.
 
 jobs: dict[str, dict] = {}
 jobs_lock = threading.Lock()
@@ -64,6 +68,12 @@ jobs_lock = threading.Lock()
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 JOBS_DIR = PROJECT_ROOT / "saved_jobs"
 JOBS_DIR.mkdir(parents=True, exist_ok=True)
+
+# When True, skip prepare_musical_loop entirely and serve the raw ElevenLabs
+# audio. The "seamless loopable" prompt hint asks the model to produce audio
+# that already starts and ends at compatible levels; Web Audio then loops the
+# buffer natively. Set False to re-enable trim + crossfade prep.
+BYPASS_LOOP_PREP = False
 
 
 class GenerationCanceled(Exception):
@@ -252,6 +262,13 @@ def _save_job(job_id: str):
         "stems": job.get("stems"),
         "stem_files": job.get("stem_files"),
         "favorite": job.get("favorite", False),
+        # Distribute-tab persistence
+        "shorts": job.get("shorts", []),
+        "ads_brief_md": job.get("ads_brief_md"),
+        "community_drafts": job.get("community_drafts", {}),
+        "reddit_drafts": job.get("reddit_drafts", {}),
+        "seo_v2": job.get("seo_v2"),
+        "last_promoted_at": job.get("last_promoted_at"),
     }
 
     path = JOBS_DIR / f"{job_id}.json"
@@ -311,6 +328,12 @@ def _load_saved_jobs():
                 "stems": data.get("stems"),
                 "stem_files": data.get("stem_files"),
                 "favorite": data.get("favorite", False),
+                "shorts": data.get("shorts", []),
+                "ads_brief_md": data.get("ads_brief_md"),
+                "community_drafts": data.get("community_drafts", {}),
+                "reddit_drafts": data.get("reddit_drafts", {}),
+                "seo_v2": data.get("seo_v2"),
+                "last_promoted_at": data.get("last_promoted_at"),
             }
             loaded += 1
         except Exception as e:
@@ -599,12 +622,35 @@ def run_generation(
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    # Cache-bust static assets using file mtimes so the browser always picks
+    # up the latest mixer.js / app.js immediately after they change on disk.
+    try:
+        mixer_v = int(os.path.getmtime(PROJECT_ROOT / "web" / "static" / "mixer.js"))
+        app_v = int(os.path.getmtime(PROJECT_ROOT / "web" / "static" / "app.js"))
+    except OSError:
+        mixer_v = app_v = 0
+    return render_template("index.html", mixer_v=mixer_v, app_v=app_v)
+
+
+# ElevenLabs subscription tier → monthly USD price (for credit-to-dollar conversion).
+# Source: https://elevenlabs.io/pricing (May 2026).
+ELEVENLABS_TIER_PRICING = {
+    "free": 0.0,
+    "starter": 6.0,
+    "creator": 22.0,
+    "pro": 99.0,
+    "scale": 299.0,
+    "business": 990.0,
+    "growing_business": 299.0,  # alternate API tier name for Scale
+    "enterprise": None,         # custom pricing — fall back to per-tier rate
+}
 
 
 @app.route("/api/credits")
 def get_credits():
-    """Fetch real credit balance from ElevenLabs subscription API."""
+    """Fetch real credit balance from ElevenLabs subscription API and include
+    a credit→USD conversion so the UI can show dollar cost.
+    """
     api_key = os.environ.get("ELEVENLABS_API_KEY")
     if not api_key:
         return jsonify({"error": "No ElevenLabs API key configured"}), 500
@@ -616,12 +662,21 @@ def get_credits():
         limit = getattr(sub, "character_limit", 0)
         remaining = max(0, limit - used)
         reset_unix = getattr(sub, "next_character_count_reset_unix", None)
+        tier = (getattr(sub, "tier", "") or "").lower()
+
+        monthly_usd = ELEVENLABS_TIER_PRICING.get(tier)
+        usd_per_credit = None
+        if monthly_usd is not None and monthly_usd > 0 and limit > 0:
+            usd_per_credit = monthly_usd / limit
+
         return jsonify({
             "used": used,
             "limit": limit,
             "remaining": remaining,
             "reset_unix": reset_unix,
-            "tier": getattr(sub, "tier", "unknown"),
+            "tier": tier,
+            "monthly_usd": monthly_usd,
+            "usd_per_credit": usd_per_credit,
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -755,7 +810,7 @@ def analyze_reference():
                     @retry_with_backoff(max_retries=3, base_delay=2.0, retryable_check=is_transient_api_error)
                     def _call_summarize():
                         return client.messages.create(
-                            model="claude-sonnet-4-20250514",
+                            model="claude-sonnet-4-6",
                             max_tokens=300,
                             messages=[{
                                 "role": "user",
@@ -836,12 +891,13 @@ def enhance_prompt():
     ENHANCE_SYSTEM = """You are an expert ambient SOUNDSCAPE designer. You create immersive sonic environments \
 for background listening — audio that plays for hours while people study, work, sleep, or relax.
 
-CRITICAL: You are NOT writing songs. You are designing soundscapes. No verse/chorus structure, no \
-song-like progressions. Think evolving textures, slow harmonic drift, ambient character.
+CRITICAL: You are NOT writing pop songs. No verse/chorus/bridge, no beat drops, no hooks. \
+But DO include gentle internal movement — elements entering, density shifts, harmonic breathing — \
+then returning toward the opening texture for seamless looping.
 
 For MUSICAL mode + Unified approach: 1 rich musical layer containing ALL instruments and environmental atmosphere in a single generation. Do NOT add a separate atmosphere/SFX layer.
 For MUSICAL mode + Multi-Layer approach: 2-4 musical layers. Use a quiet Background Pad (type "musical") for texture — never type "base"/"mid"/"detail" (those produce choppy repetitive SFX).
-For AMBIENT mode: 2-3 continuous environmental texture layers (type "base" or "mid"). Prompts must describe STEADY beds — no "occasional" sounds, no discrete hits.
+For AMBIENT mode: 2-3 continuous environmental texture layers (type "base" or "mid"). Prompts must describe STEADY beds — no discrete hits.
 
 OUTPUT FORMAT: Return a JSON object with:
 {
@@ -852,7 +908,7 @@ OUTPUT FORMAT: Return a JSON object with:
       "role": "Main Music" or "Atmosphere" or "Texture" etc.,
       "type": "musical" or "base" or "mid" or "detail",
       "instruments": ["instrument1", "instrument2"],
-      "prompt_preview": "Detailed generation prompt (200-400 chars for musical, 50-150 for SFX)",
+      "prompt_preview": "Detailed generation prompt (250-500 chars for musical, 50-150 for SFX)",
       "est_credits": 3600
     }
   ]
@@ -863,9 +919,10 @@ Credit estimation: musical layers cost ~30 credits/sec, SFX layers cost ~20 cred
 The enhanced_prompt should be vivid, production-ready (2-4 sentences). Name specific instruments, \
 tempo, key, effects. The layer plan shows what Claude will generate — users can edit before committing.
 
-SOUNDSCAPE EMPHASIS: Use words like "drifting", "evolving", "continuous", "textural", "ambient". \
-Avoid: "verse", "chorus", "bridge", "drop", "beat", "hook". Include "continuous, never-ending" \
-in musical prompts since audio will be looped.
+For musical prompt_preview values, include a simple timed internal arc scaled to the music length, e.g.: \
+"0:00-1:30 core bed; ~2:30 shimmer enters for ~1 min; 3:00-4:00 fuller harmony; final 30-60s return to opening density for seamless loop." \
+Avoid stasis words like "never-ending", "static", "wallpaper", "no discrete events". \
+Avoid: "verse", "chorus", "bridge", "drop", "beat", "hook", "fade-out ending".
 
 Output ONLY valid JSON, no markdown fences."""
 
@@ -884,7 +941,7 @@ Output ONLY valid JSON, no markdown fences."""
     @retry_with_backoff(max_retries=3, base_delay=2.0, retryable_check=is_transient_api_error)
     def _call_enhance():
         return client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-opus-4-7",
             max_tokens=1200,
             system=ENHANCE_SYSTEM,
             messages=[{
@@ -893,7 +950,7 @@ Output ONLY valid JSON, no markdown fences."""
 "{raw_prompt}"{context_block}{layer_structure}
 
 Be specific about instruments, key, tempo, spatial qualities, and emotional character.
-Remember: this is a SOUNDSCAPE, not a song. Evolving textures, slow drift, ambient character.""",
+Remember: this is a SOUNDSCAPE, not a pop song. Gentle internal events and density shifts, loop-friendly ending.""",
             }],
         )
 
@@ -1093,6 +1150,11 @@ def api_status(job_id: str):
         "stems": job.get("stems"),
         "stems_status": job.get("stems_status"),
         "stems_error": job.get("stems_error"),
+        "shorts": job.get("shorts", []),
+        "ads_brief_md": job.get("ads_brief_md"),
+        "community_drafts": job.get("community_drafts", {}),
+        "reddit_drafts": job.get("reddit_drafts", {}),
+        "seo_v2": job.get("seo_v2"),
     })
 
 
@@ -1268,7 +1330,7 @@ def suggest_layers(job_id: str):
     client = anthropic.Anthropic(api_key=api_key)
 
     message = client.messages.create(
-        model="claude-sonnet-4-20250514",
+        model="claude-sonnet-4-6",
         max_tokens=600,
         messages=[{
             "role": "user",
@@ -1450,11 +1512,11 @@ def layer_action(job_id: str):
         is_musical = new_type == LayerType.MUSICAL
         if is_musical and not any(
             w in new_prompt.lower()
-            for w in ("continuous", "sustained", "seamless", "never-ending", "throughout")
+            for w in ("0:", "1:", "2:", "3:", "4:", "5:", "arc", "enter", "minute", "third")
         ):
             new_prompt = (
-                f"{new_prompt}. Continuous sustained texture throughout, "
-                "seamless loop, no long silent gaps."
+                f"{new_prompt}. Gentle internal movement across the loop: one subtle element mid-way, "
+                "return toward opening density by the end for seamless wrap."
             )
 
         is_base = new_type == LayerType.BASE
@@ -1781,10 +1843,10 @@ def api_layer_audio(job_id: str, layer_name: str):
         print(f"  [layer-audio] 404: file not found for '{layer_name}': {layer.generated_audio_path}")
         abort(404)
 
-    if layer.layer_type == LayerType.MUSICAL and getattr(config, "loopable", True):
+    if (not BYPASS_LOOP_PREP) and layer.layer_type == LayerType.MUSICAL and getattr(config, "loopable", True):
         safe_layer = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in layer_name)[:80]
         src_stamp = int(os.path.getmtime(path))
-        safe_loop_path = PROJECT_ROOT / "output" / f"{job_id}_{safe_layer}_{src_stamp}_loopv3.wav"
+        safe_loop_path = PROJECT_ROOT / "output" / f"{job_id}_{safe_layer}_{src_stamp}_loop.wav"
         if not safe_loop_path.exists():
             try:
                 src = AudioSegment.from_file(path)
@@ -1818,10 +1880,10 @@ def api_stem_audio(job_id: str, stem_name: str):
         abort(404)
 
     config = job.get("config")
-    if config and getattr(config, "loopable", True):
+    if (not BYPASS_LOOP_PREP) and config and getattr(config, "loopable", True):
         src_stamp = int(os.path.getmtime(path))
         safe_stem = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in stem_name)[:80]
-        loop_path = PROJECT_ROOT / "output" / f"{job_id}_stem_{safe_stem}_{src_stamp}_loopv3.wav"
+        loop_path = PROJECT_ROOT / "output" / f"{job_id}_stem_{safe_stem}_{src_stamp}_loop.wav"
         if not loop_path.exists():
             try:
                 src = AudioSegment.from_file(path)
@@ -1838,6 +1900,26 @@ def api_stem_audio(job_id: str, stem_name: str):
 
     mime = "audio/mpeg" if path.endswith(".mp3") else "audio/wav"
     return send_file(path, mimetype=mime, as_attachment=False)
+
+
+@app.route("/api/audio/<job_id>/reprep", methods=["POST"])
+def api_reprep_loops(job_id: str):
+    """Delete cached loop files for this job so they regenerate with current
+    loop-prep code on next playback. Use to apply algorithm changes to a
+    specific song without affecting any others.
+    """
+    import glob
+    pattern = str(PROJECT_ROOT / "output" / f"{job_id}_*_loop.wav")
+    files = glob.glob(pattern)
+    deleted = 0
+    for f in files:
+        try:
+            os.remove(f)
+            deleted += 1
+        except OSError as e:
+            print(f"  [reprep] Could not delete {f}: {e}")
+    print(f"  [reprep] Cleared {deleted} cached loop file(s) for job {job_id}")
+    return jsonify({"deleted": deleted, "job_id": job_id})
 
 
 @app.route("/api/audio/<job_id>")
@@ -2030,7 +2112,8 @@ def export_extended(job_id: str):
     data = request.get_json(force=True, silent=True) or {}
     target_minutes = float(data.get("target_minutes", 60))
     target_minutes = max(1, min(480, target_minutes))
-    fade_in_sec = float(data.get("fade_in_sec", 20))
+    fade_in_sec = float(data.get("fade_in_sec", 5))
+    fade_out_sec = float(data.get("fade_out_sec", 5))
 
     def worker():
         _long_task_update(job_id, message=f"Exporting {int(target_minutes)} minute looped audio...")
@@ -2054,7 +2137,9 @@ def export_extended(job_id: str):
         fade_in_ms = int(fade_in_sec * 1000)
         if fade_in_ms > 0:
             extended = extended.fade_in(min(fade_in_ms, len(extended) // 4))
-        extended = extended.fade_out(5000)
+        fade_out_ms = int(fade_out_sec * 1000)
+        if fade_out_ms > 0:
+            extended = extended.fade_out(min(fade_out_ms, len(extended) // 4))
 
         config = job.get("config")
         title = config.title if config else "Soundscape"
@@ -2290,7 +2375,7 @@ def auto_visual_prompt(job_id: str):
     client = anthropic.Anthropic(api_key=api_key)
 
     message = client.messages.create(
-        model="claude-sonnet-4-20250514",
+        model="claude-sonnet-4-6",
         max_tokens=300,
         messages=[{
             "role": "user",
@@ -2642,6 +2727,14 @@ def export_visual_video(job_id: str):
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         final_path = str(PROJECT_ROOT / "output" / f"{safe_title}_final_{timestamp}.mp4")
 
+        fade_in_sec = 5.0
+        fade_out_sec = 5.0
+        fade_out_start = max(0.0, target_sec - fade_out_sec)
+        afade_chain = (
+            f"afade=t=in:st=0:d={fade_in_sec},"
+            f"afade=t=out:st={fade_out_start}:d={fade_out_sec}"
+        )
+
         cmd = [
             "ffmpeg", "-y",
             "-stream_loop", "-1", "-i", clip_path,
@@ -2650,7 +2743,7 @@ def export_visual_video(job_id: str):
             "-map", "1:a:0",
             "-t", str(target_sec),
             "-c:v", "libx264", "-preset", "fast", "-crf", "20", "-pix_fmt", "yuv420p",
-            "-af", "afade=t=in:st=0:d=8",
+            "-af", afade_chain,
             "-c:a", "aac", "-b:a", "320k", "-cutoff", "20000",
             final_path,
         ]
@@ -2875,7 +2968,7 @@ def youtube_auto_metadata(job_id: str):
     client = anthropic.Anthropic(api_key=api_key)
 
     message = client.messages.create(
-        model="claude-sonnet-4-20250514",
+        model="claude-sonnet-4-6",
         max_tokens=1000,
         messages=[{
             "role": "user",
@@ -3066,6 +3159,999 @@ def youtube_upload_status(job_id: str):
         "message": job.get("upload_message", ""),
         "youtube_url": job.get("youtube_url"),
     })
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  DISTRIBUTE TAB
+#  Channel-wide growth automation: catalog, Shorts, SEO v2, Ads brief,
+#  Community / Reddit / Discord drafts, 24/7 live stream.
+# ═══════════════════════════════════════════════════════════════════
+
+
+def _job_must_exist(job_id: str):
+    with jobs_lock:
+        job = jobs.get(job_id)
+    if not job:
+        return None
+    return job
+
+
+def _yt_video_id_from_url(url: str | None) -> str | None:
+    if not url:
+        return None
+    if "watch?v=" in url:
+        return url.split("watch?v=", 1)[1].split("&", 1)[0]
+    if "youtu.be/" in url:
+        return url.split("youtu.be/", 1)[1].split("?", 1)[0]
+    return None
+
+
+# ── Catalog ─────────────────────────────────────────────────────────
+
+
+@app.route("/api/distribute/attach-youtube/<job_id>", methods=["POST"])
+def api_distribute_attach_youtube(job_id: str):
+    """Attach an existing YouTube URL to a job whose upload didn't write back.
+
+    Useful when the resumable upload completed but a later step (e.g. thumbnail)
+    failed and the worker marked the upload as errored — the video exists on
+    YouTube but the job lost the link. Optionally re-applies the job's
+    thumbnail by hitting youtube.thumbnails().set() with the compressed image.
+    """
+    job = _job_must_exist(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+    payload = request.get_json(silent=True) or {}
+    url = (payload.get("youtube_url") or "").strip()
+    apply_thumbnail = bool(payload.get("apply_thumbnail", True))
+    video_id = _yt_video_id_from_url(url)
+    if not video_id:
+        return jsonify({"error": "Could not parse a video id from that URL."}), 400
+
+    with jobs_lock:
+        jobs[job_id]["youtube_url"] = url
+        jobs[job_id]["youtube_video_id"] = video_id
+        _save_job(jobs[job_id])
+
+    thumb_msg = None
+    if apply_thumbnail and job.get("visual_image_path") and os.path.exists(job["visual_image_path"]):
+        try:
+            from youtube_publisher import _prepare_thumbnail
+            from googleapiclient.http import MediaFileUpload
+            yt = _yt_publisher._get_youtube()
+            prepared, mime, is_temp = _prepare_thumbnail(job["visual_image_path"])
+            if prepared:
+                try:
+                    yt.thumbnails().set(
+                        videoId=video_id,
+                        media_body=MediaFileUpload(prepared, mimetype=mime),
+                    ).execute()
+                    thumb_msg = "Thumbnail applied."
+                finally:
+                    if is_temp:
+                        try:
+                            os.remove(prepared)
+                        except OSError:
+                            pass
+            else:
+                thumb_msg = "Thumbnail skipped (could not fit under 2 MB)."
+        except Exception as e:
+            thumb_msg = f"Thumbnail not applied: {e}"
+
+    return jsonify({
+        "ok": True,
+        "youtube_url": url,
+        "youtube_video_id": video_id,
+        "thumbnail": thumb_msg,
+    })
+
+
+@app.route("/api/distribute/catalog")
+def api_distribute_catalog():
+    """All catalog rows the Distribute tab can operate on.
+
+    Returns every job with an exported video, plus growth-state counters.
+    """
+    with jobs_lock:
+        rows = []
+        for j in jobs.values():
+            if not j.get("visual_video_path"):
+                continue
+            shorts_list = j.get("shorts") or []
+            shorts_published = sum(1 for s in shorts_list if s.get("youtube_url"))
+            rows.append({
+                "job_id": j["job_id"],
+                "prompt": j.get("prompt", ""),
+                "title": (j.get("config").title if j.get("config") else None) or j.get("prompt", "")[:60],
+                "mood": j.get("config").mood if j.get("config") else "",
+                "setting": j.get("config").setting if j.get("config") else "",
+                "duration": j.get("duration", 0),
+                "created_at": j.get("created_at", ""),
+                "favorite": j.get("favorite", False),
+                "youtube_url": j.get("youtube_url"),
+                "visual_image_url": f"/api/visual/image/{j['job_id']}/view" if j.get("visual_image_path") else None,
+                "visual_video_url": f"/api/visual/video/{j['job_id']}/download" if j.get("visual_video_path") else None,
+                "shorts_total": len(shorts_list),
+                "shorts_published": shorts_published,
+                "has_ads_brief": bool(j.get("ads_brief_md")),
+                "has_seo_v2": bool(j.get("seo_v2")),
+                "last_promoted_at": j.get("last_promoted_at"),
+            })
+    rows.sort(key=lambda r: r["created_at"], reverse=True)
+    return jsonify(rows)
+
+
+# ── Shorts factory ──────────────────────────────────────────────────
+
+
+@app.route("/api/distribute/shorts/<job_id>")
+def api_shorts_list(job_id: str):
+    job = _job_must_exist(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+    shorts = job.get("shorts") or []
+    out = []
+    for s in shorts:
+        out.append({
+            **{k: v for k, v in s.items() if k != "video_path"},
+            "preview_url": f"/api/distribute/shorts/{s['short_id']}/preview"
+                           if s.get("video_path") and os.path.exists(s["video_path"]) else None,
+        })
+    return jsonify(out)
+
+
+def _find_short(short_id: str) -> tuple[Optional[dict], Optional[dict]]:
+    """Return (job, short) for a given short_id, or (None, None)."""
+    with jobs_lock:
+        for j in jobs.values():
+            for s in (j.get("shorts") or []):
+                if s.get("short_id") == short_id:
+                    return j, s
+    return None, None
+
+
+@app.route("/api/distribute/shorts/<short_id>/preview")
+def api_short_preview(short_id: str):
+    _, s = _find_short(short_id)
+    if not s or not s.get("video_path") or not os.path.exists(s["video_path"]):
+        abort(404)
+    return send_file(s["video_path"], mimetype="video/mp4", conditional=True)
+
+
+@app.route("/api/distribute/shorts/<short_id>", methods=["DELETE"])
+def api_short_delete(short_id: str):
+    job, s = _find_short(short_id)
+    if not s:
+        return jsonify({"error": "Short not found"}), 404
+    try:
+        if s.get("video_path") and os.path.exists(s["video_path"]):
+            os.remove(s["video_path"])
+    except OSError:
+        pass
+    with jobs_lock:
+        job["shorts"] = [x for x in job.get("shorts", []) if x.get("short_id") != short_id]
+    _save_job(job["job_id"])
+    return jsonify({"deleted": short_id})
+
+
+@app.route("/api/distribute/shorts/<job_id>/generate", methods=["POST"])
+def api_shorts_generate(job_id: str):
+    """Generate one or more vertical Shorts from a parent job.
+
+    Body:
+      {
+        "count": 1-3,
+        "mode": "auto" | "first" | "middle" | "last" | "manual",
+        "manual_start_sec": float (only when mode == "manual"),
+        "clip_sec": 30-60 (default 50),
+        "visual_mode": "auto" | "crop" | "image"
+      }
+    """
+    job = _job_must_exist(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+
+    parent_video = job.get("visual_video_path")
+    parent_image = job.get("visual_image_path")
+    if not parent_video and not parent_image:
+        return jsonify({"error": "No parent video or image. Generate a video first."}), 400
+
+    audio_path = (
+        _resolve_audio_path(job.get("audio_path"))
+        or _resolve_audio_path(job.get("output_path"))
+        or _resolve_audio_path(job.get("raw_output_path"))
+    )
+    if not audio_path or not os.path.exists(audio_path):
+        # Fallback to the rendered final video's audio track.
+        audio_path = parent_video
+    if not audio_path:
+        return jsonify({"error": "No audio source for short"}), 400
+
+    data = request.get_json(force=True, silent=True) or {}
+    count = max(1, min(3, int(data.get("count", 1))))
+    mode = data.get("mode", "auto")
+    manual_start = float(data.get("manual_start_sec", 0))
+    clip_sec = float(data.get("clip_sec", 50))
+    clip_sec = max(15.0, min(60.0, clip_sec))
+    visual_mode = data.get("visual_mode", "auto")
+
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    gemini_key = os.environ.get("GEMINI_API_KEY", "")
+
+    def worker():
+        parent_dur = distribute_shorts._ffprobe_duration(parent_video or audio_path)
+        for i in range(count):
+            _long_task_check_cancel(job_id)
+            _long_task_update(job_id, message=f"Generating short {i + 1}/{count}: picking moment...")
+
+            # Pick segment window.
+            if mode == "manual":
+                start_sec = max(0.0, min(parent_dur - clip_sec, manual_start))
+                desc = "User-selected moment"
+            elif mode in ("first", "middle", "last"):
+                start_sec = distribute_shorts.preset_window(parent_dur, mode, clip_sec)
+                desc = f"{mode.capitalize()} segment"
+            else:
+                # auto — offset each subsequent short so we don't pick the same moment.
+                if i == 0:
+                    start_sec, desc = distribute_shorts.pick_segment_auto(
+                        audio_path, clip_sec=clip_sec, gemini_api_key=gemini_key,
+                    )
+                else:
+                    # Stagger across the track for variety
+                    fraction = (i + 0.5) / count
+                    start_sec = max(0.0, min(parent_dur - clip_sec, fraction * (parent_dur - clip_sec)))
+                    desc = f"Atmospheric moment {i + 1}"
+
+            short_id = distribute_shorts.new_short_id()
+            out_path = str(distribute_shorts.shorts_dir(PROJECT_ROOT) / f"{job_id}_{short_id}.mp4")
+
+            _long_task_update(job_id, message=f"Generating short {i + 1}/{count}: rendering video...")
+            distribute_shorts.build_short_video(
+                parent_video, parent_image, audio_path,
+                start_sec, clip_sec, out_path,
+                mode=visual_mode,
+                on_log=lambda s: _long_task_update(job_id, message=s),
+            )
+            _long_task_check_cancel(job_id)
+
+            # Metadata.
+            _long_task_update(job_id, message=f"Generating short {i + 1}/{count}: writing metadata...")
+            try:
+                meta = distribute_shorts.claude_short_metadata(
+                    parent_title=(job.get("config").title if job.get("config") else job.get("prompt", "")[:60]),
+                    parent_mood=(job.get("config").mood if job.get("config") else ""),
+                    parent_setting=(job.get("config").setting if job.get("config") else ""),
+                    moment_description=desc,
+                    parent_youtube_url=job.get("youtube_url"),
+                    anthropic_api_key=anthropic_key,
+                ) if anthropic_key else {
+                    "title": f"Ambient moment — {(job.get('config').title if job.get('config') else 'soundscape')} #Shorts",
+                    "description": desc,
+                    "tags": ["ambient", "shorts", "soundscape"],
+                }
+            except Exception as e:
+                meta = {
+                    "title": f"Ambient moment #Shorts",
+                    "description": f"{desc}\n(metadata failed: {e})",
+                    "tags": ["ambient", "shorts"],
+                }
+
+            record = distribute_shorts.short_record(
+                short_id, job_id, out_path, start_sec, clip_sec, desc, meta,
+                visual_mode=visual_mode,
+            )
+
+            with jobs_lock:
+                if "shorts" not in jobs[job_id] or jobs[job_id]["shorts"] is None:
+                    jobs[job_id]["shorts"] = []
+                jobs[job_id]["shorts"].append(record)
+            _save_job(job_id)
+
+        _long_task_finish(job_id, "done", f"Generated {count} short(s)", {
+            "shorts_count": count,
+        })
+
+    return _start_background_task(
+        job_id, "shorts_generate", f"Generating {count} short(s)...", worker
+    )
+
+
+@app.route("/api/distribute/shorts/<short_id>/metadata", methods=["POST"])
+def api_short_update_metadata(short_id: str):
+    """Edit a Short's title/description/tags before publishing."""
+    job, s = _find_short(short_id)
+    if not s:
+        return jsonify({"error": "Short not found"}), 404
+    data = request.get_json(force=True, silent=True) or {}
+    if "title" in data:
+        s["yt_title"] = (data["title"] or "").strip()
+    if "description" in data:
+        s["yt_description"] = (data["description"] or "").strip()
+    if "tags" in data:
+        t = data["tags"]
+        s["yt_tags"] = [x.strip() for x in t.split(",")] if isinstance(t, str) else list(t)
+    _save_job(job["job_id"])
+    return jsonify({"updated": short_id})
+
+
+@app.route("/api/distribute/shorts/<short_id>/publish", methods=["POST"])
+def api_short_publish(short_id: str):
+    """Upload a Short to YouTube via the same upload_worker.py path."""
+    job, s = _find_short(short_id)
+    if not s:
+        return jsonify({"error": "Short not found"}), 404
+
+    video_path = s.get("video_path")
+    if not video_path or not os.path.exists(video_path):
+        return jsonify({"error": "Short video file not found"}), 400
+
+    if not _yt_publisher.is_authenticated:
+        return jsonify({"error": "YouTube not connected. Connect on the Publish tab first."}), 401
+
+    try:
+        _yt_publisher.validate_connection()
+    except YouTubeAuthError as e:
+        return jsonify({"error": str(e), "needs_reconnect": True}), 401
+    except Exception as e:
+        if _is_invalid_grant(e):
+            _yt_publisher.disconnect()
+            return jsonify({"error": RECONNECT_MESSAGE, "needs_reconnect": True}), 401
+        return jsonify({"error": f"YouTube check failed: {e}"}), 500
+
+    data = request.get_json(force=True, silent=True) or {}
+    title = (data.get("title") or s.get("yt_title") or "Ambient moment #Shorts").strip()
+    description = (data.get("description") or s.get("yt_description") or "").strip()
+    tags = data.get("tags", s.get("yt_tags", []))
+    privacy = data.get("privacy", "unlisted")
+
+    if isinstance(tags, str):
+        tags = [t.strip() for t in tags.split(",") if t.strip()]
+
+    # The upload_worker writes status to a file named after the "job_id" passed
+    # in. Reuse the short_id slot in the same output dir.
+    status_file = str(PROJECT_ROOT / "output" / f"{short_id}_upload_status.json")
+    worker_params = json.dumps({
+        "status_file": status_file,
+        "video_path": video_path,
+        "title": title,
+        "description": description,
+        "tags": tags,
+        "privacy": privacy,
+        "thumbnail_path": None,  # YT auto-generates for Shorts
+        "client_secret": str(PROJECT_ROOT / "client_secret.json"),
+        "token_path": str(PROJECT_ROOT / "youtube_token.json"),
+    })
+    worker_script = str(PROJECT_ROOT / "upload_worker.py")
+    worker_log = str(PROJECT_ROOT / "output" / f"{short_id}_upload_worker.log")
+    log_fh = open(worker_log, "w")
+    subprocess.Popen(
+        [sys.executable, "-u", worker_script, worker_params],
+        start_new_session=True,
+        stdout=log_fh, stderr=log_fh,
+    )
+
+    with jobs_lock:
+        s["upload_status"] = "uploading"
+        s["yt_title"] = title
+        s["yt_description"] = description
+        s["yt_tags"] = tags
+    _save_job(job["job_id"])
+
+    return jsonify({"status": "uploading", "short_id": short_id})
+
+
+@app.route("/api/distribute/shorts/<short_id>/upload-status")
+def api_short_upload_status(short_id: str):
+    job, s = _find_short(short_id)
+    if not s:
+        return jsonify({"error": "Short not found"}), 404
+
+    status_file = PROJECT_ROOT / "output" / f"{short_id}_upload_status.json"
+    if status_file.exists():
+        try:
+            data = json.loads(status_file.read_text())
+        except (json.JSONDecodeError, OSError):
+            data = {}
+
+        if data.get("status") == "done" and data.get("youtube_url"):
+            with jobs_lock:
+                s["youtube_url"] = data["youtube_url"]
+                s["youtube_video_id"] = data.get("video_id", "")
+                s["upload_status"] = "done"
+            _save_job(job["job_id"])
+        elif data.get("status") == "error":
+            with jobs_lock:
+                s["upload_status"] = "error"
+
+        return jsonify({
+            "status": data.get("status", "uploading"),
+            "progress": data.get("progress", 0),
+            "message": data.get("message", ""),
+            "youtube_url": data.get("youtube_url"),
+        })
+
+    return jsonify({
+        "status": s.get("upload_status", "idle"),
+        "progress": 100 if s.get("youtube_url") else 0,
+        "youtube_url": s.get("youtube_url"),
+    })
+
+
+# ── SEO metadata v2 ────────────────────────────────────────────────
+
+
+@app.route("/api/distribute/seo-v2/<job_id>", methods=["POST"])
+def api_seo_v2(job_id: str):
+    """Extended SEO metadata: 3 title variants + thumbnail prompt + optional
+    comparable-channel exemplars.
+
+    Body:
+      {
+        "comparable_channels": ["@TaosWinds", "@MyNoise"]   (optional, free text)
+      }
+    """
+    job = _job_must_exist(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        return jsonify({"error": "ANTHROPIC_API_KEY not configured"}), 500
+
+    data = request.get_json(force=True, silent=True) or {}
+    comparable_channels = [c.strip() for c in data.get("comparable_channels", []) if c and c.strip()]
+
+    config = job.get("config")
+    title = config.title if config else ""
+    mood = config.mood if config else ""
+    setting = config.setting if config else ""
+    layers_desc = ", ".join(f"{l.name} ({l.layer_type.value})" for l in (config.layers if config else []))
+
+    video_duration_sec = 0
+    if job.get("visual_video_path") and os.path.exists(job["visual_video_path"]):
+        try:
+            probe = subprocess.run(
+                ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+                 "-of", "csv=p=0", job["visual_video_path"]],
+                capture_output=True, text=True, timeout=10,
+            )
+            video_duration_sec = int(float(probe.stdout.strip()))
+        except Exception:
+            pass
+    if video_duration_sec == 0:
+        video_duration_sec = int(config.duration_sec) if config else 300
+    duration_str = (
+        f"{video_duration_sec // 3600} hour(s)" if video_duration_sec >= 3600
+        else f"{video_duration_sec // 60} minutes"
+    )
+
+    comparables_block = ""
+    if comparable_channels:
+        comparables_block = (
+            "\nComparable channels to draw stylistic inspiration from "
+            "(match their voice/cadence but don't copy):\n"
+            + "\n".join(f"  - {c}" for c in comparable_channels)
+        )
+
+    import anthropic
+    client = anthropic.Anthropic(api_key=api_key)
+    message = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=1400,
+        messages=[{
+            "role": "user",
+            "content": f"""Create rich YouTube SEO metadata for an ambient soundscape video.
+This is a v2 brief with A/B variants and a thumbnail prompt.
+
+Soundscape: {job.get('prompt', '')}
+Title (internal): {title}
+Mood: {mood}
+Setting: {setting}
+Duration: {duration_str}
+Layers: {layers_desc}{comparables_block}
+
+Return STRICT JSON in this shape:
+{{
+  "title_variants": ["title 1 <=80 chars", "title 2 <=80 chars", "title 3 <=80 chars"],
+  "description": "2-3 paragraph immersive description + short 'About' + 5-8 hashtags",
+  "tags": ["15-25 keyword tags"],
+  "thumbnail_prompt": "A single dense visual prompt suitable for a text-to-image model. 16:9, 1280x720, click-stopping ambient cinema aesthetic. Describe the scene, lighting, color palette, mood, camera framing. No text in the image."
+}}
+
+Output ONLY the JSON, nothing else."""
+        }],
+    )
+
+    raw = message.content[0].text.strip()
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
+        if raw.endswith("```"):
+            raw = raw[:-3]
+
+    try:
+        out = json.loads(raw)
+    except json.JSONDecodeError:
+        return jsonify({"error": "Failed to parse SEO v2", "raw": raw}), 500
+
+    with jobs_lock:
+        jobs[job_id]["seo_v2"] = out
+        if out.get("title_variants"):
+            jobs[job_id]["yt_title"] = out["title_variants"][0]
+        if out.get("description"):
+            jobs[job_id]["yt_description"] = out["description"]
+        if isinstance(out.get("tags"), list):
+            jobs[job_id]["yt_tags"] = ", ".join(out["tags"])
+    _save_job(job_id)
+
+    return jsonify(out)
+
+
+# ── Ads brief ──────────────────────────────────────────────────────
+
+
+@app.route("/api/distribute/ads/brief/<job_id>", methods=["POST"])
+def api_ads_brief(job_id: str):
+    """Generate a paste-ready Google Ads campaign brief in Markdown.
+
+    Body:
+      {
+        "comparable_channels": ["@Handle", ...],
+        "budget_range": "5-20" | "20-50" | "50-150"  (USD/day, optional)
+      }
+    """
+    job = _job_must_exist(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        return jsonify({"error": "ANTHROPIC_API_KEY not configured"}), 500
+
+    data = request.get_json(force=True, silent=True) or {}
+    comparables = [c.strip() for c in data.get("comparable_channels", []) if c and c.strip()]
+    budget = data.get("budget_range", "5-20")
+
+    config = job.get("config")
+    title = (config.title if config else job.get("prompt", "")[:60])
+    mood = config.mood if config else ""
+    setting = config.setting if config else ""
+
+    comparables_block = (
+        "\nComparable creators / placements supplied by the user:\n" +
+        "\n".join(f"  - {c}" for c in comparables)
+        if comparables else
+        "\n(No comparable creators supplied — invent 6-10 plausible channels based on the vibe.)"
+    )
+
+    import anthropic
+    client = anthropic.Anthropic(api_key=api_key)
+    msg = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=1800,
+        messages=[{
+            "role": "user",
+            "content": f"""Write a YouTube Ads campaign brief I can paste straight into Google Ads.
+This is for an ambient soundscape video on my channel.
+
+Track: {title}
+Mood: {mood}
+Setting: {setting}
+User prompt: {job.get('prompt', '')}
+YouTube URL: {job.get('youtube_url') or '(not uploaded yet — leave a {{video_url}} placeholder)'}
+Daily budget range (USD): {budget}{comparables_block}
+
+Output FORMAT: pure Markdown, no preamble, no code fences. Use this exact structure:
+
+# Ad Campaign — <name>
+
+## Objective
+<conversions / views / brand awareness, with reasoning>
+
+## Target audience
+- Demographics: <age, gender if relevant>
+- Interests / affinities: <bulleted list>
+- In-market segments: <bulleted list>
+- Custom segment (URLs/keywords): <bulleted list, one keyword or URL per bullet>
+
+## Placement targeting (channel handles)
+- <list of 8-15 YouTube channels with @handle URLs to bid on>
+
+## Ad creative
+### Headline variants (use 2-3 in rotation)
+1. <headline>
+2. <headline>
+3. <headline>
+
+### Description variants
+1. <description, <=70 chars>
+2. <description, <=70 chars>
+
+### Companion banner copy
+<one-liner>
+
+## Bid strategy
+- Bid: <recommended CPV range>
+- Daily budget: ${budget} USD
+- Frequency cap: <recommended>
+
+## Notes
+<one or two strategic notes about why this targeting matches the vibe>"""
+        }],
+    )
+
+    md = msg.content[0].text.strip()
+    with jobs_lock:
+        jobs[job_id]["ads_brief_md"] = md
+        jobs[job_id]["last_promoted_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    _save_job(job_id)
+
+    return jsonify({"brief_md": md})
+
+
+@app.route("/api/distribute/ads/brief/<job_id>")
+def api_ads_brief_get(job_id: str):
+    job = _job_must_exist(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+    return jsonify({"brief_md": job.get("ads_brief_md")})
+
+
+# ── Community / Reddit / Discord drafts ────────────────────────────
+
+
+_COMMUNITY_STYLES = {
+    "poll": (
+        "Generate a YouTube Community-tab poll post. Format: a 1-2 sentence "
+        "lead-in question, then exactly 4 short poll options (one per line, "
+        "prefixed with '- '). Topic: 'which world should I soundscape next?'. "
+        "Avoid duplicating the user's existing channel themes."
+    ),
+    "teaser": (
+        "Generate a behind-the-scenes YouTube Community-tab teaser post for "
+        "this track. 3-5 sentences, evocative voice, ends with a question to "
+        "drive comments. Mention the track is up now."
+    ),
+    "world_request": (
+        "Generate an open-ended YouTube Community-tab ask: 'what world / book / "
+        "movie should I soundscape next?'. 2-4 sentences, conversational, fun."
+    ),
+}
+
+
+@app.route("/api/distribute/community/draft/<job_id>", methods=["POST"])
+def api_community_draft(job_id: str):
+    job = _job_must_exist(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+
+    style = (request.args.get("style") or "teaser").lower()
+    if style not in _COMMUNITY_STYLES:
+        return jsonify({"error": f"Unknown style '{style}'"}), 400
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        return jsonify({"error": "ANTHROPIC_API_KEY not configured"}), 500
+
+    # For poll style we also feed the catalog so Claude knows what worlds have
+    # already been done.
+    catalog_titles = []
+    if style == "poll":
+        with jobs_lock:
+            for j in jobs.values():
+                if j.get("config"):
+                    catalog_titles.append(j["config"].title)
+        catalog_titles = list(dict.fromkeys(catalog_titles))[:25]
+
+    config = job.get("config")
+    instructions = _COMMUNITY_STYLES[style]
+
+    import anthropic
+    client = anthropic.Anthropic(api_key=api_key)
+    msg = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=600,
+        messages=[{
+            "role": "user",
+            "content": f"""{instructions}
+
+Track context:
+  Title: {config.title if config else job.get('prompt', '')[:60]}
+  Mood: {config.mood if config else ''}
+  Setting: {config.setting if config else ''}
+  YouTube URL: {job.get('youtube_url') or '(not uploaded yet)'}
+  Already-done worlds on this channel: {', '.join(catalog_titles) if catalog_titles else '(unknown)'}
+
+Output the post body ONLY, no preamble, no JSON, no explanations. Plain text."""
+        }],
+    )
+    body = msg.content[0].text.strip()
+
+    with jobs_lock:
+        if "community_drafts" not in jobs[job_id] or not jobs[job_id]["community_drafts"]:
+            jobs[job_id]["community_drafts"] = {}
+        jobs[job_id]["community_drafts"][style] = {
+            "body": body,
+            "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        }
+    _save_job(job_id)
+
+    return jsonify({
+        "style": style,
+        "body": body,
+        "studio_url": "https://studio.youtube.com/channel/UC/community",
+    })
+
+
+@app.route("/api/distribute/reddit/draft/<job_id>", methods=["POST"])
+def api_reddit_draft(job_id: str):
+    """Generate a Reddit post draft tailored to a specific subreddit.
+
+    Body: { "subreddit": "ambientmusic", "context_hint": "..." }
+    Returns: { "title", "body", "submit_url" } — user pastes via the link.
+    """
+    job = _job_must_exist(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+
+    data = request.get_json(force=True, silent=True) or {}
+    subreddit = (data.get("subreddit") or "ambientmusic").lstrip("r/").lstrip("/")
+    context_hint = data.get("context_hint", "")
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        return jsonify({"error": "ANTHROPIC_API_KEY not configured"}), 500
+
+    config = job.get("config")
+    yt_url = job.get("youtube_url") or "(upload pending)"
+
+    import anthropic
+    client = anthropic.Anthropic(api_key=api_key)
+    msg = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=900,
+        messages=[{
+            "role": "user",
+            "content": f"""Write a Reddit post for r/{subreddit} sharing this ambient soundscape.
+
+Important rules:
+  - Match r/{subreddit}'s culture. Read the room. For example r/dune is fandom-heavy and lore-aware,
+    r/ambientmusic is gear/process-aware, r/space is awe-driven.
+  - The OP should feel genuine, not promotional. Lead with a story or hook, not "check out my video".
+  - Include the YouTube link inline, naturally.
+  - Title <=120 chars, body 4-12 sentences.
+  - {context_hint}
+
+Track:
+  Title: {config.title if config else job.get('prompt', '')[:60]}
+  Mood: {config.mood if config else ''}
+  Setting: {config.setting if config else ''}
+  Description: {job.get('prompt', '')}
+  YouTube link: {yt_url}
+
+Reply ONLY with strict JSON:
+{{"title": "...", "body": "..."}}"""
+        }],
+    )
+
+    raw = msg.content[0].text.strip()
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
+        if raw.endswith("```"):
+            raw = raw[:-3]
+    try:
+        out = json.loads(raw)
+    except json.JSONDecodeError:
+        return jsonify({"error": "Failed to parse reddit draft", "raw": raw}), 500
+
+    from urllib.parse import quote_plus
+    submit_url = (
+        f"https://www.reddit.com/r/{subreddit}/submit?"
+        f"title={quote_plus(out.get('title', ''))}&"
+        f"text={quote_plus(out.get('body', ''))}&kind=self"
+    )
+
+    with jobs_lock:
+        if "reddit_drafts" not in jobs[job_id] or not jobs[job_id]["reddit_drafts"]:
+            jobs[job_id]["reddit_drafts"] = {}
+        jobs[job_id]["reddit_drafts"][subreddit] = {
+            "title": out.get("title", ""),
+            "body": out.get("body", ""),
+            "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        }
+    _save_job(job_id)
+
+    return jsonify({
+        "subreddit": subreddit,
+        "title": out.get("title", ""),
+        "body": out.get("body", ""),
+        "submit_url": submit_url,
+    })
+
+
+@app.route("/api/distribute/discord/post/<job_id>", methods=["POST"])
+def api_discord_post(job_id: str):
+    """Generate AND publish a Discord post via a stored webhook.
+
+    Body: { "webhook_name": "main", "context_hint": "..." }
+    The webhook URL must be saved first via /api/distribute/secrets.
+    """
+    job = _job_must_exist(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+
+    data = request.get_json(force=True, silent=True) or {}
+    webhook_name = data.get("webhook_name", "main")
+    context_hint = data.get("context_hint", "")
+
+    secrets = distribute_stream.read_secrets(JOBS_DIR)
+    webhooks = secrets.get("discord_webhooks", {})
+    webhook_url = webhooks.get(webhook_name)
+    if not webhook_url:
+        return jsonify({"error": f"No Discord webhook named '{webhook_name}'. Add it in Distribute → Secrets."}), 400
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        return jsonify({"error": "ANTHROPIC_API_KEY not configured"}), 500
+
+    config = job.get("config")
+    yt_url = job.get("youtube_url") or ""
+
+    import anthropic
+    client = anthropic.Anthropic(api_key=api_key)
+    msg = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=400,
+        messages=[{
+            "role": "user",
+            "content": f"""Write a Discord announcement message for a new ambient soundscape track.
+2-4 short paragraphs, casual server voice, ends with the YouTube link if available.
+Use line breaks; Discord renders standard Markdown.
+
+Track:
+  Title: {config.title if config else ''}
+  Mood: {config.mood if config else ''}
+  Setting: {config.setting if config else ''}
+  Description: {job.get('prompt', '')}
+  YouTube: {yt_url or '(uploading soon)'}
+  Extra: {context_hint}
+
+Output just the message text, no preamble."""
+        }],
+    )
+    body = msg.content[0].text.strip()
+
+    # Post to Discord webhook. Discord caps content at 2000 chars.
+    payload = {"content": body[:1990]}
+    try:
+        import urllib.request
+        req = urllib.request.Request(
+            webhook_url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            ok = 200 <= resp.status < 300
+    except Exception as e:
+        return jsonify({"error": f"Discord post failed: {e}", "body": body}), 502
+
+    if not ok:
+        return jsonify({"error": "Discord rejected the post", "body": body}), 502
+
+    return jsonify({
+        "posted": True,
+        "webhook_name": webhook_name,
+        "body": body,
+    })
+
+
+# ── Secrets storage ────────────────────────────────────────────────
+
+
+@app.route("/api/distribute/secrets")
+def api_secrets_get():
+    """Return non-sensitive view of secrets (booleans + names only)."""
+    s = distribute_stream.read_secrets(JOBS_DIR)
+    webhooks = s.get("discord_webhooks", {}) or {}
+    return jsonify({
+        "discord_webhook_names": sorted(webhooks.keys()),
+        "youtube_stream_url": s.get("youtube_stream_url", ""),
+        "has_stream_key": bool(s.get("youtube_stream_key")),
+    })
+
+
+@app.route("/api/distribute/secrets", methods=["POST"])
+def api_secrets_set():
+    """Update secrets. Body:
+      { "discord_webhooks": {"main": "https://...", ...},
+        "youtube_stream_url": "rtmp://a.rtmp.youtube.com/live2",
+        "youtube_stream_key": "xxxx-xxxx-xxxx" }
+    Any omitted key is left unchanged. Pass empty string to clear.
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    current = distribute_stream.read_secrets(JOBS_DIR)
+
+    if "discord_webhooks" in data and isinstance(data["discord_webhooks"], dict):
+        # Merge — empty string means delete the entry.
+        existing = current.get("discord_webhooks", {}) or {}
+        for name, url in data["discord_webhooks"].items():
+            if not name:
+                continue
+            if not url:
+                existing.pop(name, None)
+            else:
+                existing[name] = url
+        current["discord_webhooks"] = existing
+
+    if "youtube_stream_url" in data:
+        current["youtube_stream_url"] = (data["youtube_stream_url"] or "").strip()
+    if "youtube_stream_key" in data:
+        # Empty string clears it.
+        if data["youtube_stream_key"] == "":
+            current.pop("youtube_stream_key", None)
+        else:
+            current["youtube_stream_key"] = (data["youtube_stream_key"] or "").strip()
+
+    distribute_stream.write_secrets(JOBS_DIR, current)
+    return jsonify({"saved": True})
+
+
+# ── Live stream ────────────────────────────────────────────────────
+
+
+@app.route("/api/distribute/stream/status")
+def api_stream_status():
+    state = distribute_stream.reconcile_state(JOBS_DIR)
+    playlist_path = distribute_stream._playlist_path(PROJECT_ROOT / "output")
+    playlist_tracks = 0
+    if playlist_path.exists():
+        try:
+            text = playlist_path.read_text()
+            playlist_tracks = sum(1 for ln in text.splitlines() if ln.startswith("file "))
+        except OSError:
+            pass
+    return jsonify({
+        **state,
+        "playlist_tracks": playlist_tracks,
+    })
+
+
+@app.route("/api/distribute/stream/playlist", methods=["POST"])
+def api_stream_playlist():
+    """Rebuild the concat playlist. Body: { job_ids: [..] | null }.
+    If job_ids is null/missing, includes every job with an exported video."""
+    data = request.get_json(force=True, silent=True) or {}
+    job_ids = data.get("job_ids")
+    if job_ids is not None and not isinstance(job_ids, list):
+        return jsonify({"error": "job_ids must be a list or null"}), 400
+    with jobs_lock:
+        snapshot = dict(jobs)
+    count = distribute_stream.build_playlist(JOBS_DIR, PROJECT_ROOT / "output", snapshot, job_ids)
+    return jsonify({"tracks": count})
+
+
+@app.route("/api/distribute/stream/start", methods=["POST"])
+def api_stream_start():
+    secrets = distribute_stream.read_secrets(JOBS_DIR)
+    rtmp_url = secrets.get("youtube_stream_url") or "rtmp://a.rtmp.youtube.com/live2"
+    stream_key = secrets.get("youtube_stream_key")
+    if not stream_key:
+        return jsonify({"error": "No YouTube stream key. Save one in Distribute → Secrets first."}), 400
+
+    log_path = str(PROJECT_ROOT / "output" / "_distribute_stream.log")
+    try:
+        state = distribute_stream.start_stream(
+            JOBS_DIR, PROJECT_ROOT / "output", rtmp_url, stream_key, log_path,
+        )
+    except RuntimeError as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify(state)
+
+
+@app.route("/api/distribute/stream/stop", methods=["POST"])
+def api_stream_stop():
+    state = distribute_stream.stop_stream(JOBS_DIR)
+    return jsonify(state)
 
 
 if __name__ == "__main__":

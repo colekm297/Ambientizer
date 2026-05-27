@@ -65,7 +65,7 @@ Return a JSON object:
         "sounds, genres, instruments, or structures that would make the recreation wrong"
     ],
 
-    "direct_elevenlabs_prompt": "A single complete prompt for ElevenLabs Music that recreates the whole reference as an instrumental ambient soundscape. Name only sounds you actually hear. Include spatial/mix qualities and evolution. Avoid copyrighted names. Under 900 characters.",
+    "direct_elevenlabs_prompt": "A single complete prompt for ElevenLabs Music that recreates the whole reference as an instrumental ambient soundscape. Name only sounds you actually hear. Include spatial/mix qualities and a gentle internal arc across the clip (subtle entries, density shifts, return toward opening texture for loop). Avoid copyrighted names. Under 900 characters.",
 
     "recreate_with": [
         {
