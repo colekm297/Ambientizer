@@ -457,41 +457,6 @@ def create_orchestrator(mastering: bool = True) -> SoundscapeOrchestrator:
 
 
 
-def _start_stem_separation(job_id: str, audio_path: str, variation: str):
-    """Run stem separation in the background so generation can finish first."""
-
-    def worker():
-        try:
-            generator = _get_sample_generator()
-            if not generator:
-                raise RuntimeError("ElevenLabs generator unavailable")
-            stem_paths = generator.separate_stems(audio_path, variation)
-            print(f"  [stems] Got {len(stem_paths)} stems: {list(stem_paths.keys())}")
-            with jobs_lock:
-                job = jobs.get(job_id)
-                if not job:
-                    return
-                job["stems"] = {
-                    name: f"/api/audio/{job_id}/stem/{name}"
-                    for name in stem_paths
-                }
-                job["stem_files"] = stem_paths
-                job["stems_status"] = "ready"
-                job["progress_message"] = f"Stems ready ({len(stem_paths)} tracks)"
-            _save_job(job_id)
-        except Exception as e:
-            import traceback
-            print(f"  Stem separation failed (non-fatal): {e}")
-            traceback.print_exc()
-            with jobs_lock:
-                if job_id in jobs:
-                    jobs[job_id]["stems_status"] = "failed"
-                    jobs[job_id]["stems_error"] = str(e)
-            _save_job(job_id)
-
-    with jobs_lock:
-        jobs[job_id]["stems_status"] = "processing"
-    threading.Thread(target=worker, daemon=True).start()
 
 
 def _layer_has_audio(layer) -> bool:
@@ -1914,44 +1879,6 @@ def api_layer_audio(job_id: str, layer_name: str):
     return send_file(path, mimetype="audio/wav", as_attachment=False)
 
 
-@app.route("/api/audio/<job_id>/stem/<stem_name>")
-def api_stem_audio(job_id: str, stem_name: str):
-    """Serve an individual stem audio file."""
-    with jobs_lock:
-        job = jobs.get(job_id)
-    if not job:
-        abort(404)
-    stem_files = job.get("stem_files", {})
-    if not stem_files or stem_name not in stem_files:
-        abort(404)
-    raw_path = stem_files[stem_name]
-    if not raw_path:
-        abort(404)
-    path = os.path.join(PROJECT_ROOT, raw_path) if not os.path.isabs(raw_path) else raw_path
-    if not os.path.exists(path):
-        abort(404)
-
-    config = job.get("config")
-    if (not BYPASS_LOOP_PREP) and config and getattr(config, "loopable", True):
-        src_stamp = int(os.path.getmtime(path))
-        safe_stem = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in stem_name)[:80]
-        loop_path = PROJECT_ROOT / "output" / f"{job_id}_stem_{safe_stem}_{src_stamp}_loop.wav"
-        if not loop_path.exists():
-            try:
-                src = AudioSegment.from_file(path)
-                cf_ms = int(min(getattr(config, "crossfade_seconds", 15.0), 15.0) * 1000)
-                looped = prepare_musical_loop(src, cf_ms)
-                looped.export(loop_path, format="wav")
-                print(f"  [stem-audio] Created loop-prepped stem: {loop_path.name}")
-            except Exception as e:
-                print(f"  [stem-audio] loop prep failed for '{stem_name}', serving raw: {e}")
-            else:
-                path = str(loop_path)
-        else:
-            path = str(loop_path)
-
-    mime = "audio/mpeg" if path.endswith(".mp3") else "audio/wav"
-    return send_file(path, mimetype=mime, as_attachment=False)
 
 
 @app.route("/api/audio/<job_id>/reprep", methods=["POST"])
