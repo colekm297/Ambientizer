@@ -3516,6 +3516,15 @@ def youtube_upload(job_id: str):
     # restarts / auto-reloads.  Progress is written to a JSON file on disk
     # that the status endpoint reads.
     status_file = str(PROJECT_ROOT / "output" / f"{job_id}_upload_status.json")
+    # Reset the status file BEFORE spawning so the /upload tab (which polls this
+    # file immediately) can't read a stale "error" from a previous attempt and
+    # show "Failed" while the new worker is actually succeeding.
+    try:
+        with open(status_file, "w") as _sf:
+            json.dump({"status": "uploading", "progress": 0,
+                       "message": "Starting upload..."}, _sf)
+    except OSError:
+        pass
     worker_params = json.dumps({
         "status_file": status_file,
         "video_path": video_path,
