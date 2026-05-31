@@ -394,17 +394,23 @@ class MotionCompositor:
         """Per-pixel phase field so bright spots twinkle OUT of sync (a city of
         lights, a starfield), not all at once. Integer cycle count keeps it
         seamless across the loop."""
+        # VERY low-frequency phase, heavily blurred → whole bright REGIONS pulse
+        # together (a soft breathing), instead of fine per-pixel modulation that
+        # made a busy "maze" flicker over detailed surfaces like a painted city.
+        from scipy.ndimage import gaussian_filter
         rng = np.random.default_rng(7)
-        low = rng.random((max(2, H // 6), max(2, W // 6))).astype(np.float32)
+        low = rng.random((max(2, H // 30), max(2, W // 30))).astype(np.float32)
         phase = np.asarray(
             Image.fromarray((low * 255).astype(np.uint8)).resize((W, H), Image.BILINEAR),
             dtype=np.float32,
         ) / 255.0
+        phase = gaussian_filter(phase, sigma=max(W, H) / 60.0)
         return {
             "phase": phase,
-            "amount": min(0.85, float(cfg.get("amount", 0.7)) * 0.85),  # brightness swing
-            "thresh": float(cfg.get("threshold", 115.0)),               # lower → more lights catch it
-            "cycles": 5,  # integer → seamless loop
+            "amount": min(0.45, float(cfg.get("amount", 0.4)) * 0.6),  # gentle swing
+            "thresh": float(cfg.get("threshold", 120.0)),
+            "cycles": 3,  # integer → seamless loop
+            "blur": max(1.0, max(W, H) / 200.0),
         }
 
     def _nebula_mask(self, W, H, base_pil) -> np.ndarray:
@@ -426,9 +432,12 @@ class MotionCompositor:
     def _apply_twinkle(self, frame, st, t):
         # Bright-region mask straight off the CURRENT frame, so it tracks the
         # camera move and any overlaid stars. Dark areas (space) stay untouched.
+        from scipy.ndimage import gaussian_filter
         lum = frame.mean(axis=2)
         denom = max(1.0, 255.0 - st["thresh"])
-        mask = np.clip((lum - st["thresh"]) / denom, 0.0, 1.0) ** 1.5
+        mask = np.clip((lum - st["thresh"]) / denom, 0.0, 1.0)
+        # Soften the mask so bright REGIONS breathe smoothly (no per-pixel sparkle/maze).
+        mask = gaussian_filter(mask, sigma=st.get("blur", 4.0))
         osc = np.sin(TWO_PI * (st["cycles"] * t + st["phase"]))  # [-1,1], seamless
         factor = 1.0 + st["amount"] * mask * osc
         frame *= factor[:, :, None]
@@ -744,38 +753,45 @@ _GLOW_COLORS = {
     "white": (235, 235, 235), "warm": (60, 150, 240),
 }
 
-DIRECTOR_SYSTEM = """You are the motion director for an ambient video. Given a scene, \
-compose the motion layers that bring the still image to life — tastefully, for \
-hour-long background viewing (subtle, never busy). The renderer makes everything \
-loop seamlessly, so you only choose layers and intensities.
+DIRECTOR_SYSTEM = """You are the motion director for a "living still": ONE image brought \
+subtly to life as a calm, hours-long ambient backdrop — think premium living wallpaper, \
+NOT an effects demo. The renderer loops it seamlessly; you only choose layers + intensities.
 
-Reply with ONLY a JSON object: {"layers": [ ... ]}. Use 3-6 layers from this palette:
+THE GOAL: the image must still look like ITSELF — clean and natural. Effects ENHANCE; they \
+must NEVER warp, melt, smear, or distort the actual content. If a choice could look glitchy, \
+don't make it. RESTRAINT is the whole skill — a great result is usually a gentle camera move \
+plus ONE or TWO quiet touches.
 
-- {"type":"breathing_zoom","amount":0.04-0.12,"orbit":0.2-0.6,"pan":0.0-0.9}  // camera. pan = a real lateral GLIDE across the scene (use 0.5-0.9 when the user wants the camera to move/pan, not just a tiny zoom; keep amount low when panning). almost always include
-- {"type":"particles","kind":"snow|rain|embers|dust|fireflies|bokeh","count":40-400,"amount":0.4-1.0}
-- {"type":"fog","amount":0.15-0.35}            // drifting mist/atmosphere
-- {"type":"god_rays","amount":0.3-0.7,"count":5-10,"warm":true}  // sunbeams; forests, windows, dawn
-- {"type":"shimmer","amount":0.3-0.7}          // water/heat/sky wavering; oceans, deserts, reflections
-- {"type":"aurora","amount":0.4-0.8}           // colored sky curtains; night skies, polar, cosmic
-- {"type":"parallax","amount":0.4-0.7}         // 2.5D depth camera (foreground/background separate); landscapes, rooms, scenes with clear depth. Replaces breathing_zoom — don't use both.
-- {"type":"light","amount":0.06-0.16}          // gentle brightness breathing
-- {"type":"vignette_pulse","amount":0.12-0.2}  // slow edge darkening
-- {"type":"color_glow","amount":0.15-0.4,"color":"red|crimson|orange|amber|gold|green|teal|cyan|blue|indigo|purple|magenta|white|warm"}  // colored light spilling from the edges, slowly breathing — use when the scene mentions a colored glow / alert lighting / neon / console light (e.g. "red lights", "red alert", "blue glow")
-- {"type":"twinkle","amount":0.4-0.7}          // makes the image's OWN bright spots flicker/breathe — city lights, starfields, lit windows, ship consoles. Almost always include for night cities, space cities, or star-filled skies; leaves dark areas untouched.
-- {"type":"nebula","amount":0.4-0.7,"region":"sky"}   // slow gas/cloud drift confined to the SKY (segmented automatically). Use for nebulae, clouds, colored space gas.
-- {"type":"shimmer","amount":0.4-0.6,"region":"water"}  // add region:"water" to ripple ONLY the water (segmented). Use for oceans, lakes, rivers, reflections.
+HARD RULES (follow exactly):
+1. Use only 2-4 layers. Fewer is better. Do NOT pile effects on "to be safe".
+2. At most ONE pixel-MOVING/warping effect total (camera OR parallax OR nebula OR shimmer) — \
+never several together, or the image turns to mush.
+3. PARALLAX only on real PHOTOGRAPHIC scenes with genuine depth (a photo of a room, a landscape). \
+NEVER on illustrated / painted / stylized / CGI / space / sci-fi art — those have no real depth \
+and parallax MELTS them. For that art, use breathing_zoom for the camera.
+4. breathing_zoom is the primary motion almost every time. Keep amount low; use pan for a glide.
 
-Match the palette to the scene: stars→fireflies, fire→embers, rain→rain+fog, \
-forest/dawn→god_rays+dust, ocean→shimmer+bokeh, aurora/cosmic→aurora.
+Palette (reply ONLY {"layers":[...]}):
+- {"type":"breathing_zoom","amount":0.04-0.10,"orbit":0.2-0.5,"pan":0.0-0.8}  // the camera; pan = lateral glide. Primary motion.
+- {"type":"parallax","amount":0.4-0.6}  // PHOTOS with real depth ONLY (rule 3). Replaces breathing_zoom.
+- {"type":"nebula","amount":0.3-0.55}  // slow drift of colored gas/clouds (auto-masked to those areas). Nebulae, cosmic gas, clouds.
+- {"type":"shimmer","amount":0.3-0.5,"region":"water"}  // ripple ONLY water (oceans/lakes/rivers).
+- {"type":"twinkle","amount":0.15-0.35}  // gently flickers the image's OWN bright lights/stars. Keep SUBTLE. Night cities, starfields.
+- {"type":"color_glow","amount":0.12-0.28,"color":"amber|gold|red|orange|blue|cyan|teal|green|purple|magenta|white|warm"}  // soft colored light breathing from edges. Use only if the scene has a strong color cast (golden city→amber; red alert→red).
+- {"type":"god_rays","amount":0.3-0.6,"count":5-9}  // literal sun shafts ONLY (sun through trees/windows/clouds). NOT space.
+- {"type":"aurora","amount":0.4-0.7}  // colored sky curtains; auroras / polar skies only.
+- {"type":"particles","kind":"snow|rain|embers|dust|fireflies|bokeh","count":40-250,"amount":0.3-0.6}  // NEW moving specks on top. Only if the scene would truly have them (snowfall, rain, embers). Do NOT add fake stars to an image that already shows stars.
+- {"type":"fog","amount":0.12-0.22}  // drifting mist. NEVER in space (reads as clouds in a vacuum).
+- {"type":"light","amount":0.05-0.12}  // very subtle global brightness breathing. Safe.
+- {"type":"vignette_pulse","amount":0.10-0.16}  // subtle edge darkening. Safe.
 
-IMPORTANT:
-- SPACE / vacuum / spacecraft: use ONLY a slow camera (breathing_zoom or parallax) so the \
-image's own stars drift — do NOT add fog (drifting mist looks like clouds in space) and do \
-NOT overlay particle "stars" if the image already shows stars.
-- HONOR explicit requests in the scene text: if it asks for "red lights" / "red alert" / a \
-colored glow, include a color_glow of that color. If it says NOT to include something \
-(e.g. "no clouds", "no fog"), leave that layer out.
-Output ONLY the JSON, no prose."""
+EXAMPLES (note how FEW layers):
+- Space city with a nebula: breathing_zoom (gentle pan) + nebula + faint twinkle [+ soft color_glow if strongly tinted]. 3-4 layers. NO parallax, NO fog, NO god rays.
+- Cozy rainy window: breathing_zoom + rain particles + fog + light.
+- Ocean at sunset: breathing_zoom + shimmer(region water) + warm light.
+
+HONOR the scene text: include what it asks for ("red glow" → color_glow red); omit what it says \
+no to ("no clouds" → no fog/nebula). Output ONLY the JSON, no prose."""
 
 
 def _strip_fences(raw: str) -> str:
