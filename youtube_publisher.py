@@ -108,6 +108,31 @@ YOUTUBE_CATEGORIES = {
 
 DEFAULT_CATEGORY = "10"
 
+# YouTube limits total tag length to 500 characters; tags containing spaces are
+# internally quoted, so each space-bearing tag costs +2 toward that budget, and
+# '<'/'>' are rejected outright. Auto-generated long-tail tag sets routinely blow
+# past 500 chars → "invalidTags". Sanitize: strip bad chars, drop empties/overlong,
+# then greedily keep tags until the character budget is hit.
+TAGS_CHAR_BUDGET = 480  # a little under 500 for safety margin
+TAGS_MAX_PER_TAG = 60
+
+
+def _sanitize_tags(tags) -> list[str]:
+    if not tags:
+        return []
+    out, used = [], 0
+    for raw in tags:
+        t = str(raw).replace("<", "").replace(">", "").replace('"', "").strip()
+        if not t or len(t) > TAGS_MAX_PER_TAG:
+            continue
+        cost = len(t) + (2 if " " in t else 0)
+        if used + cost > TAGS_CHAR_BUDGET:
+            break
+        out.append(t)
+        used += cost
+    return out
+
+
 RETRIABLE_STATUS_CODES = [500, 502, 503, 504]
 MAX_RETRIES = 5
 
@@ -266,9 +291,10 @@ class YouTubePublisher:
 
         body = {
             "snippet": {
-                "title": title[:100],
+                # YouTube rejects '<' and '>' in titles.
+                "title": title.replace("<", "").replace(">", "")[:100],
                 "description": description[:5000],
-                "tags": (tags or [])[:500],
+                "tags": _sanitize_tags(tags),
                 "categoryId": category_id,
             },
             "status": {
