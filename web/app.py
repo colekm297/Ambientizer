@@ -282,6 +282,7 @@ def _save_job(job_id: str):
         "visual_clip_path": job.get("visual_clip_path"),
         "visual_clip_mode": job.get("visual_clip_mode"),
         "visual_clips": job.get("visual_clips"),
+        "visual_clip_sources": job.get("visual_clip_sources"),
         "visual_active_tab": job.get("visual_active_tab"),
         "visual_video_path": job.get("visual_video_path"),
         "youtube_url": job.get("youtube_url"),
@@ -352,6 +353,7 @@ def _load_saved_jobs():
                 "visual_clip_path": data.get("visual_clip_path"),
                 "visual_clip_mode": data.get("visual_clip_mode"),
                 "visual_clips": data.get("visual_clips"),
+                "visual_clip_sources": data.get("visual_clip_sources"),
                 "visual_active_tab": data.get("visual_active_tab"),
                 "visual_video_path": data.get("visual_video_path"),
                 "youtube_url": data.get("youtube_url"),
@@ -2246,20 +2248,37 @@ TAB_MODES = {"ai", "motion", "kenburns", "upload"}
 
 
 def _store_clip(job_id: str, mode: str, path: str) -> None:
-    """Save a freshly-generated/uploaded clip into its tab slot and make it active."""
+    """Save a freshly-generated/uploaded clip into its tab slot and make it active.
+
+    Also records it as the tab's immutable SOURCE — speed changes always derive
+    from the source, so e.g. 1x reliably reverts to the original instead of
+    re-processing an already-slowed clip."""
     with jobs_lock:
         j = jobs.get(job_id)
         if not j:
             return
         clips = dict(j.get("visual_clips") or {})
+        sources = dict(j.get("visual_clip_sources") or {})
         if mode in TAB_MODES:
             clips[mode] = path
+            sources[mode] = path
             j["visual_clips"] = clips
+            j["visual_clip_sources"] = sources
             j["visual_active_tab"] = mode
         j["visual_clip_path"] = path
         j["visual_clip_mode"] = mode
         j["visual_video_path"] = None
     _save_job(job_id)
+
+
+def _clip_source_path(job: dict) -> str | None:
+    """The unmodified original clip for the active tab (falls back to active clip)."""
+    tab = job.get("visual_active_tab")
+    sources = job.get("visual_clip_sources") or {}
+    if tab in TAB_MODES and sources.get(tab):
+        return sources[tab]
+    # Lazy migration / fallback for clips made before source-tracking existed.
+    return job.get("visual_clip_path")
 
 
 def _update_active_clip(job_id: str, path: str, label: str) -> None:
@@ -2755,8 +2774,10 @@ def slow_visual_clip(job_id: str):
     if not job:
         return jsonify({"error": "Job not found"}), 404
 
-    clip_path = job.get("visual_clip_path")
-    if not clip_path or not os.path.exists(clip_path):
+    # Speed always derives from the tab's ORIGINAL clip, never the already-slowed
+    # one — so e.g. 1x reliably reverts to the original instead of compounding.
+    source_path = _clip_source_path(job)
+    if not source_path or not os.path.exists(source_path):
         return jsonify({"error": "No clip generated yet. Create or upload a clip first."}), 400
 
     data = request.get_json(force=True, silent=True) or {}
@@ -2768,16 +2789,37 @@ def slow_visual_clip(job_id: str):
     if speed < 0.25 or speed > 1.0:
         return jsonify({"error": "Speed must be between 0.25x and 1x"}), 400
 
+    smooth = bool(data.get("smooth", False))
+
+    # 1x = revert to the original clip. No processing needed — just point back.
+    if abs(speed - 1.0) < 1e-6:
+        _update_active_clip(job_id, source_path, "ai")  # label irrelevant; tab slot reset
+        with jobs_lock:
+            j = jobs.get(job_id)
+            tab = j.get("visual_active_tab") if j else None
+            if j and tab in TAB_MODES:
+                j["visual_clip_mode"] = tab
+        _save_job(job_id)
+        return jsonify({
+            "status": "done",
+            "clip_url": f"/api/visual/clip/{job_id}/view?t={time.time()}",
+            "mode": "original",
+            "speed": 1.0,
+        })
+
     gen = VisualGenerator(xai_api_key="", output_dir=str(PROJECT_ROOT / "output"))
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    stem = Path(clip_path).stem
+    stem = Path(source_path).stem
     speed_tag = str(speed).replace(".", "p")
-    slowed_path = str(PROJECT_ROOT / "output" / f"{stem}_speed_{speed_tag}_{timestamp}.mp4")
+    smooth_tag = "_smooth" if smooth else ""
+    slowed_path = str(PROJECT_ROOT / "output" / f"{stem}_speed_{speed_tag}{smooth_tag}_{timestamp}.mp4")
+
+    msg = f"Creating {speed}x {'smooth ' if smooth else ''}slowed clip..."
 
     def worker():
-        _long_task_update(job_id, message=f"Creating {speed}x slowed clip...")
-        gen.slow_video(clip_path, speed, slowed_path)
+        _long_task_update(job_id, message=msg + (" (interpolating frames — slow)" if smooth else ""))
+        gen.slow_video(source_path, speed, slowed_path, smooth=smooth)
         _long_task_check_cancel(job_id)
 
         _update_active_clip(job_id, slowed_path, "slowed")
@@ -2788,7 +2830,7 @@ def slow_visual_clip(job_id: str):
             "speed": speed,
         })
 
-    return _start_background_task(job_id, "slow", f"Creating {speed}x slowed clip...", worker)
+    return _start_background_task(job_id, "slow", msg, worker)
 
 
 @app.route("/api/visual/boomerang/<job_id>", methods=["POST"])

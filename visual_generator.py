@@ -332,14 +332,48 @@ class VisualGenerator:
         print(f"  Concatenated video: {output_path}")
         return output_path
 
-    def slow_video(self, video_path: str, speed: float, output_path: str) -> str:
-        """Create a real slowed-down MP4 clip for preview/export."""
+    def slow_video(self, video_path: str, speed: float, output_path: str,
+                   smooth: bool = False) -> str:
+        """Create a real slowed-down MP4 clip for preview/export.
+
+        smooth=False (default, fast): setpts only — holds each frame longer, which
+        can look choppy at low speeds but renders in seconds and stays seamless.
+        smooth=True: motion-compensated frame interpolation (minterpolate) synthesizes
+        new in-between frames for genuinely smooth slow motion. Much slower to render
+        and can warp on fast/complex motion, but ideal for slow ambient drift.
+        """
         speed = max(0.25, min(1.0, float(speed)))
         setpts = 1.0 / speed
+
+        # Match the source fps so interpolation targets the right frame rate.
+        fps = 24
+        try:
+            fp = subprocess.run(
+                ["ffprobe", "-v", "quiet", "-select_streams", "v:0",
+                 "-show_entries", "stream=r_frame_rate", "-of", "csv=p=0", video_path],
+                capture_output=True, text=True, timeout=10,
+            )
+            num, _, den = fp.stdout.strip().partition("/")
+            if num and den and float(den) != 0:
+                fps = round(float(num) / float(den)) or 24
+        except Exception:
+            pass
+
+        if smooth:
+            # Stretch time, then regenerate intermediate frames via motion estimation.
+            vfilter = (
+                f"setpts={setpts:.6f}*PTS,"
+                f"minterpolate=fps={fps}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1"
+            )
+            timeout = 3600  # interpolation is heavy
+        else:
+            vfilter = f"setpts={setpts:.6f}*PTS"
+            timeout = 900
+
         cmd = [
             "ffmpeg", "-y",
             "-i", video_path,
-            "-filter:v", f"setpts={setpts:.6f}*PTS",
+            "-filter:v", vfilter,
             "-c:v", "libx264",
             "-preset", "fast",
             "-crf", "20",
@@ -348,8 +382,8 @@ class VisualGenerator:
             output_path,
         ]
 
-        print(f"  Slowing video to {speed:.2f}x...")
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
+        print(f"  Slowing video to {speed:.2f}x ({'smooth' if smooth else 'fast'})...")
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
         if result.returncode != 0:
             raise RuntimeError(f"ffmpeg slow video failed: {result.stderr[-1000:]}")
 
