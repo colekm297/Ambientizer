@@ -1,0 +1,17 @@
+---
+description: Ambientizer project rules — shared across all AI agents
+alwaysApply: true
+---
+
+# Read AGENTS.md first
+
+`AGENTS.md` in the repo root is the single source of truth for this project —
+architecture map, how to run/restart (it's a launchd service on port 5050),
+conventions, and the CRITICAL GOTCHAS (launchd PATH/ffmpeg, ElevenLabs 120s
+section cap, silent-generation-must-error, iOS native `<audio>` playback).
+
+Multi-agent project (Claude Code, Cursor, Grok Build all edit this repo):
+- One agent at a time; commit before switching tools; pull latest before starting.
+- Commit messages are the shared log — write clear ones.
+- Never commit secrets, `output/`, or `saved_jobs/`.
+- After editing code, the launchd service must be restarted to take effect.
