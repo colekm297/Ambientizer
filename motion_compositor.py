@@ -125,9 +125,13 @@ class MotionCompositor:
         # entirely from the in-region effects (nebula drift, twinkle, particles…).
         if brush_mask is not None:
             zmax, orbit, pan = 1.0, 0.0, 0.0
-        # A pan needs crop headroom to glide within — guarantee some zoom-in.
+        # Pan AND orbit both need crop headroom to glide within — without it the
+        # camera drift is gated to a few pixels (the old "mid-slider = no movement"
+        # bug). Guarantee enough zoom-in for the drift to actually be visible.
         if pan > 0.01:
             zmax = max(zmax, 1.18)
+        if orbit > 0.05:
+            zmax = max(zmax, 1.14)
 
         base_big = self._load_base(image_path, W, H, zmax)
         base_pil = Image.fromarray(base_big.astype(np.uint8))  # for sub-pixel camera sampling
@@ -563,7 +567,9 @@ class MotionCompositor:
         from scipy.ndimage import map_coordinates
         H, W, _ = frame.shape
         yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
-        amp = amount * 16.0
+        # Gain calibrated so a MID slider value (~0.5) is a clearly visible drift,
+        # not an 8px wobble. ~0.5 → ~14px, 1.0 → ~28px peak displacement on 1080p.
+        amp = amount * 28.0
         ph = TWO_PI * t
         scale = max(80.0, W / 9.0)
         dx = amp * np.sin(2 * np.pi * yy / scale + ph)
