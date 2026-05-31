@@ -3357,6 +3357,7 @@
   const btnExtendClip = document.getElementById("btn-extend-clip");
   const clipSpeedEl = document.getElementById("clip-speed");
   const btnApplySpeed = document.getElementById("btn-apply-speed");
+  const btnBoomerang = document.getElementById("btn-boomerang");
   const btnExportVideo = document.getElementById("btn-export-video");
   const exportProgress = document.getElementById("export-progress");
   const exportProgressText = document.getElementById("export-progress-text");
@@ -3836,6 +3837,32 @@
 
       btnApplySpeed.disabled = false;
       btnApplySpeed.textContent = "Apply Speed";
+    });
+  }
+
+  if (btnBoomerang) {
+    btnBoomerang.addEventListener("click", async () => {
+      if (!visCurrentJobId) return;
+
+      btnBoomerang.disabled = true;
+      btnBoomerang.textContent = "Creating...";
+
+      await runLongTask(visCurrentJobId, {
+        initialMessage: "Creating boomerang (ping-pong) loop...",
+        progressEl: clipProgress,
+        progressTextEl: clipProgressText,
+        stopBtn: clipStopBtn,
+        startRequest: () => fetch(`/api/visual/boomerang/${visCurrentJobId}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        }),
+        onDone: (data) => showClipPreview(data.clip_url),
+        onError: (msg) => { if (msg) alert("Boomerang failed: " + msg); },
+      });
+
+      btnBoomerang.disabled = false;
+      btnBoomerang.textContent = "↔ Boomerang Loop";
     });
   }
 
