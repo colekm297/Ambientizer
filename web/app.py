@@ -2754,6 +2754,43 @@ def slow_visual_clip(job_id: str):
     return _start_background_task(job_id, "slow", f"Creating {speed}x slowed clip...", worker)
 
 
+@app.route("/api/visual/boomerang/<job_id>", methods=["POST"])
+def boomerang_visual_clip(job_id: str):
+    """Create a ping-pong (forward+reverse) seamless loop and make it the active source."""
+    with jobs_lock:
+        job = jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+
+    clip_path = job.get("visual_clip_path")
+    if not clip_path or not os.path.exists(clip_path):
+        return jsonify({"error": "No clip generated yet. Create or upload a clip first."}), 400
+
+    gen = VisualGenerator(xai_api_key="", output_dir=str(PROJECT_ROOT / "output"))
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    stem = Path(clip_path).stem
+    boom_path = str(PROJECT_ROOT / "output" / f"{stem}_boomerang_{timestamp}.mp4")
+
+    def worker():
+        _long_task_update(job_id, message="Creating boomerang (ping-pong) loop...")
+        gen.boomerang_video(clip_path, boom_path)
+        _long_task_check_cancel(job_id)
+
+        with jobs_lock:
+            jobs[job_id]["visual_clip_path"] = boom_path
+            jobs[job_id]["visual_clip_mode"] = "boomerang"
+            jobs[job_id]["visual_video_path"] = None
+        _save_job(job_id)
+
+        _long_task_finish(job_id, "done", "Boomerang loop created", {
+            "clip_url": f"/api/visual/clip/{job_id}/view?t={time.time()}",
+            "mode": "boomerang",
+        })
+
+    return _start_background_task(job_id, "boomerang", "Creating boomerang (ping-pong) loop...", worker)
+
+
 @app.route("/api/visual/clip/<job_id>/view")
 def view_visual_clip(job_id: str):
     """Serve the short preview clip for inline playback."""

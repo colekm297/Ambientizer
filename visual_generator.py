@@ -356,6 +356,42 @@ class VisualGenerator:
         print(f"  Slowed video: {output_path}")
         return output_path
 
+    def boomerang_video(self, video_path: str, output_path: str) -> str:
+        """Create a ping-pong (boomerang) clip: plays forward then reverse.
+
+        The forward segment's last frame equals the reverse segment's first
+        frame, and the reverse segment's last frame equals the forward
+        segment's first frame — so the result tiles as a perfectly seamless
+        loop with no hard cut, regardless of the source clip's content.
+        """
+        # reverse one copy, concat forward+reverse. Dropping the duplicated
+        # boundary frames (trim) avoids a 1-frame stutter at each turnaround.
+        filter_complex = (
+            "[0:v]split[f][r];"
+            "[r]reverse,trim=start_frame=1,setpts=PTS-STARTPTS[rev];"
+            "[f][rev]concat=n=2:v=1:a=0[v]"
+        )
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", video_path,
+            "-filter_complex", filter_complex,
+            "-map", "[v]",
+            "-c:v", "libx264",
+            "-preset", "fast",
+            "-crf", "20",
+            "-pix_fmt", "yuv420p",
+            "-an",
+            output_path,
+        ]
+
+        print("  Creating boomerang (ping-pong) loop...")
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
+        if result.returncode != 0:
+            raise RuntimeError(f"ffmpeg boomerang failed: {result.stderr[-1000:]}")
+
+        print(f"  Boomerang video: {output_path}")
+        return output_path
+
     def loop_video(
         self,
         video_path: str,
