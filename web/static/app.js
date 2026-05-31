@@ -3504,9 +3504,10 @@
     const btnErase = document.getElementById("brush-mode-erase");
     const btnClear = document.getElementById("brush-clear");
     const btnSave = document.getElementById("brush-save");
+    const btnTap = document.getElementById("brush-tap");
     if (!useBrush || !canvas) return;
     const ctx = canvas.getContext("2d");
-    let erasing = false, drawing = false;
+    let erasing = false, drawing = false, tapMode = false;
 
     function syncSize() {
       const w = bg.naturalWidth || 1280, h = bg.naturalHeight || 720;
@@ -3536,13 +3537,60 @@
       ctx.fillStyle = "rgba(255,40,200,1)";
       ctx.beginPath(); ctx.arc(p.x, p.y, radius, 0, Math.PI * 2); ctx.fill();
     }
-    canvas.addEventListener("pointerdown", (e) => { drawing = true; canvas.setPointerCapture(e.pointerId); stroke(pos(e)); });
+    function drawMaskUrl(url) {
+      // The SAM mask is grayscale (white=moves) but our canvas encodes "moves" in
+      // ALPHA (magenta strokes on transparent), which is what the backend reads.
+      // Convert luminance → alpha so feathered edges survive and Save stays correct.
+      const img = new Image();
+      img.onload = () => {
+        const tmp = document.createElement("canvas");
+        tmp.width = canvas.width; tmp.height = canvas.height;
+        const tctx = tmp.getContext("2d");
+        tctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const src = tctx.getImageData(0, 0, canvas.width, canvas.height);
+        const out = ctx.createImageData(canvas.width, canvas.height);
+        const d = src.data, o = out.data;
+        for (let i = 0; i < d.length; i += 4) {
+          o[i] = 255; o[i + 1] = 40; o[i + 2] = 200; o[i + 3] = d[i]; // magenta, alpha = whiteness
+        }
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.putImageData(out, 0, 0);
+      };
+      img.src = url;
+    }
+    function tapSegment(e) {
+      if (!visCurrentJobId) { alert("Select a track first"); return; }
+      const r = canvas.getBoundingClientRect();
+      const xn = (e.clientX - r.left) / r.width;
+      const yn = (e.clientY - r.top) / r.height;
+      statusEl.textContent = "Segmenting…";
+      runLongTask(visCurrentJobId, {
+        initialMessage: "Segmenting the region you clicked (SAM)…",
+        progressEl: clipProgress, progressTextEl: clipProgressText, stopBtn: clipStopBtn,
+        startRequest: () => fetch(`/api/visual/segment-point/${visCurrentJobId}`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ x: xn, y: yn, mode: "freeze" }),
+        }),
+        onDone: (d) => { if (d.mask_url) { drawMaskUrl(d.mask_url); statusEl.textContent = "Frozen ✓ — refine with Paint/Erase, then Save"; } },
+        onError: (msg) => { statusEl.textContent = ""; if (msg) alert("Segment failed: " + msg); },
+      });
+    }
+    canvas.addEventListener("pointerdown", (e) => {
+      if (tapMode) { tapSegment(e); return; }
+      drawing = true; canvas.setPointerCapture(e.pointerId); stroke(pos(e));
+    });
     canvas.addEventListener("pointermove", (e) => { if (drawing) stroke(pos(e)); });
     canvas.addEventListener("pointerup", () => { drawing = false; });
     canvas.addEventListener("pointercancel", () => { drawing = false; });
 
-    btnPaint?.addEventListener("click", () => { erasing = false; btnPaint.classList.add("active"); btnErase.classList.remove("active"); });
-    btnErase?.addEventListener("click", () => { erasing = true; btnErase.classList.add("active"); btnPaint.classList.remove("active"); });
+    btnTap?.addEventListener("click", () => {
+      tapMode = !tapMode;
+      btnTap.classList.toggle("active", tapMode);
+      canvas.style.cursor = tapMode ? "pointer" : "crosshair";
+      statusEl.textContent = tapMode ? "Click the object to freeze (e.g. the city)" : "";
+    });
+    btnPaint?.addEventListener("click", () => { erasing = false; tapMode = false; btnTap?.classList.remove("active"); canvas.style.cursor = "crosshair"; btnPaint.classList.add("active"); btnErase.classList.remove("active"); });
+    btnErase?.addEventListener("click", () => { erasing = true; tapMode = false; btnTap?.classList.remove("active"); canvas.style.cursor = "crosshair"; btnErase.classList.add("active"); btnPaint.classList.remove("active"); });
     btnClear?.addEventListener("click", () => ctx.clearRect(0, 0, canvas.width, canvas.height));
     btnSave?.addEventListener("click", () => {
       if (!visCurrentJobId) { alert("Select a track first"); return; }

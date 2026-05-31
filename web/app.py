@@ -2596,6 +2596,67 @@ def view_brush_mask(job_id: str):
     return send_file(mp, mimetype="image/png")
 
 
+@app.route("/api/visual/segment-point/<job_id>", methods=["POST"])
+def segment_point(job_id: str):
+    """AI-assisted motion brush: SAM segments the object the user clicked and returns
+    a motion mask (white=moves). mode 'freeze' freezes the clicked object (moves the
+    rest); 'move' does the opposite. The frontend paints the result onto the brush
+    canvas for the user to refine, then Save persists it like a hand-painted mask."""
+    with jobs_lock:
+        job = jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+    image_path = job.get("visual_image_path")
+    if not image_path or not os.path.exists(image_path):
+        return jsonify({"error": "Generate or upload a scene image first"}), 400
+
+    data = request.get_json(force=True, silent=True) or {}
+    try:
+        x = float(data.get("x")); y = float(data.get("y"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Invalid click coordinates"}), 400
+    mode = "move" if data.get("mode") == "move" else "freeze"
+
+    preview_path = str(Path(image_path).with_name(Path(image_path).stem + "_sampreview.png"))
+    script = str(PROJECT_ROOT / "sam_segmenter.py")
+    py = "/opt/homebrew/bin/python3.13"
+    if not os.path.exists(py):
+        py = "python3.13"
+
+    def worker():
+        _long_task_update(job_id, message="Segmenting the region you clicked (SAM)…")
+        proc = subprocess.run(
+            [py, script, image_path, str(x), str(y), preview_path, mode],
+            capture_output=True, text=True, timeout=600,
+        )
+        _long_task_check_cancel(job_id)
+        if proc.returncode != 0 or not os.path.exists(preview_path):
+            raise RuntimeError(
+                "Segmentation failed: " + (proc.stderr or proc.stdout or "unknown")[-300:]
+            )
+        with jobs_lock:
+            jobs[job_id]["sam_preview_path"] = preview_path
+        _long_task_finish(job_id, "done", "Region segmented", {
+            "mask_url": f"/api/visual/sam-mask/{job_id}/view?t={time.time()}",
+            "mode": mode,
+        })
+
+    return _start_background_task(job_id, "segment", "Segmenting the region you clicked…", worker)
+
+
+@app.route("/api/visual/sam-mask/<job_id>/view")
+def view_sam_mask(job_id: str):
+    """Serve the most recent SAM motion-mask preview for the brush canvas."""
+    with jobs_lock:
+        job = jobs.get(job_id)
+    if not job:
+        abort(404)
+    p = job.get("sam_preview_path")
+    if not p or not os.path.exists(p):
+        abort(404)
+    return send_file(p, mimetype="image/png")
+
+
 @app.route("/api/visual/motion-plan/<job_id>", methods=["POST"])
 def api_motion_plan(job_id: str):
     """Vision director: Claude looks at the scene image and returns a motion layer
