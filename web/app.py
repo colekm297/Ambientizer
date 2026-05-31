@@ -2465,6 +2465,26 @@ def upload_custom_image(job_id: str):
     })
 
 
+@app.route("/api/visual/motion-plan/<job_id>", methods=["POST"])
+def api_motion_plan(job_id: str):
+    """Vision director: Claude looks at the scene image and returns a motion layer
+    plan for the editor to load (so the user can then tweak it). No render."""
+    with jobs_lock:
+        job = jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+    image_path = job.get("visual_image_path")
+    if not image_path or not os.path.exists(image_path):
+        return jsonify({"error": "No scene image yet — generate or upload one first."}), 400
+    scene_text = job.get("prompt", "")
+    config = job.get("config")
+    if config:
+        scene_text = f"{config.title}. {config.description}. {scene_text}"
+    layers, src = choose_layers_from_image(
+        image_path, scene_text, anthropic_key=os.environ.get("ANTHROPIC_API_KEY"))
+    return jsonify({"layers": layers, "source": src})
+
+
 @app.route("/api/visual/image/<job_id>/view")
 def view_visual_image(job_id: str):
     """Serve the generated scene image."""
@@ -2547,7 +2567,13 @@ def generate_visual_clip(job_id: str):
             motion_style = (data.get("motion_style") or "auto").lower()
             intensity = max(0.3, min(2.0, float(data.get("motion_intensity", 0.8))))
             loop_sec = max(8, min(40, float(data.get("motion_loop_sec", 16))))
-            if motion_style != "auto":
+            user_layers = data.get("motion_layers")
+            if isinstance(user_layers, list) and user_layers:
+                # Editor-composed layers → render EXACTLY this (what-you-see-is-what-
+                # renders). Bypass presets / director / bring-to-life toggles / intensity.
+                from motion_compositor import _validate_layers as _vl
+                layers, src = _vl(user_layers), "editor"
+            elif motion_style != "auto":
                 layers, src = motion_style_preset(motion_style), f"style:{motion_style}"
             else:
                 # Auto = VISION director: Claude looks at the actual scene image and
@@ -2557,22 +2583,23 @@ def generate_visual_clip(job_id: str):
                 layers, src = choose_layers_from_image(
                     image_path, scene_text, anthropic_key=os.environ.get("ANTHROPIC_API_KEY")
                 )
-            # "Bring to life" effect toggles — user ticks what's in their image;
-            # the renderer figures out WHERE. These override the preset's defaults.
-            fx = data.get("motion_effects") or {}
-            if isinstance(fx, dict):
-                def _set_fx(lyrs, ltype, on, default):
-                    lyrs = [l for l in lyrs if l.get("type") != ltype]
-                    if on:
-                        lyrs.append(default)
-                    return lyrs
-                if "twinkle" in fx:
-                    layers = _set_fx(layers, "twinkle", fx.get("twinkle"), {"type": "twinkle", "amount": 0.8})
-                if "nebula" in fx:
-                    layers = _set_fx(layers, "nebula", fx.get("nebula"), {"type": "nebula", "amount": 0.5})
-                if "water" in fx:
-                    layers = _set_fx(layers, "shimmer", fx.get("water"), {"type": "shimmer", "amount": 0.5, "region": "water"})
-            layers = scale_motion(layers, intensity)
+            # Toggles + intensity only apply to preset/auto modes — NOT the editor
+            # (the editor's layers are taken verbatim).
+            if src != "editor":
+                fx = data.get("motion_effects") or {}
+                if isinstance(fx, dict):
+                    def _set_fx(lyrs, ltype, on, default):
+                        lyrs = [l for l in lyrs if l.get("type") != ltype]
+                        if on:
+                            lyrs.append(default)
+                        return lyrs
+                    if "twinkle" in fx:
+                        layers = _set_fx(layers, "twinkle", fx.get("twinkle"), {"type": "twinkle", "amount": 0.8})
+                    if "nebula" in fx:
+                        layers = _set_fx(layers, "nebula", fx.get("nebula"), {"type": "nebula", "amount": 0.5})
+                    if "water" in fx:
+                        layers = _set_fx(layers, "shimmer", fx.get("water"), {"type": "shimmer", "amount": 0.5, "region": "water"})
+                layers = scale_motion(layers, intensity)
             _long_task_update(job_id, message=f"Motion: {src}, intensity {intensity:.1f}, {loop_sec:.0f}s loop; rendering...")
             clip_path = str(PROJECT_ROOT / "output" / f"{safe_title}_motion_{timestamp}.mp4")
             MotionCompositor().render(

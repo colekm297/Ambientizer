@@ -374,45 +374,49 @@
                     <span class="form-hint">Describe how it should move (Living Still listens to this). Leave blank to auto-match the scene.</span>
                 </div>
 
-                <!-- Living Still settings (hidden in AI / upload modes) -->
+                <!-- Living Still motion editor (hidden in AI / upload modes) -->
                 <div id="motion-settings-group" class="settings-card hidden">
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="motion-style">Style</label>
-                            <select id="motion-style">
-                                <option value="auto" selected>Auto (match the scene)</option>
-                                <option value="drift">Slow Drift</option>
-                                <option value="stargaze">Stargaze (space)</option>
-                                <option value="parallax">Parallax Depth (2.5D)</option>
-                                <option value="calm">Calm</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label for="motion-intensity">Motion</label>
-                            <select id="motion-intensity">
-                                <option value="0.5">Barely there</option>
-                                <option value="0.8" selected>Subtle</option>
-                                <option value="1.1">Medium</option>
-                                <option value="1.5">Strong</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label for="motion-loop-sec">Loop length</label>
-                            <select id="motion-loop-sec">
-                                <option value="12">12s</option>
-                                <option value="16" selected>16s</option>
-                                <option value="24">24s</option>
-                                <option value="32">32s (slowest)</option>
-                            </select>
-                        </div>
+                    <div class="motion-editor-head">
+                        <span class="field-label">Motion layers</span>
+                        <button id="btn-auto-plan-motion" class="btn btn-secondary btn-sm" type="button" title="Claude looks at your image and fills these layers">✦ Auto-plan from image</button>
                     </div>
-                    <span class="field-label" style="margin-top:6px">Bring to life</span>
-                    <div class="motion-fx-row">
-                        <label class="toggle-label"><input type="checkbox" id="fx-twinkle" checked><span class="toggle-text">✨ Twinkle lights</span></label>
-                        <label class="toggle-label"><input type="checkbox" id="fx-nebula"><span class="toggle-text">🌌 Nebula / gas drift</span></label>
-                        <label class="toggle-label"><input type="checkbox" id="fx-water"><span class="toggle-text">💧 Water shimmer</span></label>
+                    <div id="motion-layers-list" class="motion-layers-list">
+                        <div class="canvas-empty"><p class="canvas-empty-sub">No layers yet. <strong>Auto-plan from image</strong> to let Claude compose them, load a preset, or add layers manually — then tweak any value and Generate.</p></div>
                     </div>
-                    <span class="form-hint">Tick what's in your image — the app finds where it is. Twinkle = bright lights/stars; Nebula = colored gas/clouds; Water = oceans/lakes. Longer loop = calmer; lower Motion = less drift.</span>
+                    <div class="motion-editor-add">
+                        <select id="motion-add-type" class="motion-add-select">
+                            <option value="breathing_zoom">Camera (zoom / pan / orbit)</option>
+                            <option value="parallax">Parallax depth (2.5D)</option>
+                            <option value="particles">Particles (snow/rain/stars…)</option>
+                            <option value="nebula">Nebula / gas drift</option>
+                            <option value="shimmer">Shimmer (water/heat)</option>
+                            <option value="twinkle">Twinkle lights</option>
+                            <option value="god_rays">God rays (sunbeams)</option>
+                            <option value="aurora">Aurora</option>
+                            <option value="color_glow">Color glow</option>
+                            <option value="fog">Fog / mist</option>
+                            <option value="light">Light breathing</option>
+                            <option value="vignette_pulse">Vignette pulse</option>
+                        </select>
+                        <button id="btn-add-motion-layer" class="btn btn-secondary btn-sm" type="button">+ Add</button>
+                        <select id="motion-loadpreset" class="motion-add-select">
+                            <option value="">Load preset…</option>
+                            <option value="drift">Slow Drift</option>
+                            <option value="stargaze">Stargaze (space)</option>
+                            <option value="parallax">Parallax Depth</option>
+                            <option value="calm">Calm</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="margin-top:10px;max-width:200px">
+                        <label for="motion-loop-sec">Loop length</label>
+                        <select id="motion-loop-sec">
+                            <option value="12">12s</option>
+                            <option value="16" selected>16s</option>
+                            <option value="24">24s</option>
+                            <option value="32">32s (slowest)</option>
+                        </select>
+                    </div>
+                    <span class="form-hint">Every motion effect is a layer with its own controls. What you see here is exactly what renders. Leave empty to let Auto decide at Generate.</span>
                 </div>
 
                 <div class="visuals-actions">
