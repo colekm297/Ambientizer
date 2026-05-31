@@ -3801,6 +3801,9 @@ body { padding-bottom: 92px; }   /* clear the fixed bar */
 .motion-editor-add { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; align-items:center; }
 .motion-add-select { flex:1; min-width:140px; padding:7px 10px !important; font-size:0.82rem !important; }
 
+.motion-global-row { display:flex; flex-wrap:wrap; gap:18px; align-items:flex-start; }
+.motion-global-row input[type=range] { width:100%; }
+
 /* Motion brush */
 .motion-brush-block { margin-top:14px; padding-top:12px; border-top:1px solid var(--border, #2a2f3a); }
 .brush-editor { margin-top:10px; }

@@ -3624,6 +3624,13 @@
     };
   })();
 
+  // Live "Overall movement" value label.
+  (function () {
+    const el = document.getElementById("motion-intensity");
+    const out = document.getElementById("motion-intensity-val");
+    if (el && out) el.addEventListener("input", () => { out.textContent = parseFloat(el.value).toFixed(1) + "×"; });
+  })();
+
   async function refreshVisTrackList() {
     try {
       const res = await fetch("/api/history");
@@ -3945,6 +3952,8 @@
           // Editor-composed layers (what-you-see-is-what-renders). Empty → backend auto-plans.
           motion_layers: window._motionLayers || [],
           motion_loop_sec: parseFloat((document.getElementById("motion-loop-sec") || {}).value) || 16,
+          // Global "Overall movement" multiplier — applies in every mode.
+          motion_intensity: parseFloat((document.getElementById("motion-intensity") || {}).value) || 1.0,
           // Motion brush: confine motion to the painted region (mask saved separately).
           use_brush: !!document.getElementById("use-brush")?.checked,
         }),

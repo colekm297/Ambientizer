@@ -2757,7 +2757,7 @@ def generate_visual_clip(job_id: str):
             # intensity (calmer↔stronger), and loop length (longer = slower motion).
             from motion_compositor import motion_style_preset, scale_motion
             motion_style = (data.get("motion_style") or "auto").lower()
-            intensity = max(0.3, min(2.0, float(data.get("motion_intensity", 0.8))))
+            intensity = max(0.3, min(2.5, float(data.get("motion_intensity", 1.0))))
             loop_sec = max(8, min(40, float(data.get("motion_loop_sec", 16))))
             # Motion brush: confine motion to a painted region, freeze the rest.
             # Triggered by the UI flag; layer SELECTION still comes from the editor/
@@ -2782,8 +2782,8 @@ def generate_visual_clip(job_id: str):
                 layers, src = choose_layers_from_image(
                     image_path, scene_text, anthropic_key=os.environ.get("ANTHROPIC_API_KEY")
                 )
-            # Toggles + intensity only apply to preset/auto modes — NOT the editor
-            # (the editor's layers are taken verbatim).
+            # Bring-to-life toggles only apply to preset/auto modes (not the editor,
+            # whose layers are taken verbatim).
             if src != "editor":
                 fx = data.get("motion_effects") or {}
                 if isinstance(fx, dict):
@@ -2798,8 +2798,12 @@ def generate_visual_clip(job_id: str):
                         layers = _set_fx(layers, "nebula", fx.get("nebula"), {"type": "nebula", "amount": 0.5})
                     if "water" in fx:
                         layers = _set_fx(layers, "shimmer", fx.get("water"), {"type": "shimmer", "amount": 0.5, "region": "water"})
+            # "Overall movement" is a GLOBAL multiplier applied in EVERY mode — incl.
+            # Auto-planned / editor / brush layers — so "same look, just more motion"
+            # is one slider nudge + regenerate. At 1.0 it's a no-op (true WYSIWYG).
+            if abs(intensity - 1.0) > 1e-3:
                 layers = scale_motion(layers, intensity)
-            _long_task_update(job_id, message=f"Motion: {src}, intensity {intensity:.1f}, {loop_sec:.0f}s loop; rendering...")
+            _long_task_update(job_id, message=f"Motion: {src}, movement ×{intensity:.1f}, {loop_sec:.0f}s loop; rendering...")
             clip_path = str(PROJECT_ROOT / "output" / f"{safe_title}_motion_{timestamp}.mp4")
             MotionCompositor().render(
                 image_path, clip_path, layers=layers,
