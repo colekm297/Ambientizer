@@ -51,7 +51,7 @@ from sample_generator import ElevenLabsSampleGenerator
 from pydub import AudioSegment
 from schemas import GenerationMode, SoundscapeConfig, LayerConfig, LayerType, EffectsChain, PartSnapshot
 from visual_generator import VisualGenerator
-from motion_compositor import MotionCompositor, choose_layers
+from motion_compositor import MotionCompositor, choose_layers, choose_layers_from_image
 from youtube_publisher import YouTubePublisher, YouTubeAuthError, RECONNECT_MESSAGE, _is_invalid_grant
 from retry_utils import retry_with_backoff, is_transient_api_error
 from gemini_limiter import gemini_limiter
@@ -2550,8 +2550,12 @@ def generate_visual_clip(job_id: str):
             if motion_style != "auto":
                 layers, src = motion_style_preset(motion_style), f"style:{motion_style}"
             else:
-                layers, src = choose_layers(
-                    scene_text, anthropic_key=os.environ.get("ANTHROPIC_API_KEY")
+                # Auto = VISION director: Claude looks at the actual scene image and
+                # composes motion matched to what's really there (sky/gas, water,
+                # lights, composition) — not guessing from text.
+                _long_task_update(job_id, message="Claude is studying the image to plan the motion...")
+                layers, src = choose_layers_from_image(
+                    image_path, scene_text, anthropic_key=os.environ.get("ANTHROPIC_API_KEY")
                 )
             # "Bring to life" effect toggles — user ticks what's in their image;
             # the renderer figures out WHERE. These override the preset's defaults.
