@@ -3407,6 +3407,26 @@
       if (motionSettings) motionSettings.classList.toggle("hidden", currentVideoMode !== "motion");
       if (uploadVideoGroup) uploadVideoGroup.classList.toggle("hidden", !isUpload);
       btnCreateClip.classList.toggle("hidden", isUpload);
+
+      // Each tab keeps its own clip — load this tab's stored clip (if any) so
+      // switching tabs never clobbers what you made in another.
+      if (visCurrentJobId) {
+        fetch(`/api/visual/select-clip/${visCurrentJobId}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode: currentVideoMode }),
+        })
+          .then((r) => r.json())
+          .then((d) => {
+            if (d.has_clip && d.clip_url) {
+              showClipPreview(d.clip_url);
+            } else {
+              clipPreview.classList.add("hidden");
+              visExportPanel.classList.add("hidden");
+            }
+          })
+          .catch(() => {});
+      }
     });
   });
 
@@ -3522,8 +3542,19 @@
         visAnimatePanel.classList.add("hidden");
       }
 
-      if (data.visual_clip_url) {
-        clipVideo.src = data.visual_clip_url + "?t=" + Date.now();
+      // Restore the video-mode tab this track was last on, then show that tab's clip.
+      const savedTab = data.visual_active_tab;
+      if (savedTab) {
+        const tabBtn = document.querySelector(`[data-vmode="${savedTab}"]`);
+        if (tabBtn && !tabBtn.classList.contains("active")) {
+          tabBtn.click(); // handler loads the tab's clip + toggles its controls
+        }
+      }
+
+      const clips = data.visual_clips || {};
+      const activeClipUrl = (savedTab && clips[savedTab]) || data.visual_clip_url;
+      if (activeClipUrl) {
+        clipVideo.src = activeClipUrl + (activeClipUrl.includes("?") ? "&" : "?") + "t=" + Date.now();
         clipPreview.classList.remove("hidden");
         visExportPanel.classList.remove("hidden");
       } else {
