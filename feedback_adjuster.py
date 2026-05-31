@@ -156,7 +156,7 @@ class FeedbackAdjuster:
         try:
             clean = raw.strip()
             if clean.startswith("```"):
-                clean = clean.split("\n", 1)[1]
+                clean = clean.split("\n", 1)[1] if "\n" in clean else clean[3:]
             if clean.endswith("```"):
                 clean = clean.rsplit("```", 1)[0]
 
@@ -205,7 +205,7 @@ class FeedbackAdjuster:
         try:
             clean = raw.strip()
             if clean.startswith("```"):
-                clean = clean.split("\n", 1)[1]
+                clean = clean.split("\n", 1)[1] if "\n" in clean else clean[3:]
             if clean.endswith("```"):
                 clean = clean.rsplit("```", 1)[0]
 

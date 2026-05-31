@@ -13,6 +13,23 @@ from typing import Optional
 from anthropic import Anthropic
 from schemas import SoundscapeConfig, LayerConfig, LayerType, EffectsChain, EnergyCurve, GenerationMode
 from retry_utils import retry_with_backoff, is_transient_api_error
+from dataclasses import fields as _dc_fields
+
+
+def _only_fields(cls, d):
+    """Drop any keys the LLM invented that aren't real dataclass fields,
+    so EffectsChain(**d)/EnergyCurve(**d) can't raise TypeError."""
+    valid = {f.name for f in _dc_fields(cls)}
+    return {k: v for k, v in (d or {}).items() if k in valid}
+
+
+def _coerce_layer_type(v) -> LayerType:
+    """Map arbitrary-cased LLM output (e.g. 'Musical', 'BASE') to a LayerType,
+    defaulting to MID rather than crashing on an unknown value."""
+    try:
+        return LayerType(str(v).lower().strip())
+    except ValueError:
+        return LayerType.MID
 
 INTERPRETER_LOG_DIR = Path("interpreter_logs")
 INTERPRETER_LOG_DIR.mkdir(exist_ok=True)
@@ -502,7 +519,7 @@ BLENDING RULES:
             )
             clean = raw_json.strip()
             if clean.startswith("```"):
-                clean = clean.split("\n", 1)[1]
+                clean = clean.split("\n", 1)[1] if "\n" in clean else clean[3:]
             if clean.endswith("```"):
                 clean = clean.rsplit("```", 1)[0]
             config_dict = json.loads(clean.strip())
@@ -511,11 +528,11 @@ BLENDING RULES:
         for layer_dict in config_dict.get("layers", []):
             effects = None
             if layer_dict.get("effects"):
-                effects = EffectsChain(**layer_dict["effects"])
+                effects = EffectsChain(**_only_fields(EffectsChain, layer_dict["effects"]))
 
             layers.append(LayerConfig(
                 name=layer_dict["name"],
-                layer_type=LayerType(layer_dict["layer_type"]),
+                layer_type=_coerce_layer_type(layer_dict["layer_type"]),
                 sample_tags=layer_dict.get("sample_tags", []),
                 volume_db=layer_dict.get("volume_db", -6.0),
                 pan=layer_dict.get("pan", 0.0),
@@ -535,11 +552,11 @@ BLENDING RULES:
         root_key = config_dict.get("root_key", "")
         layers = self._finalize_layers(layers, mode, approach, root_key)
 
-        master_fx = EffectsChain(**config_dict.get("master_effects", {}))
+        master_fx = EffectsChain(**_only_fields(EffectsChain, config_dict.get("master_effects", {})))
         energy_data = config_dict.get("energy_curve", {})
         if mode == GenerationMode.MUSICAL and energy_data.get("style", "steady") == "steady":
             energy_data = {**energy_data, "style": "slow_build"}
-        energy = EnergyCurve(**energy_data)
+        energy = EnergyCurve(**_only_fields(EnergyCurve, energy_data))
 
         config = SoundscapeConfig(
             title=config_dict["title"],

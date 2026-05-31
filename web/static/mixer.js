@@ -28,12 +28,80 @@ class LiveMixer {
   }
 
   async init(durationSec) {
+    // iOS Safari: by default Web Audio uses a silenceable "ambient" audio
+    // session — the context can be running with sources playing yet produce NO
+    // speaker output (and it obeys the ringer switch). Declaring "playback"
+    // routes it to the main speaker at full volume. (iOS 16.4+; no-op elsewhere.)
+    try {
+      if (navigator.audioSession) navigator.audioSession.type = "playback";
+    } catch (e) { /* unsupported — ignore */ }
+
     this.ctx = new (window.AudioContext || window.webkitAudioContext)();
     this.duration = durationSec;
     this.masterGain = this.ctx.createGain();
     this.masterGain.connect(this.ctx.destination);
     this._reverbImpulse = this._buildReverbIR(2.5, 3.0);
+    this._installIOSUnlock();
+    this._initAudioStatus();
     console.log(`[LiveMixer] init: duration=${durationSec}s (${(durationSec/60).toFixed(1)} min)`);
+  }
+
+  // iOS won't output ANY Web Audio until a buffer has been played from inside a
+  // user gesture — resume() alone isn't enough. We play a 1-sample silent buffer
+  // on the first touch/click to "unlock" the audio hardware.
+  _installIOSUnlock() {
+    const unlock = async () => {
+      try {
+        await this.ctx.resume();
+        const buf = this.ctx.createBuffer(1, 1, 22050);
+        const src = this.ctx.createBufferSource();
+        src.buffer = buf;
+        src.connect(this.ctx.destination);
+        src.start(0);
+      } catch (e) {
+        console.warn("[LiveMixer] iOS unlock failed", e);
+      }
+      this._updateAudioStatus();
+      if (this.ctx.state === "running") {
+        document.removeEventListener("touchend", unlock, true);
+        document.removeEventListener("click", unlock, true);
+      }
+    };
+    document.addEventListener("touchend", unlock, true);
+    document.addEventListener("click", unlock, true);
+  }
+
+  // Tiny on-screen readout so we can diagnose audio state on the phone.
+  // Disabled now that iOS audio is confirmed working; flip to true to re-enable.
+  _initAudioStatus() {
+    if (!window._ambientizerAudioDebug) return;
+    let el = document.getElementById("audio-status");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "audio-status";
+      el.style.cssText = "position:fixed;bottom:6px;left:6px;z-index:99999;font:11px monospace;" +
+        "background:rgba(0,0,0,.72);color:#3f3;padding:3px 7px;border-radius:4px;pointer-events:none;";
+      document.body.appendChild(el);
+    }
+    this._audioStatusEl = el;
+    this._updateAudioStatus();
+  }
+
+  _updateAudioStatus() {
+    if (!this._audioStatusEl) return;
+    const c = this.ctx;
+    const ls = Object.values(this.layers);
+    // per-layer detail for the first layer: gain, dry/wet, muted, source live?
+    let detail = "";
+    if (ls.length) {
+      const l = ls[0];
+      const g = l.gain ? l.gain.gain.value.toFixed(2) : "?";
+      const dry = l.dryGain ? l.dryGain.gain.value.toFixed(2) : "?";
+      const mg = this.masterGain ? this.masterGain.gain.value.toFixed(2) : "?";
+      detail = ` | L0 g${g} dry${dry} ${l.muted ? "MUTED" : "on"} src${l.source ? "✓" : "✗"} | mg${mg}`;
+    }
+    this._audioStatusEl.textContent =
+      `audio:${c ? c.state : "no-ctx"} sr${c ? c.sampleRate : "-"} layers${ls.length}${detail}`;
   }
 
   _buildReverbIR(seconds, decay) {
@@ -420,9 +488,15 @@ class LiveMixer {
 
   // ── Transport ───────────────────────────────────
 
-  play() {
+  async play() {
     if (this.playing) return;
-    if (this.ctx.state === "suspended") this.ctx.resume();
+    // iOS: the AudioContext starts "suspended" and only resumes from a user
+    // gesture. We MUST await it — otherwise currentTime stays frozen, the
+    // sources get scheduled into the past, and nothing sounds while the JS
+    // timer still advances (looks like it's playing, but silent).
+    if (this.ctx.state === "suspended") {
+      try { await this.ctx.resume(); } catch (e) { console.warn("[LiveMixer] resume failed", e); }
+    }
 
     const vol = this._masterVolume !== undefined ? this._masterVolume : 1;
 
@@ -451,6 +525,7 @@ class LiveMixer {
       this._startSource(l, startTime);
     }
     this._startTimer();
+    this._updateAudioStatus();
   }
 
   pause() {
