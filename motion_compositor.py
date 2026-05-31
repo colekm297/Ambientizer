@@ -101,6 +101,10 @@ class MotionCompositor:
         zoom_cfg = _find(layers, "breathing_zoom")
         zmax = 1.0 + (zoom_cfg.get("amount", 0.10) if zoom_cfg else 0.0)
         orbit = (zoom_cfg.get("orbit", 0.0) if zoom_cfg else 0.0)
+        pan = (zoom_cfg.get("pan", 0.0) if zoom_cfg else 0.0)
+        # A pan needs crop headroom to glide within — guarantee some zoom-in.
+        if pan > 0.01:
+            zmax = max(zmax, 1.18)
 
         base_big = self._load_base(image_path, W, H, zmax)
         base_pil = Image.fromarray(base_big.astype(np.uint8))  # for sub-pixel camera sampling
@@ -148,7 +152,7 @@ class MotionCompositor:
                 if parallax_state is not None:
                     frame = self._parallax_frame(parallax_state, t)
                 else:
-                    frame = self._camera_frame(base_pil, W, H, zmax, orbit, t)
+                    frame = self._camera_frame(base_pil, W, H, zmax, orbit, t, pan)
 
                 if shimmer_state is not None:
                     sh = self._apply_shimmer(frame, shimmer_state, t)
@@ -219,7 +223,7 @@ class MotionCompositor:
         im = _cover_resize(im, big_w, big_h)
         return np.asarray(im, dtype=np.float32)
 
-    def _camera_frame(self, base_pil, W, H, zmax, orbit, t) -> np.ndarray:
+    def _camera_frame(self, base_pil, W, H, zmax, orbit, t, pan=0.0) -> np.ndarray:
         # SUB-PIXEL camera. The old version cropped at integer pixel offsets
         # (int(round(...))) every frame, so smooth motion quantized into 1-2px
         # jumps → a visible shake/jitter. We now sample with a float affine
@@ -230,11 +234,15 @@ class MotionCompositor:
         win_w = min(W * (zmax / z), float(bw))
         win_h = min(H * (zmax / z), float(bh))
 
-        # Orbital drift of the crop centre (full circle over the loop → seamless).
+        # Crop-centre drift over the loop (returns to start → seamless).
+        #  orbit = gentle circular drift; pan = stronger, mostly-HORIZONTAL glide
+        #  across the scene (suppresses vertical so it reads as a camera pan, not a wobble).
         slack_x = bw - win_w
         slack_y = bh - win_h
-        fx = slack_x * 0.5 + math.cos(TWO_PI * t) * slack_x * 0.5 * orbit
-        fy = slack_y * 0.5 + math.sin(TWO_PI * t) * slack_y * 0.5 * orbit
+        amp_x = max(orbit, pan)
+        amp_y = orbit * (1.0 - 0.9 * pan)
+        fx = slack_x * 0.5 + math.cos(TWO_PI * t) * slack_x * 0.5 * amp_x
+        fy = slack_y * 0.5 + math.sin(TWO_PI * t) * slack_y * 0.5 * amp_y
         fx = min(max(fx, 0.0), slack_x)
         fy = min(max(fy, 0.0), slack_y)
 
@@ -712,7 +720,7 @@ def preset_for_scene(scene_text: str) -> list[dict]:
 # Validation bounds for each layer param — the director's output is clamped to
 # these so a hallucinated value can never break the render or look broken.
 _LAYER_SPEC = {
-    "breathing_zoom": {"amount": (0.0, 0.25), "orbit": (0.0, 1.0)},
+    "breathing_zoom": {"amount": (0.0, 0.25), "orbit": (0.0, 1.0), "pan": (0.0, 1.0)},
     "particles":      {"count": (10, 500), "amount": (0.0, 1.2)},
     "fog":            {"amount": (0.0, 0.5)},
     "light":          {"amount": (0.0, 0.25)},
@@ -743,7 +751,7 @@ loop seamlessly, so you only choose layers and intensities.
 
 Reply with ONLY a JSON object: {"layers": [ ... ]}. Use 3-6 layers from this palette:
 
-- {"type":"breathing_zoom","amount":0.06-0.14,"orbit":0.2-0.8}  // slow camera; almost always include
+- {"type":"breathing_zoom","amount":0.04-0.12,"orbit":0.2-0.6,"pan":0.0-0.9}  // camera. pan = a real lateral GLIDE across the scene (use 0.5-0.9 when the user wants the camera to move/pan, not just a tiny zoom; keep amount low when panning). almost always include
 - {"type":"particles","kind":"snow|rain|embers|dust|fireflies|bokeh","count":40-400,"amount":0.4-1.0}
 - {"type":"fog","amount":0.15-0.35}            // drifting mist/atmosphere
 - {"type":"god_rays","amount":0.3-0.7,"count":5-10,"warm":true}  // sunbeams; forests, windows, dawn
@@ -888,6 +896,52 @@ def choose_layers(scene_text: str, anthropic_key: Optional[str] = None,
         except Exception as e:
             print(f"  [motion] director fell back to presets: {e}", flush=True)
     return preset_for_scene(scene_text), "keyword"
+
+
+def choose_layers_from_image(image_path: str, scene_text: str = "",
+                             anthropic_key: Optional[str] = None,
+                             model: str = "claude-sonnet-4-6") -> tuple[list[dict], str]:
+    """VISION motion director: Claude actually LOOKS at the image and composes the
+    motion layers to match what's really there (where the sky/gas, water, bright
+    lights, foreground actually are) — instead of guessing from text. This is what
+    stops 'fog on a spaceship'. Falls back to the text director, then presets."""
+    if anthropic_key:
+        try:
+            import base64
+            import io
+            import json as _json
+            from anthropic import Anthropic
+
+            im = Image.open(image_path).convert("RGB")
+            im.thumbnail((1024, 1024))
+            buf = io.BytesIO()
+            im.save(buf, format="JPEG", quality=85)
+            b64 = base64.standard_b64encode(buf.getvalue()).decode()
+
+            client = Anthropic(api_key=anthropic_key)
+            resp = client.messages.create(
+                model=model, max_tokens=900, system=DIRECTOR_SYSTEM,
+                messages=[{"role": "user", "content": [
+                    {"type": "image", "source": {"type": "base64",
+                     "media_type": "image/jpeg", "data": b64}},
+                    {"type": "text", "text":
+                        f"Context (text brief): {scene_text}\n\n"
+                        "LOOK AT THIS IMAGE and compose the motion layers that best bring "
+                        "IT to life. Match each effect to where things actually are in the "
+                        "frame: drift gas/nebula only where you see sky/gas, shimmer only on "
+                        "water, twinkle the bright lights you can see, and choose a camera "
+                        "move (pan vs zoom) that suits the composition. Subtle, hours-long, "
+                        "seamless. Output ONLY the JSON."},
+                ]}],
+            )
+            data = _json.loads(_strip_fences(resp.content[0].text))
+            layers = _validate_layers(data.get("layers", []))
+            if layers:
+                return layers, "claude:vision"
+        except Exception as e:
+            print(f"  [motion] vision director failed ({e}); using text director", flush=True)
+    # Fall back to the text director (which itself falls back to presets).
+    return choose_layers(scene_text, anthropic_key=anthropic_key, model=model)
 
 
 def _find(layers: list[dict], type_name: str) -> Optional[dict]:
