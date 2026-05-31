@@ -407,6 +407,28 @@
                             <option value="calm">Calm</option>
                         </select>
                     </div>
+                    <!-- Motion brush: paint what moves, freeze the rest -->
+                    <div id="motion-brush-block" class="motion-brush-block">
+                        <label class="clip-smooth-label" title="Paint over the parts that should move (e.g. the sky/nebula); everything you leave unpainted stays perfectly still">
+                            <input type="checkbox" id="use-brush"> 🖌 Motion brush — paint what moves (freeze the rest)
+                        </label>
+                        <div id="brush-editor" class="brush-editor hidden">
+                            <div class="brush-tools">
+                                <button id="brush-mode-paint" class="btn btn-sm active" type="button">Paint</button>
+                                <button id="brush-mode-erase" class="btn btn-sm" type="button">Erase</button>
+                                <label class="brush-size-label">Size <input type="range" id="brush-size" min="10" max="240" value="80"></label>
+                                <button id="brush-clear" class="btn btn-sm" type="button">Clear</button>
+                                <button id="brush-save" class="btn btn-secondary btn-sm" type="button">Save mask</button>
+                                <span id="brush-status" class="form-hint"></span>
+                            </div>
+                            <div id="brush-canvas-wrap" class="brush-canvas-wrap">
+                                <img id="brush-bg" alt="">
+                                <canvas id="brush-canvas"></canvas>
+                            </div>
+                            <span class="form-hint">Paint over what should <strong>move</strong> (e.g. the sky / nebula). Unpainted areas stay frozen. Click <strong>Save mask</strong>, then Generate. In brush mode the camera is anchored, so motion comes from the layers above (nebula drift, twinkle, particles…).</span>
+                        </div>
+                    </div>
+
                     <div class="form-group" style="margin-top:10px;max-width:200px">
                         <label for="motion-loop-sec">Loop length</label>
                         <select id="motion-loop-sec">

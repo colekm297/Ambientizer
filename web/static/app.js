@@ -3492,6 +3492,81 @@
     });
   }
 
+  // ── Motion brush (paint what moves, freeze the rest) ──────────
+  (function initMotionBrush() {
+    const useBrush = document.getElementById("use-brush");
+    const editor = document.getElementById("brush-editor");
+    const bg = document.getElementById("brush-bg");
+    const canvas = document.getElementById("brush-canvas");
+    const sizeEl = document.getElementById("brush-size");
+    const statusEl = document.getElementById("brush-status");
+    const btnPaint = document.getElementById("brush-mode-paint");
+    const btnErase = document.getElementById("brush-mode-erase");
+    const btnClear = document.getElementById("brush-clear");
+    const btnSave = document.getElementById("brush-save");
+    if (!useBrush || !canvas) return;
+    const ctx = canvas.getContext("2d");
+    let erasing = false, drawing = false;
+
+    function syncSize() {
+      const w = bg.naturalWidth || 1280, h = bg.naturalHeight || 720;
+      if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+    }
+    function restoreMask() {
+      if (!visCurrentJobId) return;
+      const img = new Image();
+      img.onload = () => { ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.drawImage(img, 0, 0, canvas.width, canvas.height); };
+      img.src = `/api/visual/brush-mask/${visCurrentJobId}/view?t=${Date.now()}`;
+    }
+    function loadBrushImage() {
+      const src = previewImg?.src;
+      if (!src) return;
+      bg.onload = () => { syncSize(); restoreMask(); };
+      bg.src = src;
+      if (bg.complete && bg.naturalWidth) { syncSize(); restoreMask(); }
+    }
+    function pos(e) {
+      const r = canvas.getBoundingClientRect();
+      return { x: (e.clientX - r.left) / r.width * canvas.width,
+               y: (e.clientY - r.top) / r.height * canvas.height, scale: canvas.width / (r.width || canvas.width) };
+    }
+    function stroke(p) {
+      const radius = Math.max(4, ((parseInt(sizeEl.value, 10) || 80) / 2) * p.scale);
+      ctx.globalCompositeOperation = erasing ? "destination-out" : "source-over";
+      ctx.fillStyle = "rgba(255,40,200,1)";
+      ctx.beginPath(); ctx.arc(p.x, p.y, radius, 0, Math.PI * 2); ctx.fill();
+    }
+    canvas.addEventListener("pointerdown", (e) => { drawing = true; canvas.setPointerCapture(e.pointerId); stroke(pos(e)); });
+    canvas.addEventListener("pointermove", (e) => { if (drawing) stroke(pos(e)); });
+    canvas.addEventListener("pointerup", () => { drawing = false; });
+    canvas.addEventListener("pointercancel", () => { drawing = false; });
+
+    btnPaint?.addEventListener("click", () => { erasing = false; btnPaint.classList.add("active"); btnErase.classList.remove("active"); });
+    btnErase?.addEventListener("click", () => { erasing = true; btnErase.classList.add("active"); btnPaint.classList.remove("active"); });
+    btnClear?.addEventListener("click", () => ctx.clearRect(0, 0, canvas.width, canvas.height));
+    btnSave?.addEventListener("click", () => {
+      if (!visCurrentJobId) { alert("Select a track first"); return; }
+      statusEl.textContent = "Saving…";
+      canvas.toBlob(async (blob) => {
+        const form = new FormData(); form.append("file", blob, "mask.png");
+        try {
+          const res = await fetch(`/api/visual/brush-mask/${visCurrentJobId}`, { method: "POST", body: form });
+          const d = await res.json();
+          statusEl.textContent = d.error ? ("Error: " + d.error) : "Mask saved ✓";
+        } catch (err) { statusEl.textContent = "Save failed"; }
+      }, "image/png");
+    });
+    useBrush.addEventListener("change", () => {
+      editor.classList.toggle("hidden", !useBrush.checked);
+      if (useBrush.checked) loadBrushImage();
+    });
+    // Let track-load restore the brush state.
+    window._restoreBrush = (hasMask) => {
+      if (hasMask) { useBrush.checked = true; editor.classList.remove("hidden"); loadBrushImage(); }
+      else { useBrush.checked = false; editor.classList.add("hidden"); }
+    };
+  })();
+
   async function refreshVisTrackList() {
     try {
       const res = await fetch("/api/history");
@@ -3568,6 +3643,9 @@
       } else {
         videoDownload.classList.add("hidden");
       }
+
+      // Restore motion-brush state (enable + repaint saved mask) for this track.
+      if (typeof window._restoreBrush === "function") window._restoreBrush(!!data.brush_mask_url);
     } catch (err) {
       console.error("Failed to load visuals for track:", err);
     }
@@ -3805,6 +3883,8 @@
           // Editor-composed layers (what-you-see-is-what-renders). Empty → backend auto-plans.
           motion_layers: window._motionLayers || [],
           motion_loop_sec: parseFloat((document.getElementById("motion-loop-sec") || {}).value) || 16,
+          // Motion brush: confine motion to the painted region (mask saved separately).
+          use_brush: !!document.getElementById("use-brush")?.checked,
         }),
       }),
       onDone: (data) => showClipPreview(data.clip_url),

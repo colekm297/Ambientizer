@@ -81,8 +81,14 @@ class MotionCompositor:
         size: tuple[int, int] = (1920, 1080),
         crf: int = 18,
         on_status=None,
+        brush_mask_path: Optional[str] = None,
     ) -> str:
-        """Render a seamless motion loop. Returns the output path."""
+        """Render a seamless motion loop. Returns the output path.
+
+        brush_mask_path: optional PNG where WHITE = "this region moves" and BLACK =
+        "freeze". When given, motion is confined to the painted region and everything
+        else stays pixel-perfect static (the global camera is anchored), like a
+        motion brush. The mask is feathered so the boundary isn't a hard cut."""
         layers = layers if layers is not None else self.default_layers()
         if not output_path:
             output_path = str(Path(image_path).with_suffix("")) + "_motionloop.mp4"
@@ -97,17 +103,42 @@ class MotionCompositor:
 
         status(f"Rendering {loop_sec:.0f}s seamless loop @ {fps}fps ({W}x{H}, {len(layers)} layer(s))")
 
+        # ── Motion-brush mask ────────────────────────────────────────────────
+        # WHITE = moves, BLACK = frozen. We anchor the global camera (so frozen
+        # pixels never drift) and, at the end of each frame, blend the animated
+        # frame back over the static original everywhere the mask is black.
+        brush_mask = None
+        if brush_mask_path:
+            brush_mask = self._load_brush_mask(brush_mask_path, W, H)
+            if brush_mask is not None:
+                status("motion brush mask loaded — freezing unpainted regions")
+            else:
+                status("brush mask empty/unreadable — ignoring")
+
         # Pre-build per-layer state that's constant across frames.
         zoom_cfg = _find(layers, "breathing_zoom")
         zmax = 1.0 + (zoom_cfg.get("amount", 0.10) if zoom_cfg else 0.0)
         orbit = (zoom_cfg.get("orbit", 0.0) if zoom_cfg else 0.0)
         pan = (zoom_cfg.get("pan", 0.0) if zoom_cfg else 0.0)
+        # In brush mode the camera is ANCHORED — a global zoom/pan would make the
+        # frozen region mismatch the static base at the mask edge. Motion comes
+        # entirely from the in-region effects (nebula drift, twinkle, particles…).
+        if brush_mask is not None:
+            zmax, orbit, pan = 1.0, 0.0, 0.0
         # A pan needs crop headroom to glide within — guarantee some zoom-in.
         if pan > 0.01:
             zmax = max(zmax, 1.18)
 
         base_big = self._load_base(image_path, W, H, zmax)
         base_pil = Image.fromarray(base_big.astype(np.uint8))  # for sub-pixel camera sampling
+
+        # Frozen reference for brush mode: the anchored camera output (identical at
+        # every t), so unpainted regions blend back to exactly this every frame.
+        static_base = None
+        brush_m3 = None
+        if brush_mask is not None:
+            static_base = self._camera_frame(base_pil, W, H, zmax, orbit, 0.0, pan)
+            brush_m3 = brush_mask[:, :, None]
         particle_fields = [self._make_particle_field(l, W, H) for l in layers if l["type"] == "particles"]
         fog_cfg = _find(layers, "fog")
         fog_tex = self._make_fog_texture(W, H) if fog_cfg else None
@@ -189,6 +220,11 @@ class MotionCompositor:
 
                 if glow_mask is not None:
                     self._apply_color_glow(frame, glow_mask, glow_cfg, t)
+
+                # Motion brush: keep motion only where painted; restore the frozen
+                # original everywhere else (feathered edge avoids a hard seam).
+                if static_base is not None:
+                    frame = static_base * (1.0 - brush_m3) + frame * brush_m3
 
                 np.clip(frame, 0, 255, out=frame)
                 proc.stdin.write(frame.astype(np.uint8).tobytes())
@@ -496,6 +532,30 @@ class MotionCompositor:
         m = np.asarray(Image.open(path).convert("L").resize((W, H), Image.BILINEAR),
                        dtype=np.float32) / 255.0
         return m if m.max() > 0.02 else None  # treat an empty mask as "not present"
+
+    @staticmethod
+    def _load_brush_mask(path, W, H):
+        """Load a hand-painted motion mask (WHITE=move) → feathered float32 [0,1] at
+        (H,W). Uses the alpha channel if present (transparent canvas + white strokes),
+        else luminance. Returns None if effectively empty."""
+        if not path or not Path(path).exists():
+            return None
+        try:
+            im = Image.open(path)
+            if "A" in im.getbands():
+                m = np.asarray(im.convert("RGBA").split()[-1], dtype=np.float32)
+            else:
+                m = np.asarray(im.convert("L"), dtype=np.float32)
+        except Exception:
+            return None
+        # Resize to render size, normalize, then feather the edges so the boundary
+        # between moving and frozen isn't a hard cut.
+        m = np.asarray(Image.fromarray(m.astype(np.uint8)).resize((W, H), Image.BILINEAR),
+                       dtype=np.float32) / 255.0
+        if m.max() <= 0.02:
+            return None
+        m = gaussian_filter(m, sigma=max(4.0, W / 240.0))
+        return np.clip(m, 0.0, 1.0)
 
     def _apply_region_warp(self, frame, mask, t, amount):
         """Slow flowing displacement confined to a region (nebula/gas drifting in
