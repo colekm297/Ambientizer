@@ -3592,18 +3592,27 @@
     btnPaint?.addEventListener("click", () => { erasing = false; tapMode = false; btnTap?.classList.remove("active"); canvas.style.cursor = "crosshair"; btnPaint.classList.add("active"); btnErase.classList.remove("active"); });
     btnErase?.addEventListener("click", () => { erasing = true; tapMode = false; btnTap?.classList.remove("active"); canvas.style.cursor = "crosshair"; btnErase.classList.add("active"); btnPaint.classList.remove("active"); });
     btnClear?.addEventListener("click", () => ctx.clearRect(0, 0, canvas.width, canvas.height));
+    function saveMask() {
+      return new Promise((resolve) => {
+        if (!visCurrentJobId) { resolve(false); return; }
+        statusEl.textContent = "Saving…";
+        canvas.toBlob(async (blob) => {
+          const form = new FormData(); form.append("file", blob, "mask.png");
+          try {
+            const res = await fetch(`/api/visual/brush-mask/${visCurrentJobId}`, { method: "POST", body: form });
+            const d = await res.json();
+            statusEl.textContent = d.error ? ("Error: " + d.error) : "Mask saved ✓";
+            resolve(!d.error);
+          } catch (err) { statusEl.textContent = "Save failed"; resolve(false); }
+        }, "image/png");
+      });
+    }
     btnSave?.addEventListener("click", () => {
       if (!visCurrentJobId) { alert("Select a track first"); return; }
-      statusEl.textContent = "Saving…";
-      canvas.toBlob(async (blob) => {
-        const form = new FormData(); form.append("file", blob, "mask.png");
-        try {
-          const res = await fetch(`/api/visual/brush-mask/${visCurrentJobId}`, { method: "POST", body: form });
-          const d = await res.json();
-          statusEl.textContent = d.error ? ("Error: " + d.error) : "Mask saved ✓";
-        } catch (err) { statusEl.textContent = "Save failed"; }
-      }, "image/png");
+      saveMask();
     });
+    // Auto-save on Generate so the user can't forget the Save step.
+    window._saveBrushMaskIfActive = () => (useBrush.checked ? saveMask() : Promise.resolve(true));
     useBrush.addEventListener("change", () => {
       editor.classList.toggle("hidden", !useBrush.checked);
       if (useBrush.checked) loadBrushImage();
@@ -3912,6 +3921,11 @@
     btnCreateClip.textContent = isAI ? "Animating..." : "Processing...";
     clipPreview.classList.add("hidden");
     visExportPanel.classList.add("hidden");
+
+    // Auto-save the motion-brush mask first (so the user can't forget to Save).
+    if (typeof window._saveBrushMaskIfActive === "function") {
+      await window._saveBrushMaskIfActive();
+    }
 
     const initialMessage = isAI
       ? "Grok is animating your image (1-3 min)..."
