@@ -44,13 +44,14 @@ from dotenv import load_dotenv
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from orchestrator import SoundscapeOrchestrator
-from audio_engine import AudioEngine, SampleLibrary, detect_key, harmonize_layers, prepare_musical_loop
+from audio_engine import AudioEngine, SampleLibrary, detect_key, harmonize_layers, prepare_musical_loop, make_loopable
 from mix_master import MixMasterAgent
 from feedback_adjuster import FeedbackAdjuster
 from sample_generator import ElevenLabsSampleGenerator
 from pydub import AudioSegment
 from schemas import GenerationMode, SoundscapeConfig, LayerConfig, LayerType, EffectsChain, PartSnapshot
 from visual_generator import VisualGenerator
+from motion_compositor import MotionCompositor, choose_layers
 from youtube_publisher import YouTubePublisher, YouTubeAuthError, RECONNECT_MESSAGE, _is_invalid_grant
 from retry_utils import retry_with_backoff, is_transient_api_error
 from gemini_limiter import gemini_limiter
@@ -161,10 +162,40 @@ def _long_task_cancel(job_id: str) -> bool:
     return True
 
 
-def _run_ffmpeg_cancellable(job_id: str, cmd: list[str], timeout: int = 3600):
-    """Run ffmpeg, checking for user cancellation while the process runs."""
-    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+def _run_ffmpeg_cancellable(job_id: str, cmd: list[str], timeout: int = 3600,
+                            total_sec: float = 0, label: str = "Processing"):
+    """Run ffmpeg, checking for user cancellation while the process runs. When
+    total_sec is given, parse ffmpeg's -progress output and report seconds
+    done/total so the UI can show a real progress bar (the frontend reads N/M)."""
+    use_progress = total_sec and total_sec > 0
+    if use_progress and "-progress" not in cmd:
+        cmd = [cmd[0], "-progress", "pipe:1", "-nostats"] + cmd[1:]
+    proc = subprocess.Popen(
+        cmd,
+        stdout=(subprocess.PIPE if use_progress else subprocess.DEVNULL),
+        stderr=subprocess.DEVNULL,
+        text=True,
+    )
     _long_task_set_subprocess(job_id, proc)
+
+    if use_progress:
+        def _reader():
+            try:
+                for line in proc.stdout:
+                    line = line.strip()
+                    if line.startswith("out_time="):
+                        ts = line.split("=", 1)[1]
+                        try:
+                            h, m, s = ts.split(":")
+                            done = int(int(h) * 3600 + int(m) * 60 + float(s))
+                            done = max(0, min(int(total_sec), done))
+                            _long_task_update(job_id, message=f"{label} — {done}/{int(total_sec)}s")
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+        threading.Thread(target=_reader, daemon=True).start()
+
     deadline = time.time() + timeout
     while proc.poll() is None:
         _long_task_check_cancel(job_id)
@@ -261,6 +292,8 @@ def _save_job(job_id: str):
         "alternate_pairs": job.get("alternate_pairs", []),
         "stems": job.get("stems"),
         "stem_files": job.get("stem_files"),
+        "composition_plan": job.get("composition_plan"),
+        "music_generation_mode": job.get("music_generation_mode"),
         "favorite": job.get("favorite", False),
         # Distribute-tab persistence
         "shorts": job.get("shorts", []),
@@ -327,6 +360,8 @@ def _load_saved_jobs():
                 "alternate_pairs": data.get("alternate_pairs", []),
                 "stems": data.get("stems"),
                 "stem_files": data.get("stem_files"),
+                "composition_plan": data.get("composition_plan"),
+                "music_generation_mode": data.get("music_generation_mode"),
                 "favorite": data.get("favorite", False),
                 "shorts": data.get("shorts", []),
                 "ads_brief_md": data.get("ads_brief_md"),
@@ -509,6 +544,7 @@ def run_generation(
     layer_plan: list = None, approach: str = "unified",
     stem_separation: str = "none", reference_analysis: dict = None,
     planner_mode: str = "claude", music_generation_mode: str = "text",
+    composition_plan: dict = None,
 ):
     """
     Background worker: generates samples via ElevenLabs + renders a short
@@ -546,6 +582,7 @@ def run_generation(
             music_length_minutes=music_length,
             layer_plan=layer_plan,
             approach=approach,
+            composition_plan=composition_plan,
         )
 
         with jobs_lock:
@@ -556,37 +593,14 @@ def run_generation(
             jobs[job_id]["config"] = result.final_config
             jobs[job_id]["audio_path"] = result.raw_output_path
 
-        # Stem separation runs in the background so the user can listen immediately.
-        print(f"  [stems] stem_separation={stem_separation!r}, approach={approach!r}")
-        stem_target_path = None
-        if stem_separation and stem_separation != "none":
-            config = result.final_config
-            musical_layer = next(
-                (l for l in config.layers if l.layer_type == LayerType.MUSICAL and l.generated_audio_path),
-                None
-            )
-            print(f"  [stems] musical_layer={'found: ' + musical_layer.name if musical_layer else 'NONE'}")
-            if musical_layer:
-                stem_target_path = musical_layer.generated_audio_path
-            else:
-                print("  [stems] No musical layer with audio found — skipping stem separation")
-
-        # Mark complete — user can play while stems finish in the background.
+        # Mark complete.
         with jobs_lock:
             if jobs[job_id].get("status") == "canceled" or jobs[job_id].get("cancel_requested"):
                 raise GenerationCanceled("Generation stopped by user")
             jobs[job_id]["status"] = "complete"
             jobs[job_id]["stage"] = "complete"
-            jobs[job_id]["progress_message"] = (
-                "Generation complete — separating stems in background..."
-                if stem_target_path else "Generation complete"
-            )
+            jobs[job_id]["progress_message"] = "Generation complete"
         _save_job(job_id)
-
-        if stem_target_path and _get_sample_generator():
-            _start_stem_separation(job_id, stem_target_path, stem_separation)
-        elif stem_separation and stem_separation != "none":
-            print(f"  [stems] Skipping — generator unavailable")
 
     except GenerationCanceled as e:
         with jobs_lock:
@@ -977,6 +991,35 @@ Remember: this is a SOUNDSCAPE, not a pop song. Gentle internal events and densi
     })
 
 
+@app.route("/api/compose-plan", methods=["POST"])
+def api_compose_plan():
+    """Author an evolving composition plan (sections) for the UI to show/edit
+    before generating. Returns the plan in ElevenLabs shape; the client computes
+    minute ranges from each section's duration_ms."""
+    data = request.get_json(force=True, silent=True) or {}
+    prompt = (data.get("prompt") or "").strip()
+    if not prompt:
+        return jsonify({"error": "No prompt provided"}), 400
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not anthropic_key:
+        return jsonify({"error": "ANTHROPIC_API_KEY not set"}), 500
+
+    music_length_min = float(data.get("music_length", 0)) or 10.0
+    duration_ms = int(min(music_length_min * 60, 600) * 1000)  # ElevenLabs caps music at 600s
+    root_key = data.get("root_key", "") or ""
+    mood = data.get("mood", "") or ""
+
+    from composition_planner import author_composition_plan, clamp_plan_sections
+    plan = author_composition_plan(prompt, duration_ms, root_key=root_key, mood=mood,
+                                   anthropic_key=anthropic_key)
+    # Clamp to ElevenLabs' 120s/section cap up front so the timeline the user
+    # sees and edits is exactly what gets generated (what-you-see-is-what-generates).
+    plan = clamp_plan_sections(plan)
+    if not plan or not plan.get("sections"):
+        return jsonify({"error": "Could not author a composition plan"}), 500
+    return jsonify({"composition_plan": plan, "total_ms": duration_ms})
+
+
 @app.route("/api/generate", methods=["POST"])
 def api_generate():
     """Start a new soundscape generation job."""
@@ -999,6 +1042,7 @@ def api_generate():
     stem_separation = data.get("stem_separation", "none")
     planner_mode = data.get("planner_mode", "claude")
     music_generation_mode = data.get("music_generation_mode", "text")
+    composition_plan = data.get("composition_plan")  # optional, edited in the UI
 
     print(f"  [generate] mode={mode}, approach={approach}, stem_separation={stem_separation}, "
           f"layer_plan={'yes (' + str(len(layer_plan)) + ' layers)' if layer_plan else 'no'}, "
@@ -1031,13 +1075,16 @@ def api_generate():
             "created_at": datetime.now().isoformat(),
             "stems": None,
             "stem_files": None,
+            "composition_plan": composition_plan,
+            "music_generation_mode": music_generation_mode,
         }
 
     thread = threading.Thread(
         target=run_generation,
         args=(job_id, prompt, duration, mastering, mode, reference_url, loopable,
               music_length, ref_start_sec, ref_end_sec, layer_plan, approach,
-              stem_separation, reference_analysis, planner_mode, music_generation_mode),
+              stem_separation, reference_analysis, planner_mode, music_generation_mode,
+              composition_plan),
         daemon=True,
     )
     thread.start()
@@ -1155,6 +1202,11 @@ def api_status(job_id: str):
         "community_drafts": job.get("community_drafts", {}),
         "reddit_drafts": job.get("reddit_drafts", {}),
         "seo_v2": job.get("seo_v2"),
+        # So reopening a track restores its ElevenLabs method + composition timeline.
+        "music_generation_mode": job.get("music_generation_mode")
+            or (getattr(config, "music_generation_mode", None) if config else None),
+        "composition_plan": job.get("composition_plan")
+            or (getattr(config, "composition_plan", None) if config else None),
     })
 
 
@@ -2119,7 +2171,17 @@ def export_extended(job_id: str):
         _long_task_update(job_id, message=f"Exporting {int(target_minutes)} minute looped audio...")
         source = AudioSegment.from_file(audio_path)
         source_ms = len(source)
+        if source_ms == 0:
+            raise RuntimeError("Source audio is empty")
         target_ms = int(target_minutes * 60 * 1000)
+
+        # Make the source self-seamless BEFORE tiling: cross-blend its tail into
+        # its head so every repeat boundary is click-free. Without this, plain
+        # concatenation reproduces the raw end→start discontinuity every cycle
+        # (measured 3–7× the normal sample delta = an audible click each loop).
+        loop_cf_ms = int(min(4000, max(1000, source_ms // 20)))
+        source = make_loopable(source, loop_cf_ms)
+        source_ms = len(source)
 
         import math
         repeats = math.ceil(target_ms / source_ms)
@@ -2198,6 +2260,7 @@ def api_history():
         {
             "job_id": j["job_id"],
             "prompt": j["prompt"],
+            "title": (getattr(j.get("config"), "title", "") or "").strip(),
             "status": j["status"],
             "duration": j["duration"],
             "feedback_count": len(j.get("feedback_history", [])),
@@ -2441,6 +2504,40 @@ def generate_visual_image(job_id: str):
     return _start_background_task(job_id, "image", "Generating scene image...", worker)
 
 
+@app.route("/api/visual/upload-image/<job_id>", methods=["POST"])
+def upload_custom_image(job_id: str):
+    """Accept a user-uploaded image (or screenshot) to use as the scene, instead
+    of AI-generating one. It then animates / exports exactly like a generated one."""
+    with jobs_lock:
+        job = jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+    if "file" not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
+    f = request.files["file"]
+    if not f.filename:
+        return jsonify({"error": "Empty filename"}), 400
+
+    allowed = {".png", ".jpg", ".jpeg", ".webp"}
+    ext = os.path.splitext(f.filename)[1].lower()
+    if ext not in allowed:
+        return jsonify({"error": f"Unsupported image ({ext}). Use PNG, JPG, or WebP "
+                                 f"(iPhone screenshots are PNG)."}), 400
+
+    out_path = str(PROJECT_ROOT / "output" / f"{job_id}_custom_image{ext}")
+    f.save(out_path)
+
+    with jobs_lock:
+        jobs[job_id]["visual_image_path"] = out_path
+        jobs[job_id]["visual_image_prompt"] = job.get("visual_image_prompt") or "(uploaded image)"
+    _save_job(job_id)
+
+    return jsonify({
+        "status": "ready",
+        "image_url": f"/api/visual/image/{job_id}/view?t={time.time()}",
+    })
+
+
 @app.route("/api/visual/image/<job_id>/view")
 def view_visual_image(job_id: str):
     """Serve the generated scene image."""
@@ -2486,7 +2583,12 @@ def generate_visual_clip(job_id: str):
         return jsonify({"error": "XAI_API_KEY not configured"}), 500
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    start_message = "Grok is animating your image (1-3 min)..." if mode == "ai" else "Creating Ken Burns clip..."
+    if mode == "ai":
+        start_message = "Grok is animating your image (1-3 min)..."
+    elif mode == "motion":
+        start_message = "Compositing living-still motion loop (~30s)..."
+    else:
+        start_message = "Creating Ken Burns clip..."
 
     def worker():
         _long_task_update(job_id, message=start_message)
@@ -2500,6 +2602,53 @@ def generate_visual_clip(job_id: str):
             )
             clip_path = str(PROJECT_ROOT / "output" / f"{safe_title}_aiclip_{timestamp}.mp4")
             gen.animate_image(image_path, mp, duration=10, output_path=clip_path)
+        elif mode == "motion":
+            # "Living Still": procedural, seamlessly-looping motion over the still.
+            # Free, loops perfectly for hour-long videos. Claude picks the motion
+            # preset from the scene (keyword fallback if no API key).
+            scene_text = job.get("prompt", "")
+            if config:
+                scene_text = f"{config.title}. {config.description}. {scene_text}"
+            # The user's Motion Prompt box is the primary directive when filled —
+            # it lets them steer the motion ("deep space, slow drift, faint red
+            # glow, no clouds") instead of relying on the soundscape text alone.
+            if motion_prompt:
+                scene_text = f"{motion_prompt}\n(scene context: {scene_text})"
+            # Motion settings from the UI: style (auto/drift/stargaze/parallax/calm),
+            # intensity (calmer↔stronger), and loop length (longer = slower motion).
+            from motion_compositor import motion_style_preset, scale_motion
+            motion_style = (data.get("motion_style") or "auto").lower()
+            intensity = max(0.3, min(2.0, float(data.get("motion_intensity", 0.8))))
+            loop_sec = max(8, min(40, float(data.get("motion_loop_sec", 16))))
+            if motion_style != "auto":
+                layers, src = motion_style_preset(motion_style), f"style:{motion_style}"
+            else:
+                layers, src = choose_layers(
+                    scene_text, anthropic_key=os.environ.get("ANTHROPIC_API_KEY")
+                )
+            # "Bring to life" effect toggles — user ticks what's in their image;
+            # the renderer figures out WHERE. These override the preset's defaults.
+            fx = data.get("motion_effects") or {}
+            if isinstance(fx, dict):
+                def _set_fx(lyrs, ltype, on, default):
+                    lyrs = [l for l in lyrs if l.get("type") != ltype]
+                    if on:
+                        lyrs.append(default)
+                    return lyrs
+                if "twinkle" in fx:
+                    layers = _set_fx(layers, "twinkle", fx.get("twinkle"), {"type": "twinkle", "amount": 0.8})
+                if "nebula" in fx:
+                    layers = _set_fx(layers, "nebula", fx.get("nebula"), {"type": "nebula", "amount": 0.5})
+                if "water" in fx:
+                    layers = _set_fx(layers, "shimmer", fx.get("water"), {"type": "shimmer", "amount": 0.5, "region": "water"})
+            layers = scale_motion(layers, intensity)
+            _long_task_update(job_id, message=f"Motion: {src}, intensity {intensity:.1f}, {loop_sec:.0f}s loop; rendering...")
+            clip_path = str(PROJECT_ROOT / "output" / f"{safe_title}_motion_{timestamp}.mp4")
+            MotionCompositor().render(
+                image_path, clip_path, layers=layers,
+                loop_sec=loop_sec, fps=24, size=(1920, 1080),
+                on_status=lambda m: _long_task_update(job_id, message=m),
+            )
         else:
             gen = VisualGenerator(xai_api_key="", output_dir=str(PROJECT_ROOT / "output"))
             clip_path = str(PROJECT_ROOT / "output" / f"{safe_title}_kb_{timestamp}.mp4")
@@ -2756,7 +2905,8 @@ def export_visual_video(job_id: str):
             f"  [export] Single-pass export: {target_sec/60:.0f} min, "
             f"audio loop cell {loop_duration_sec:.1f}s → {final_path}"
         )
-        _run_ffmpeg_cancellable(job_id, cmd)
+        _run_ffmpeg_cancellable(job_id, cmd, total_sec=target_sec,
+                                label="Looping clip + combining audio")
 
         size_mb = os.path.getsize(final_path) / (1024 * 1024)
         print(f"  [export] Done: {size_mb:.0f} MB")
@@ -2939,12 +3089,13 @@ def youtube_auto_metadata(job_id: str):
         except Exception:
             pass
     if video_duration_sec == 0:
-        video_duration_sec = config.duration_sec if config else 300
+        video_duration_sec = 3600  # default to 1 hour — Cole publishes 1-hour videos
 
-    if video_duration_sec >= 3600:
-        duration_str = f"{video_duration_sec // 3600} hour(s)"
+    hours = video_duration_sec // 3600
+    if hours >= 1:
+        duration_str = "1 Hour" if hours == 1 else f"{hours} Hours"
     else:
-        duration_str = f"{video_duration_sec // 60} minutes"
+        duration_str = f"{video_duration_sec // 60} Minutes"
 
     layers_desc = ""
     if config and config.layers:
@@ -2967,28 +3118,37 @@ def youtube_auto_metadata(job_id: str):
     import anthropic
     client = anthropic.Anthropic(api_key=api_key)
 
+    no_timestamps_rule = (
+        "Include these REAL chapter timestamps exactly as given above."
+        if timestamps_hint else
+        "Do NOT invent timestamps or chapter markers — this is one continuous "
+        "seamless loop, so fake time points look amateur. Omit them entirely."
+    )
     message = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=1000,
+        max_tokens=1300,
         messages=[{
             "role": "user",
-            "content": f"""Create YouTube metadata for an ambient soundscape video.
+            "content": f"""Write YouTube metadata for an ambient / cinematic music video, modeled on what performs for ambient, sci-fi, and study/focus channels. The DESCRIPTION is a short immersive story (no marketing copy); the TAGS carry the SEO.
 
-Soundscape: {soundscape_prompt}
-Title: {title}
-Mood: {mood}
-Setting: {setting}
-Duration: {duration_str}
+SOURCE BRIEF: {soundscape_prompt}
+Internal title: {title} | Mood: {mood} | Setting: {setting} | Duration: {duration_str}
 Layers: {layers_desc}{timestamps_hint}
 
-Generate:
-1. A YouTube title (catchy, searchable, includes mood/vibe, under 80 chars). Think like popular ambient YouTube channels — evocative, slightly poetic, includes the setting.
-2. A YouTube description that includes:
-   - An immersive 2-3 paragraph story/narrative set in the scene of this soundscape. Write it like you're placing the listener inside the moment — sensory details, atmosphere, emotion. Make it beautiful and evocative.
-   - A short "About this track" section explaining what it is
-   - {"Use the EXACT timestamps provided above in the description." if timestamps_hint else "Timestamps (if duration > 5min, suggest a few atmospheric moments)"}
-   - Relevant hashtags (5-8)
-3. Tags for YouTube search optimization (15-25 tags)
+STEP 1 — Identify the SUBJECT HOOK: the single most recognizable thing this evokes (a book/film/universe, a real place, or a vivid concept — e.g. "Project Hail Mary", "Dune", "a cabin in a snowstorm"). The TITLE must lead with it verbatim. The story may reference it naturally but should not feel like an ad.
+
+TITLE (keep it SHORT — aim <70 chars, hard max 90; no emoji, no clickbait):
+- Pattern: "<Subject Hook> — <Short Evocative Descriptor> | {duration_str} <Genre>"
+- Example: "Project Hail Mary — Adrift in the Silent Void | 1 Hour Space Ambient"
+- Emotional/sensory words beat neutral ones. Must contain the subject hook verbatim. Must use the duration "{duration_str}".
+
+DESCRIPTION — JUST THE STORY (sound HUMAN, not AI; specific and grounded, no purple filler):
+- Open DIRECTLY with the story. NO opening hook/tagline like "X music for anyone who...", NO "Best for:" line, NO "subscribe/comment" CTA.
+- 2-3 short paragraphs of immersive, atmospheric story set in the scene — sensory but restrained, like a person wrote it.
+- {no_timestamps_rule}
+- End with EXACTLY 3 relevant hashtags on their own line — the subject hook + two genre/use-case tags (e.g. #ProjectHailMary #SpaceAmbient #StudyMusic). This is the only non-story element.
+
+TAGS (15-25) — this is where ALL the SEO lives: blend (a) SPECIFIC — the subject hook + closely related terms; (b) GENRE — space ambient, sci-fi ambient, cinematic ambient, etc.; (c) MOOD; (d) high-intent USE-CASE long-tails people actually search — study music, sleep music, focus music, reading music, 1 hour ambient. Favor long-tail phrases over single broad words.
 
 Reply in EXACTLY this JSON format:
 {{
@@ -3211,7 +3371,7 @@ def api_distribute_attach_youtube(job_id: str):
     with jobs_lock:
         jobs[job_id]["youtube_url"] = url
         jobs[job_id]["youtube_video_id"] = video_id
-        _save_job(jobs[job_id])
+    _save_job(job_id)
 
     thumb_msg = None
     if apply_thumbnail and job.get("visual_image_path") and os.path.exists(job["visual_image_path"]):
@@ -3620,10 +3780,11 @@ def api_seo_v2(job_id: str):
         except Exception:
             pass
     if video_duration_sec == 0:
-        video_duration_sec = int(config.duration_sec) if config else 300
+        video_duration_sec = 3600  # default to 1 hour — Cole publishes 1-hour videos
+    _h = video_duration_sec // 3600
     duration_str = (
-        f"{video_duration_sec // 3600} hour(s)" if video_duration_sec >= 3600
-        else f"{video_duration_sec // 60} minutes"
+        ("1 Hour" if _h == 1 else f"{_h} Hours") if _h >= 1
+        else f"{video_duration_sec // 60} Minutes"
     )
 
     comparables_block = ""
@@ -3641,22 +3802,32 @@ def api_seo_v2(job_id: str):
         max_tokens=1400,
         messages=[{
             "role": "user",
-            "content": f"""Create rich YouTube SEO metadata for an ambient soundscape video.
-This is a v2 brief with A/B variants and a thumbnail prompt.
+            "content": f"""Write YouTube metadata for an ambient / cinematic music video (v2: 3 title options + a thumbnail prompt), modeled on what performs for ambient, sci-fi, and study/focus channels. The DESCRIPTION is a short immersive story (no marketing copy); the TAGS carry the SEO.
 
-Soundscape: {job.get('prompt', '')}
-Title (internal): {title}
-Mood: {mood}
-Setting: {setting}
-Duration: {duration_str}
+SOURCE BRIEF: {job.get('prompt', '')}
+Internal title: {title} | Mood: {mood} | Setting: {setting} | Duration: {duration_str}
 Layers: {layers_desc}{comparables_block}
+
+STEP 1 — Identify the SUBJECT HOOK: the single most recognizable thing this evokes (a book/film/universe, a real place, or a vivid concept — e.g. "Project Hail Mary", "Dune", "a cabin in a snowstorm"). Every title variant must lead with it verbatim.
+
+TITLE VARIANTS (3, each SHORT — aim <70 chars, hard max 90; no emoji, no clickbait):
+- Pattern: "<Subject Hook> — <Short Evocative Descriptor> | {duration_str} <Genre>"
+- Give 3 genuinely different angles (e.g. emotional, place-focused, use-case-focused), all leading with the subject hook and all using the duration "{duration_str}".
+
+DESCRIPTION — JUST THE STORY (human, not AI; specific and grounded, no purple filler):
+- Open DIRECTLY with the story. NO opening hook/tagline, NO "About"/"Best for" sections, NO subscribe/comment CTA.
+- 2-3 short paragraphs of immersive, atmospheric story set in the scene — sensory but restrained, like a person wrote it.
+- This is one continuous seamless loop — do NOT invent timestamps or chapter markers.
+- End with EXACTLY 3 relevant hashtags on their own line (subject hook + two genre/use-case tags). This is the only non-story element.
+
+TAGS (15-25) — where ALL the SEO lives: blend (a) SPECIFIC — subject hook + closely related terms; (b) GENRE — space ambient, sci-fi ambient, cinematic ambient, etc.; (c) MOOD; (d) high-intent USE-CASE long-tails — study music, sleep music, focus music, reading music, 1 hour ambient. Favor long-tail phrases over single broad words.
 
 Return STRICT JSON in this shape:
 {{
-  "title_variants": ["title 1 <=80 chars", "title 2 <=80 chars", "title 3 <=80 chars"],
-  "description": "2-3 paragraph immersive description + short 'About' + 5-8 hashtags",
+  "title_variants": ["variant 1", "variant 2", "variant 3"],
+  "description": "the story + 3 hashtags",
   "tags": ["15-25 keyword tags"],
-  "thumbnail_prompt": "A single dense visual prompt suitable for a text-to-image model. 16:9, 1280x720, click-stopping ambient cinema aesthetic. Describe the scene, lighting, color palette, mood, camera framing. No text in the image."
+  "thumbnail_prompt": "A single dense visual prompt for a text-to-image model. 16:9, 1280x720, click-stopping ambient cinema aesthetic. Describe scene, lighting, color palette, mood, camera framing. No text in the image."
 }}
 
 Output ONLY the JSON, nothing else."""
@@ -3895,7 +4066,7 @@ def api_reddit_draft(job_id: str):
         return jsonify({"error": "Job not found"}), 404
 
     data = request.get_json(force=True, silent=True) or {}
-    subreddit = (data.get("subreddit") or "ambientmusic").lstrip("r/").lstrip("/")
+    subreddit = (data.get("subreddit") or "ambientmusic").removeprefix("r/").removeprefix("/")
     context_hint = data.get("context_hint", "")
 
     api_key = os.environ.get("ANTHROPIC_API_KEY")

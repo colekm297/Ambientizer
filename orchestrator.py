@@ -106,6 +106,7 @@ class SoundscapeOrchestrator:
         for layer in config.layers:
             if layer.layer_type == LayerType.MUSICAL:
                 setattr(layer, "music_generation_mode", getattr(config, "music_generation_mode", "text"))
+                setattr(layer, "composition_plan", getattr(config, "composition_plan", None))
 
         layers_to_generate = [
             layer for layer in config.layers
@@ -161,6 +162,7 @@ class SoundscapeOrchestrator:
         ref_start_sec: int = 0,
         ref_end_sec: int = 600,
         music_length_minutes: float = 0,
+        composition_plan: Optional[dict] = None,
     ) -> GenerationResult:
         """
         Generate a soundscape from a natural language prompt.
@@ -232,6 +234,7 @@ class SoundscapeOrchestrator:
             config.music_length_sec = music_length_minutes * 60
 
         config.music_generation_mode = music_generation_mode
+        config.composition_plan = composition_plan
         config.loopable = loopable
         if loopable:
             if duration_minutes < 2:

@@ -158,7 +158,13 @@ class ElevenLabsSampleGenerator:
         api_tag = "music" if is_musical else "sfx"
         seed_part = f"|seed={reroll_seed}" if reroll_seed else ""
         music_mode = getattr(layer, "music_generation_mode", "text") if is_musical else "text"
-        cache_key = hashlib.sha256(f"{api_tag}|{music_mode}|{prompt}|{duration}{seed_part}".encode()).hexdigest()[:16]
+        # A provided/edited composition plan must change the cache key so edits
+        # produce fresh audio instead of returning a stale cached render.
+        provided_plan = getattr(layer, "composition_plan", None) if is_musical else None
+        plan_part = ""
+        if music_mode == "composition_plan" and provided_plan:
+            plan_part = "|plan=" + hashlib.sha256(json.dumps(provided_plan, sort_keys=True).encode()).hexdigest()[:10]
+        cache_key = hashlib.sha256(f"{api_tag}|{music_mode}|{prompt}|{duration}{seed_part}{plan_part}".encode()).hexdigest()[:16]
         wav_path = str(self.cache_dir / f"{cache_key}.wav")
 
         if os.path.exists(wav_path):
@@ -177,7 +183,10 @@ class ElevenLabsSampleGenerator:
 
         if is_musical:
             if music_mode == "composition_plan":
-                result = self._generate_music_composition_plan(layer.name, prompt, duration, wav_path, cache_key)
+                result = self._generate_music_composition_plan(
+                    layer.name, prompt, duration, wav_path, cache_key,
+                    provided_plan=provided_plan, root_key=root_key, mood=mood,
+                )
             else:
                 result = self._generate_music(layer.name, prompt, duration, wav_path, cache_key)
         else:
@@ -186,10 +195,34 @@ class ElevenLabsSampleGenerator:
         if not result:
             # Generation failed — refund the reservation
             self._refund_spend(estimated_credits, f"{api_tag} {layer.name} (refund - generation failed)")
-        else:
-            self._ensure_audible(wav_path)
+            return result
 
+        self._ensure_audible(wav_path)
+        # HONEST FAILURE: never save a silent file as a successful track. A
+        # rejected composition plan used to fall through to silence while the
+        # job still reported "complete" — the worst possible outcome. After
+        # _ensure_audible (which boosts merely-quiet layers), the only way a file
+        # is still silent is a genuine generation failure, so raise → job error.
+        if self._is_silent_file(wav_path):
+            self._refund_spend(estimated_credits, f"{api_tag} {layer.name} (refund - silent output)")
+            raise RuntimeError(
+                f"Generation for '{layer.name}' produced SILENT audio — ElevenLabs likely rejected "
+                f"the request (e.g. an invalid composition plan). The track was NOT saved as complete. "
+                f"Try the Text prompt engine, or simplify the prompt/plan."
+            )
         return result
+
+    def _is_silent_file(self, wav_path: str, floor_dbfs: float = -70.0) -> bool:
+        """True if the rendered file is effectively silent (pure digital silence
+        or below an inaudible floor). Used to fail loudly instead of shipping a
+        silent 'completed' track."""
+        if not os.path.exists(wav_path):
+            return False
+        try:
+            peak = AudioSegment.from_wav(wav_path).max_dBFS
+        except Exception:
+            return False
+        return peak == float("-inf") or peak < floor_dbfs
 
     def _ensure_audible(self, wav_path: str, target_peak_db: float = -8.0) -> None:
         """Boost pathologically quiet generations so added layers aren't inaudible."""
@@ -329,8 +362,30 @@ class ElevenLabsSampleGenerator:
 
         return ""
 
-    def _build_ambient_composition_plan(self, prompt: str, duration_ms: int) -> dict:
-        """Build an ElevenLabs composition_plan optimized for complete ambient loops."""
+    def _build_ambient_composition_plan(self, prompt: str, duration_ms: int,
+                                         root_key: str = "", mood: str = "",
+                                         provided_plan: dict = None) -> dict:
+        """Build an ElevenLabs composition_plan for a complete ambient loop.
+
+        Priority: (1) a PROVIDED plan (authored/edited in the UI — what-you-see-
+        is-what-generates), (2) a fresh Claude-authored arrangement, (3) the
+        generic time-chunked fallback below.
+        """
+        try:
+            from composition_planner import author_composition_plan, finalize_plan, clamp_plan_sections
+            if provided_plan and provided_plan.get("sections"):
+                final = clamp_plan_sections(finalize_plan(provided_plan, duration_ms))
+                if final:
+                    print(f"      [plan] Using PROVIDED plan ({len(final['sections'])} sections after clamp)", flush=True)
+                    return final
+            authored = clamp_plan_sections(author_composition_plan(prompt, duration_ms, root_key=root_key, mood=mood))
+            if authored and authored.get("sections"):
+                print(f"      [plan] Using Claude-authored arrangement "
+                      f"({len(authored['sections'])} sections after clamp)", flush=True)
+                return authored
+        except Exception as e:
+            print(f"      [plan] authoring unavailable ({e}); generic plan", flush=True)
+
         section_ms = max(3000, min(120000, duration_ms))
         sections = []
         remaining = duration_ms
@@ -405,11 +460,14 @@ class ElevenLabsSampleGenerator:
             "sections": sections,
         }
 
-    def _generate_music_composition_plan(self, name: str, prompt: str, duration: float, wav_path: str, cache_key: str) -> str:
+    def _generate_music_composition_plan(self, name: str, prompt: str, duration: float, wav_path: str, cache_key: str,
+                                          provided_plan: dict = None, root_key: str = "", mood: str = "") -> str:
         """Generate via Music v1 API using a structured composition_plan."""
         duration_ms = int(min(duration, HARD_MAX_MUSIC_SEC) * 1000)
         duration_ms = max(3000, min(int(HARD_MAX_MUSIC_SEC * 1000), duration_ms))
-        plan = self._build_ambient_composition_plan(prompt, duration_ms)
+        plan = self._build_ambient_composition_plan(
+            prompt, duration_ms, root_key=root_key, mood=mood, provided_plan=provided_plan
+        )
 
         print(f"      🎼 Generating Music Plan: {name} ({duration_ms / 1000:.0f}s, {len(plan['sections'])} section(s))")
         print(f"         Prompt: {prompt[:80]}...")
@@ -422,6 +480,9 @@ class ElevenLabsSampleGenerator:
                     model_id="music_v1",
                     output_format=fmt,
                     respect_sections_durations=True,
+                    # NOTE: force_instrumental is REJECTED with composition_plan
+                    # ("can only be used with prompt"). Instrumental is enforced via
+                    # the plan's negative_global_styles ("vocals", "lyrics") instead.
                 )
                 audio_bytes = b"".join(result)
 
@@ -440,8 +501,11 @@ class ElevenLabsSampleGenerator:
                 if fmt == "pcm_44100":
                     print(f"      ↓ Composition plan PCM failed ({e}), trying MP3...")
                     continue
-                print(f"      ⚠ ElevenLabs composition plan error for '{name}': {e}")
-                print(f"        Falling back to text prompt Music API...")
+                print("      " + "!" * 60, flush=True)
+                print(f"      ⚠⚠⚠ COMPOSITION PLAN FAILED for '{name}' — falling back to FLAT", flush=True)
+                print(f"      ⚠⚠⚠ Error: {e}", flush=True)
+                print(f"      ⚠⚠⚠ The track will NOT have the evolving arrangement. Investigate this.", flush=True)
+                print("      " + "!" * 60, flush=True)
                 return self._generate_music(name, prompt, duration, wav_path, cache_key)
 
         return ""

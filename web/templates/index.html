@@ -17,6 +17,7 @@
         <!-- Tab Navigation -->
         <nav class="tab-nav">
             <button class="tab-btn active" data-tab="create">Create</button>
+            <button class="tab-btn" data-tab="listen">Listen</button>
             <button class="tab-btn" data-tab="visuals">Visuals</button>
             <button class="tab-btn" data-tab="publish">Publish</button>
             <button class="tab-btn" data-tab="distribute">Distribute</button>
@@ -29,138 +30,145 @@
 
             <!-- Generator Panel -->
             <section class="panel generator-panel">
-                <h2>Create Soundscape</h2>
-                <div class="form-group">
-                    <label for="prompt">Describe your soundscape</label>
-                    <textarea id="prompt" rows="3"
-                        placeholder="e.g., Project Hail Mary deep space, cozy rainy cafe at midnight, Blade Runner rooftop..."></textarea>
-                    <div class="prompt-tools">
-                        <button id="btn-enhance-prompt" class="btn btn-enhance" title="Research your idea, craft a detailed prompt, and preview the layer plan">Enhance &amp; Plan</button>
-                        <button id="btn-save-prompt" class="btn btn-save-prompt" title="Save this prompt for later">Save</button>
-                        <button id="btn-show-saved" class="btn btn-show-saved" title="Load a saved prompt">Saved Prompts</button>
-                        <span id="enhance-status" class="enhance-status"></span>
-                    </div>
-                    <div id="saved-prompts-dropdown" class="saved-prompts-dropdown hidden">
-                        <div id="saved-prompts-list" class="saved-prompts-list"></div>
-                    </div>
-                </div>
-                <div class="mode-toggle">
-                    <button id="mode-ambient" class="btn btn-mode active" data-mode="ambient" title="2-3 rich SFX layers for environmental atmosphere">Ambient</button>
-                    <button id="mode-musical" class="btn btn-mode" data-mode="musical" title="1 complete music piece + atmosphere SFX">Musical</button>
-                </div>
-                <div id="approach-toggle" class="approach-toggle hidden">
-                    <button class="btn btn-approach active" data-approach="unified" title="One cohesive music layer with all instruments, optionally split into stems after">Unified</button>
-                    <button class="btn btn-approach" data-approach="multilayer" title="Multiple independent music layers generated separately">Multi-Layer</button>
-                </div>
-                <div id="stem-select-group" class="form-group stem-select-group hidden">
-                    <label for="stem-separation">Stem Separation (post-processing)</label>
-                    <select id="stem-separation">
-                        <option value="none">None — just the mixed music layer</option>
-                        <option value="two_stems_v1">2-Stem — splits into Vocals + Instrumental</option>
-                        <option value="six_stems_v1">6-Stem — splits into Bass, Drums, Guitar, Piano, Vocals, Other</option>
-                    </select>
-                    <span class="form-hint">Post-processing: splits the single music layer into separate instrument tracks you can mix independently (does NOT add more generation layers)</span>
-                </div>
-                <div id="music-experiment-group" class="form-row hidden">
-                    <div class="form-group">
-                        <label for="planner-mode">Planner</label>
-                        <select id="planner-mode">
-                            <option value="claude">Claude Planner (current)</option>
-                            <option value="reference_direct">Reference Direct (Gemini prompts, Claude bypass)</option>
-                        </select>
-                        <span class="form-hint">Reference Direct requires Analyze Reference first and uses Gemini's layer prompts directly.</span>
-                    </div>
-                    <div class="form-group">
-                        <label for="music-generation-mode">ElevenLabs Method</label>
-                        <select id="music-generation-mode">
-                            <option value="text">Text prompt (current)</option>
-                            <option value="composition_plan">Composition plan (experimental)</option>
-                        </select>
-                        <span class="form-hint">Composition plans add explicit positive/negative styles and sections.</span>
-                    </div>
-                </div>
-                <div id="plan-preview" class="plan-preview hidden"></div>
-                <div class="form-group">
-                    <label for="reference-url">YouTube Reference (optional)</label>
-                    <input type="url" id="reference-url"
-                        placeholder="https://www.youtube.com/watch?v=... — Gemini will analyze the audio style">
-                    <div class="ref-time-row">
-                        <label class="ref-time-label" for="ref-start">Listen from</label>
-                        <input type="text" id="ref-start" class="ref-time-input" placeholder="0:00" value="0:00">
-                        <span class="ref-time-hint">to</span>
-                        <input type="text" id="ref-end" class="ref-time-input" placeholder="10:00" value="10:00">
-                        <button id="btn-analyze-ref" class="btn btn-analyze-ref" title="Analyze this reference before generating">Analyze</button>
-                        <span id="analyze-ref-status" class="enhance-status"></span>
-                    </div>
-                    <label class="toggle-label ref-use-toggle">
-                        <input type="checkbox" id="use-reference-generation">
-                        <span class="toggle-text">Also use this reference during generation</span>
-                    </label>
-                    <span class="form-hint">Off by default: Analyze creates/merges a prompt. Turn this on only if you want Gemini's structured reference analysis to guide Claude again during generation. Analysis window can be up to 10 minutes — useful for slow-evolving ambient tracks.</span>
-                    <div id="ref-analysis-panel" class="ref-analysis-panel hidden">
-                        <div class="ref-analysis-header">
-                            <span class="ref-analysis-title">Reference Analysis</span>
-                            <button id="btn-ref-close" class="ref-analysis-close" title="Dismiss">&times;</button>
+                <div class="create-grid">
+
+                    <!-- ── COL 1: SETTINGS (feeds the plan) ──── -->
+                    <div class="create-col create-col-settings">
+                        <span class="col-heading">Settings</span>
+
+                        <div class="field-block">
+                            <span class="field-label">Type</span>
+                            <div class="mode-toggle mode-toggle-stack">
+                                <button id="mode-ambient" class="btn btn-mode active" data-mode="ambient" title="2-3 rich SFX layers for environmental atmosphere">
+                                    <span class="mode-title">Ambient</span>
+                                    <span class="mode-sub">Environmental SFX layers</span>
+                                </button>
+                                <button id="mode-musical" class="btn btn-mode" data-mode="musical" title="1 complete music piece + atmosphere SFX">
+                                    <span class="mode-title">Musical</span>
+                                    <span class="mode-sub">A composed music piece</span>
+                                </button>
+                            </div>
                         </div>
-                        <div id="ref-analysis-summary" class="ref-analysis-summary"></div>
-                        <div id="ref-analysis-layers" class="ref-analysis-layers"></div>
-                        <div id="ref-suggested-prompt" class="ref-suggested-prompt"></div>
-                        <div class="ref-analysis-actions">
-                            <button id="btn-ref-use" class="btn btn-ref-action" title="Replace your prompt with this">Use as Prompt</button>
-                            <button id="btn-ref-merge" class="btn btn-ref-action" title="Add this to the end of your current prompt">Merge with Prompt</button>
+
+                        <!-- Musical settings (revealed in Musical mode) -->
+                        <div id="music-experiment-group" class="form-group hidden">
+                            <label for="music-generation-mode">Music engine</label>
+                            <select id="music-generation-mode">
+                                <option value="text">Text prompt</option>
+                                <option value="composition_plan">Composition plan</option>
+                            </select>
                         </div>
-                    </div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label for="music-length">Music Length</label>
-                        <select id="music-length">
-                            <option value="0.5">30 sec</option>
-                            <option value="1">1 min</option>
-                            <option value="2">2 min</option>
-                            <option value="3">3 min</option>
-                            <option value="5" selected>5 min</option>
-                            <option value="10">10 min (max)</option>
-                        </select>
-                        <span class="form-hint">Unique music ElevenLabs generates before it loops. Longer = room for subtle internal movement (new elements, density shifts) while staying loop-friendly. Player auto-shows two loops; export length is set on the Export button.</span>
-                    </div>
-                </div>
+
+                        <!-- Length -->
+                        <div class="form-group">
+                            <label for="music-length">Loop Length</label>
+                            <select id="music-length">
+                                <option value="0.5">30 sec</option>
+                                <option value="1">1 min</option>
+                                <option value="2">2 min</option>
+                                <option value="3">3 min</option>
+                                <option value="5" selected>5 min</option>
+                                <option value="10">10 min (max)</option>
+                            </select>
+                            <span class="form-hint">Unique audio before it seamlessly loops. Final length is set on Export.</span>
+                        </div>
 <!-- Seamless loop is always enabled. (Previously a checkbox that could
                      silently get stuck OFF in localStorage and disable loop prep,
                      causing the audio to drop into silence between loops.) -->
-                <div id="credit-balance" class="credit-balance">
-                    <div class="credit-balance-header">
-                        <span class="credit-balance-label">ElevenLabs Credits</span>
-                        <button id="credit-refresh-btn" class="credit-refresh-btn" title="Refresh balance">&#x21bb;</button>
-                    </div>
-                    <div class="credit-bar-wrap">
-                        <div id="credit-bar-fill" class="credit-bar-fill"></div>
-                    </div>
-                    <div class="credit-balance-info">
-                        <span id="credit-remaining">—</span>
-                        <span id="credit-reset" class="credit-reset-label"></span>
-                    </div>
-                </div>
-                <div id="gemini-usage" class="gemini-usage">
-                    <span class="gemini-usage-label">Gemini API</span>
-                    <span id="gemini-usage-text" class="gemini-usage-text">—</span>
-                </div>
-                <div id="credit-estimate" class="credit-estimate"></div>
-                <div id="credit-session-log" class="credit-session-log"></div>
-                <button id="generate-btn" class="btn btn-primary">Generate Soundscape</button>
-            </section>
 
-            <!-- History Panel -->
-            <section class="panel history-panel">
-                <div class="history-header">
-                    <label for="history-select" class="history-label">Session</label>
-                    <div class="history-controls">
-                        <select id="history-select" class="history-select">
-                            <option value="" disabled selected>No saved sessions</option>
-                        </select>
-                        <button id="fav-toggle-btn" class="btn-fav-select" data-job-id="" title="Favorite">&#9734;</button>
-                        <button id="filter-favorites" class="btn-filter-fav" title="Show favorites only">All</button>
+                        <!-- Optional YouTube reference -->
+                        <details class="ref-block">
+                            <summary class="ref-summary">YouTube reference <span class="ref-summary-tag">optional</span></summary>
+                            <div class="ref-block-body">
+                                <input type="url" id="reference-url"
+                                    placeholder="https://www.youtube.com/watch?v=...">
+                                <div class="ref-time-row">
+                                    <label class="ref-time-label" for="ref-start">Listen from</label>
+                                    <input type="text" id="ref-start" class="ref-time-input" placeholder="0:00" value="0:00">
+                                    <span class="ref-time-hint">to</span>
+                                    <input type="text" id="ref-end" class="ref-time-input" placeholder="10:00" value="10:00">
+                                    <button id="btn-analyze-ref" class="btn btn-analyze-ref" title="Analyze this reference before generating">Analyze</button>
+                                    <span id="analyze-ref-status" class="enhance-status"></span>
+                                </div>
+                                <label class="toggle-label ref-use-toggle">
+                                    <input type="checkbox" id="use-reference-generation">
+                                    <span class="toggle-text">Also use during generation</span>
+                                </label>
+                                <span class="form-hint">Analyze builds/merges a prompt. Enable this to also let Gemini's analysis guide generation.</span>
+                                <div id="ref-analysis-panel" class="ref-analysis-panel hidden">
+                                    <div class="ref-analysis-header">
+                                        <span class="ref-analysis-title">Reference Analysis</span>
+                                        <button id="btn-ref-close" class="ref-analysis-close" title="Dismiss">&times;</button>
+                                    </div>
+                                    <div id="ref-analysis-summary" class="ref-analysis-summary"></div>
+                                    <div id="ref-analysis-layers" class="ref-analysis-layers"></div>
+                                    <div id="ref-suggested-prompt" class="ref-suggested-prompt"></div>
+                                    <div class="ref-analysis-actions">
+                                        <button id="btn-ref-use" class="btn btn-ref-action" title="Replace your prompt with this">Use as Prompt</button>
+                                        <button id="btn-ref-merge" class="btn btn-ref-action" title="Add this to the end of your current prompt">Merge with Prompt</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </details>
                     </div>
+
+                    <!-- ── COL 2: PROMPT + COMPOSITION ───────── -->
+                    <div class="create-col create-col-prompt">
+                        <div class="prompt-head">
+                            <span class="col-heading">Prompt</span>
+                            <div class="prompt-head-tools">
+                                <button id="btn-save-prompt" class="btn btn-save-prompt" title="Save this prompt for later">Save</button>
+                                <button id="btn-show-saved" class="btn btn-show-saved" title="Load a saved prompt">Saved</button>
+                            </div>
+                        </div>
+                        <textarea id="prompt" class="prompt-main"
+                            placeholder="Describe your soundscape — e.g., Project Hail Mary deep space, cozy rainy cafe at midnight, Blade Runner rooftop..."></textarea>
+                        <div class="prompt-tools">
+                            <button id="btn-enhance-prompt" class="btn btn-enhance" title="Research your idea, rewrite it into a richer prompt — and design the composition timeline when Composition plan is selected">✦ Enhance &amp; Plan</button>
+                            <span id="enhance-status" class="enhance-status"></span>
+                        </div>
+                        <div id="saved-prompts-dropdown" class="saved-prompts-dropdown hidden">
+                            <div id="saved-prompts-list" class="saved-prompts-list"></div>
+                        </div>
+
+                        <div id="plan-preview" class="plan-preview hidden"></div>
+
+                        <!-- Composition timeline (musical + composition plan) -->
+                        <div id="comp-sections-group" class="comp-sections-group hidden">
+                            <div class="comp-sections-head">
+                                <span class="field-label">Composition Timeline</span>
+                                <button id="btn-plan-sections" class="btn btn-secondary btn-sm" type="button" title="Re-design the sections from the current prompt">↻ Re-plan</button>
+                            </div>
+                            <div id="comp-sections-list" class="comp-sections-list">
+                                <div class="canvas-empty">
+                                    <div class="canvas-empty-icon">⎓</div>
+                                    <p class="canvas-empty-title">Your timeline appears here</p>
+                                    <p class="canvas-empty-sub">With <strong>Composition plan</strong> selected, press <strong>Enhance &amp; Plan</strong> — Claude designs an evolving arrangement (sparse → full → sparse) you can sculpt before generating.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ── COL 3: GENERATE ───────────────────── -->
+                    <aside class="create-col create-col-generate">
+                        <div class="generate-card">
+                            <div id="credit-balance" class="credit-balance">
+                                <div class="credit-balance-header">
+                                    <span class="credit-balance-label">ElevenLabs Credits</span>
+                                    <button id="credit-refresh-btn" class="credit-refresh-btn" title="Refresh balance">&#x21bb;</button>
+                                </div>
+                                <div class="credit-bar-wrap">
+                                    <div id="credit-bar-fill" class="credit-bar-fill"></div>
+                                </div>
+                                <div class="credit-balance-info">
+                                    <span id="credit-remaining">—</span>
+                                </div>
+                            </div>
+                            <div id="credit-estimate" class="credit-estimate"></div>
+                            <button id="generate-btn" class="btn btn-primary">Generate Soundscape</button>
+                        </div>
+                    </aside>
+
                 </div>
             </section>
 
@@ -181,29 +189,17 @@
                 </details>
             </section>
 
-            <!-- Audio Player -->
+        </div><!-- /tab-create -->
+
+        <!-- ═══════════════════════════════════════════════ -->
+        <!--  TAB: Listen  (player / editor for the selected track) -->
+        <!-- ═══════════════════════════════════════════════ -->
+        <div id="tab-listen" class="tab-content">
+
+            <!-- Selected-track header -->
             <section id="player-panel" class="panel player-panel hidden">
-                <h2>Your Soundscape</h2>
                 <div class="player-info">
                     <span id="player-prompt" class="player-prompt"></span>
-                    <span id="mixer-badge" class="mixer-badge hidden">LIVE</span>
-                </div>
-                <!-- Live mixer transport (used when mixer is active) -->
-                <div id="live-transport" class="live-transport hidden">
-                    <button id="btn-play-pause" class="transport-btn" title="Play / Pause">
-                        <svg id="icon-play" viewBox="0 0 24 24" width="20" height="20"><polygon points="6,4 20,12 6,20" fill="currentColor"/></svg>
-                        <svg id="icon-pause" class="hidden" viewBox="0 0 24 24" width="20" height="20"><rect x="5" y="4" width="4" height="16" fill="currentColor"/><rect x="15" y="4" width="4" height="16" fill="currentColor"/></svg>
-                    </button>
-                    <span id="transport-current" class="transport-time">0:00</span>
-                    <input type="range" id="transport-seek" class="transport-seek" min="0" max="1000" value="0" step="1">
-                    <span id="transport-total" class="transport-time">0:00</span>
-                    <div class="transport-extras">
-                        <button id="btn-loop-toggle" class="transport-btn transport-loop active" title="Loop on/off">
-                            <svg viewBox="0 0 24 24" width="18" height="18"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z" fill="currentColor"/></svg>
-                        </button>
-                        <svg class="vol-icon" viewBox="0 0 24 24" width="16" height="16"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0012 7.5v9a4.5 4.5 0 004.5-4.5z" fill="currentColor"/></svg>
-                        <input type="range" id="transport-volume" class="transport-volume" min="0" max="100" value="80" step="1" title="Master Volume">
-                    </div>
                 </div>
                 <!-- Fallback audio element (used when mixer not available) -->
                 <audio id="audio-player" controls class="hidden"></audio>
@@ -302,42 +298,21 @@
         <!-- ═══════════════════════════════════════════════ -->
         <div id="tab-visuals" class="tab-content">
 
-            <!-- Track Selector -->
+            <!-- Selected track header -->
             <section class="panel visuals-panel">
                 <h2>Visuals for YouTube</h2>
-                <p class="visuals-desc">Pick a soundscape, generate a scene image, animate it, preview, then export a full-length video.</p>
-
-                <div class="form-group">
-                    <label for="vis-track-select">Select Track</label>
-                    <select id="vis-track-select">
-                        <option value="">— Choose a soundscape —</option>
-                    </select>
-                </div>
-
-                <div id="vis-track-info" class="vis-track-info hidden">
+                <div id="vis-track-info" class="vis-track-info">
                     <div class="vis-track-meta">
-                        <span id="vis-track-prompt" class="vis-track-prompt"></span>
+                        <span class="field-label">Selected track</span>
+                        <span id="vis-track-prompt" class="vis-track-prompt">Pick a track in the player bar, then generate a scene image, animate it, and export a video.</span>
                     </div>
-                    <div id="vis-transport" class="live-transport hidden">
-                        <button id="vis-btn-play-pause" class="transport-btn" title="Play / Pause">
-                            <svg id="vis-icon-play" viewBox="0 0 24 24" width="20" height="20"><polygon points="6,4 20,12 6,20" fill="currentColor"/></svg>
-                            <svg id="vis-icon-pause" class="hidden" viewBox="0 0 24 24" width="20" height="20"><rect x="5" y="4" width="4" height="16" fill="currentColor"/><rect x="15" y="4" width="4" height="16" fill="currentColor"/></svg>
-                        </button>
-                        <span id="vis-transport-current" class="transport-time">0:00</span>
-                        <input type="range" id="vis-transport-seek" class="transport-seek" min="0" max="1000" value="0" step="1">
-                        <span id="vis-transport-total" class="transport-time">0:00</span>
-                        <div class="transport-extras">
-                            <span class="vol-icon">&#128264;</span>
-                            <input type="range" id="vis-transport-volume" class="transport-volume" min="0" max="1" step="0.01" value="1">
-                        </div>
-                    </div>
-                    <p id="vis-loading-msg" class="form-hint hidden">Loading layers...</p>
+                    <p id="vis-loading-msg" class="form-hint hidden">Loading…</p>
                 </div>
             </section>
 
             <!-- Step 1: Image -->
             <section id="vis-image-panel" class="panel visuals-panel hidden">
-                <h2>1. Generate Scene Image</h2>
+                <h2>1. Scene Image</h2>
                 <div class="form-group">
                     <label for="image-prompt">Image Prompt</label>
                     <textarea id="image-prompt" rows="3"
@@ -346,6 +321,8 @@
                 <div class="visuals-actions">
                     <button id="btn-auto-prompt" class="btn btn-secondary" title="Use AI to create a visual prompt from your soundscape description">Auto-Write Prompt</button>
                     <button id="btn-gen-image" class="btn btn-accent">Generate Image ($0.02)</button>
+                    <button id="btn-upload-image" class="btn btn-secondary" title="Use your own image or a screenshot instead of generating one">⬆ Upload Image</button>
+                    <input type="file" id="upload-image-input" accept="image/png,image/jpeg,image/webp" hidden>
                 </div>
 
                 <div id="image-progress" class="video-progress hidden">
@@ -369,6 +346,7 @@
 
                 <div class="video-mode-toggle">
                     <button id="vmode-ai" class="btn btn-mode active" data-vmode="ai" title="Grok animates your image with subtle motion (~$0.50)">AI Animation (~$0.50)</button>
+                    <button id="vmode-motion" class="btn btn-mode" data-vmode="motion" title="Free seamlessly-looping motion (particles, fog, breathing zoom) auto-matched to your scene — perfect for hour-long videos">Living Still (Free)</button>
                     <button id="vmode-kb" class="btn btn-mode" data-vmode="kenburns" title="Free slow zoom effect via ffmpeg">Ken Burns (Free)</button>
                     <button id="vmode-upload" class="btn btn-mode" data-vmode="upload" title="Upload your own video file">Upload Video</button>
                 </div>
@@ -392,8 +370,49 @@
                 <div id="motion-prompt-group" class="form-group">
                     <label for="motion-prompt">Motion Prompt</label>
                     <textarea id="motion-prompt" rows="2"
-                        placeholder="e.g., Slow gentle camera drift, rain falling on window, soft light flickering..."></textarea>
-                    <span class="form-hint">Describe the motion. Leave blank for a default ambient animation.</span>
+                        placeholder="e.g., deep space, slow drift, faint red glow, no clouds"></textarea>
+                    <span class="form-hint">Describe how it should move (Living Still listens to this). Leave blank to auto-match the scene.</span>
+                </div>
+
+                <!-- Living Still settings (hidden in AI / upload modes) -->
+                <div id="motion-settings-group" class="settings-card hidden">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="motion-style">Style</label>
+                            <select id="motion-style">
+                                <option value="auto" selected>Auto (match the scene)</option>
+                                <option value="drift">Slow Drift</option>
+                                <option value="stargaze">Stargaze (space)</option>
+                                <option value="parallax">Parallax Depth (2.5D)</option>
+                                <option value="calm">Calm</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="motion-intensity">Motion</label>
+                            <select id="motion-intensity">
+                                <option value="0.5">Barely there</option>
+                                <option value="0.8" selected>Subtle</option>
+                                <option value="1.1">Medium</option>
+                                <option value="1.5">Strong</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="motion-loop-sec">Loop length</label>
+                            <select id="motion-loop-sec">
+                                <option value="12">12s</option>
+                                <option value="16" selected>16s</option>
+                                <option value="24">24s</option>
+                                <option value="32">32s (slowest)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <span class="field-label" style="margin-top:6px">Bring to life</span>
+                    <div class="motion-fx-row">
+                        <label class="toggle-label"><input type="checkbox" id="fx-twinkle" checked><span class="toggle-text">✨ Twinkle lights</span></label>
+                        <label class="toggle-label"><input type="checkbox" id="fx-nebula"><span class="toggle-text">🌌 Nebula / gas drift</span></label>
+                        <label class="toggle-label"><input type="checkbox" id="fx-water"><span class="toggle-text">💧 Water shimmer</span></label>
+                    </div>
+                    <span class="form-hint">Tick what's in your image — the app finds where it is. Twinkle = bright lights/stars; Nebula = colored gas/clouds; Water = oceans/lakes. Longer loop = calmer; lower Motion = less drift.</span>
                 </div>
 
                 <div class="visuals-actions">
@@ -405,6 +424,7 @@
                         <span id="clip-progress-text" class="video-progress-text">Generating animation...</span>
                         <button id="clip-stop-btn" class="btn-stop-generation hidden">Stop</button>
                     </div>
+                    <div class="task-bar"><div class="task-bar-fill"></div></div>
                 </div>
 
                 <div id="clip-preview" class="clip-preview hidden">
@@ -458,6 +478,7 @@
                         <span id="export-progress-text" class="video-progress-text">Exporting...</span>
                         <button id="export-stop-btn" class="btn-stop-generation hidden">Stop</button>
                     </div>
+                    <div class="task-bar"><div class="task-bar-fill"></div></div>
                 </div>
 
                 <div id="export-preview" class="clip-preview hidden">
@@ -504,17 +525,11 @@
                 </div>
             </section>
 
-            <!-- Track & Video Selector -->
+            <!-- Selected track -->
             <section id="pub-select-panel" class="panel publish-panel hidden">
-                <h2>1. Select Video</h2>
-                <div class="form-group">
-                    <label for="pub-track-select">Choose a soundscape with an exported video</label>
-                    <select id="pub-track-select">
-                        <option value="">— Choose a track —</option>
-                    </select>
-                </div>
-                <div id="pub-track-info" class="vis-track-info hidden">
-                    <span id="pub-track-prompt" class="vis-track-prompt"></span>
+                <h2>1. Selected Video</h2>
+                <div id="pub-track-info" class="vis-track-info">
+                    <span id="pub-track-prompt" class="vis-track-prompt">Pick a track in the player bar below.</span>
                     <div id="pub-video-badge" class="pub-video-badge"></div>
                 </div>
 
@@ -804,6 +819,36 @@
 
         </div>
 
+    </div>
+
+    <!-- ═══════════════════════════════════════════════ -->
+    <!--  Global persistent player bar (all tabs)         -->
+    <!-- ═══════════════════════════════════════════════ -->
+    <div id="global-player" class="global-player hidden">
+        <div class="gp-left">
+            <select id="history-select" class="gp-select" title="Switch track">
+                <option value="" disabled selected>No tracks yet</option>
+            </select>
+            <button id="fav-toggle-btn" class="btn-fav-select" data-job-id="" title="Favorite">&#9734;</button>
+            <button id="filter-favorites" class="btn-filter-fav" title="Show favorites only">All</button>
+        </div>
+        <div id="live-transport" class="live-transport gp-transport">
+            <button id="btn-play-pause" class="transport-btn" title="Play / Pause">
+                <svg id="icon-play" viewBox="0 0 24 24" width="20" height="20"><polygon points="6,4 20,12 6,20" fill="currentColor"/></svg>
+                <svg id="icon-pause" class="hidden" viewBox="0 0 24 24" width="20" height="20"><rect x="5" y="4" width="4" height="16" fill="currentColor"/><rect x="15" y="4" width="4" height="16" fill="currentColor"/></svg>
+            </button>
+            <span id="transport-current" class="transport-time">0:00</span>
+            <input type="range" id="transport-seek" class="transport-seek" min="0" max="1000" value="0" step="1">
+            <span id="transport-total" class="transport-time">0:00</span>
+            <div class="transport-extras">
+                <button id="btn-loop-toggle" class="transport-btn transport-loop active" title="Loop on/off">
+                    <svg viewBox="0 0 24 24" width="18" height="18"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z" fill="currentColor"/></svg>
+                </button>
+                <svg class="vol-icon" viewBox="0 0 24 24" width="16" height="16"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0012 7.5v9a4.5 4.5 0 004.5-4.5z" fill="currentColor"/></svg>
+                <input type="range" id="transport-volume" class="transport-volume" min="0" max="100" value="80" step="1" title="Master Volume">
+            </div>
+            <span id="mixer-badge" class="mixer-badge hidden">LIVE</span>
+        </div>
     </div>
 
     <script src="/static/mixer.js?v={{ mixer_v }}"></script>

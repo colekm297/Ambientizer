@@ -24,13 +24,15 @@
       btn.classList.add("active");
       document.getElementById(`tab-${target}`).classList.add("active");
 
-      if (target === "visuals") {
-        refreshVisTrackList();
-        if (mixer && mixer.playing) mixer.pause();
-      } else {
-        if (visMixer && visMixer.playing) visMixer.pause();
+      // Single global player keeps playing across tabs — never pause on switch.
+      // Each tab just renders a view of the currently-selected track.
+      if (target === "visuals" && currentJobId && window._currentTrackData) {
+        loadVisualsForTrack(currentJobId, window._currentTrackData);
       }
-      if (target === "publish") { checkYouTubeStatus(); refreshPubTrackList(); }
+      if (target === "publish") {
+        checkYouTubeStatus();
+        if (currentJobId && window._currentTrackData) loadPublishForTrack(currentJobId, window._currentTrackData);
+      }
       if (target === "distribute") { onDistributeTabOpen(); }
     });
   });
@@ -109,7 +111,23 @@
   let sliderDebounceTimers = {};
   let pendingSliderUpdates = {};
   let mixer = null;
+  let usingAudioElement = false;  // true when the bar drives the <audio> element (full-mix / mobile-safe)
   let currentTrackDuration = 300;
+
+  // iOS: declare a "playback" audio session at startup so ALL audio (incl. the
+  // streaming <audio> element) routes to the speaker and ignores the ringer
+  // switch. Same fix that rescued the Web Audio mixer, applied page-wide.
+  try { if (navigator.audioSession) navigator.audioSession.type = "playback"; } catch (e) { /* unsupported */ }
+
+  // NOTE: deliberately NOT routing the <audio> element through Web Audio via
+  // createMediaElementSource — that produces silence on iOS Safari (WebKit bug).
+  // We play the bare element (iOS plays user-initiated media past the ringer
+  // switch) and just (re)assert the playback session.
+  function _ensureElementAudioGraph() {
+    try { if (navigator.audioSession) navigator.audioSession.type = "playback"; } catch (e) {}
+  }
+  function _resumeElementCtx() { /* no Web Audio context for the element path */ }
+  window._elCtxState = () => "bare-element";
   const MASTER_VOLUME_KEY = "ambientizer_master_volume";
 
   function getSavedMasterVolume() {
@@ -168,18 +186,124 @@
 
   function updateCreditEstimate() {
     const c = _getCreditCosts();
-    let text = `${_costLabel(c.total)} to generate`;
-    if (c.musicLayers > 0) {
-      text += ` | Music re-roll: ${_costLabel(c.perMusic)}`;
-    }
-    text += ` | SFX re-roll: ${_costLabel(c.perSfx)}`;
-    if (c.stemCost > 0) {
-      text += ` | Stems: ${_costLabel(c.stemCost)}`;
-    }
-    creditEstimateEl.textContent = text;
+    // Just the dollar price — credits don't mean anything at a glance.
+    const usd = _creditsToUsd(c.total);
+    const usdStr = _fmtUsd(usd);
+    creditEstimateEl.textContent = usdStr ? `${usdStr} to generate` : `~${c.total.toLocaleString()} cr to generate`;
     creditEstimateEl.classList.toggle("credit-warn", c.total > 3000);
   }
   musicLengthEl.addEventListener("change", updateCreditEstimate);
+
+  // ── Composition Sections (visible + editable plan) ──────────────────────
+  window._compositionPlan = null;
+  const compSectionsGroup = document.getElementById("comp-sections-group");
+  const compSectionsList = document.getElementById("comp-sections-list");
+  const btnPlanSections = document.getElementById("btn-plan-sections");
+
+  function _toggleCompSections() {
+    const on = currentMode === "musical" && musicGenerationModeEl?.value === "composition_plan";
+    if (compSectionsGroup) compSectionsGroup.classList.toggle("hidden", !on);
+    // One plan artifact at a time: the layer plan and the timeline never co-exist.
+    if (on) { const pp = document.getElementById("plan-preview"); if (pp) pp.classList.add("hidden"); }
+  }
+  musicGenerationModeEl?.addEventListener("change", _toggleCompSections);
+
+  let _selectedSection = 0;
+  const _fmtClock = (mins) => {
+    const t = Math.round(mins * 60);
+    return Math.floor(t / 60) + ":" + String(t % 60).padStart(2, "0");
+  };
+  function _renderCompSections(plan) {
+    window._compositionPlan = plan;
+    if (!compSectionsList) return;
+    const secs = (plan && plan.sections) || [];
+    if (!secs.length) {
+      compSectionsList.innerHTML = `<div class="canvas-empty">
+          <div class="canvas-empty-icon">⎓</div>
+          <p class="canvas-empty-title">Your timeline appears here</p>
+          <p class="canvas-empty-sub">With <strong>Composition plan</strong> selected, press <strong>Enhance &amp; Plan</strong> — Claude designs an evolving arrangement (sparse → full → sparse) you can sculpt before generating.</p>
+        </div>`;
+      return;
+    }
+    if (_selectedSection >= secs.length) _selectedSection = 0;
+    const total = secs.reduce((a, s) => a + (s.duration_ms || 0), 0) || 1;
+    let elapsed = 0;
+    const blocks = secs.map((s, i) => {
+      const dur = s.duration_ms || 0;
+      const startMin = elapsed / 60000, endMin = (elapsed + dur) / 60000;
+      elapsed += dur;
+      const density = Math.min((s.positive_local_styles || []).length / 6, 1);
+      const fillH = Math.round(22 + density * 78);
+      const sel = i === _selectedSection ? " selected" : "";
+      return `<button type="button" class="tl-block${sel}" data-idx="${i}" style="flex:${Math.max(dur, 1)}" title="${escapeHtml(s.section_name || '')}">
+          <span class="tl-block-bars"><span class="tl-block-fill" style="height:${fillH}%"></span></span>
+          <span class="tl-block-label">${escapeHtml(s.section_name || ('Section ' + (i + 1)))}</span>
+          <span class="tl-block-time">${startMin.toFixed(1)}–${endMin.toFixed(1)}m</span>
+        </button>`;
+    }).join("");
+    const sel = secs[_selectedSection];
+    const editor = `<div class="tl-editor">
+        <div class="tl-editor-head">
+          <input class="comp-name tl-edit-name" data-idx="${_selectedSection}" value="${escapeHtml(sel.section_name || '')}" placeholder="Section name">
+          <span class="tl-editor-pos">${_selectedSection + 1} / ${secs.length}</span>
+        </div>
+        <label class="tl-edit-label">Present <span>instruments &amp; textures in this section</span></label>
+        <textarea class="comp-pos tl-edit-area" data-idx="${_selectedSection}" rows="3" placeholder="e.g. solo cello prominent; low string pads; sub-bass hum">${escapeHtml((sel.positive_local_styles || []).join('; '))}</textarea>
+        <label class="tl-edit-label">Absent <span>dropped here — this forces the contrast</span></label>
+        <textarea class="comp-neg tl-edit-area" data-idx="${_selectedSection}" rows="2" placeholder="e.g. no glass harmonica; no vocal pads">${escapeHtml((sel.negative_local_styles || []).join('; '))}</textarea>
+      </div>`;
+    compSectionsList.innerHTML = `
+      <div class="tl-wrap">
+        <div class="tl-track">${blocks}</div>
+        <div class="tl-ruler"><span>0:00</span><span>${_fmtClock(total / 60000)}</span></div>
+      </div>
+      ${editor}`;
+    compSectionsList.querySelectorAll(".tl-block").forEach(el =>
+      el.addEventListener("click", () => { _selectedSection = +el.dataset.idx; _renderCompSections(window._compositionPlan); }));
+    const setArr = (idx, key, val) => { window._compositionPlan.sections[idx][key] = val.split(';').map(x => x.trim()).filter(Boolean); };
+    compSectionsList.querySelectorAll(".comp-name").forEach(el => el.addEventListener("input", () => {
+      window._compositionPlan.sections[+el.dataset.idx].section_name = el.value;
+      const lbl = compSectionsList.querySelector(`.tl-block[data-idx="${el.dataset.idx}"] .tl-block-label`);
+      if (lbl) lbl.textContent = el.value;
+    }));
+    compSectionsList.querySelectorAll(".comp-pos").forEach(el => el.addEventListener("input", () => setArr(+el.dataset.idx, "positive_local_styles", el.value)));
+    compSectionsList.querySelectorAll(".comp-neg").forEach(el => el.addEventListener("input", () => setArr(+el.dataset.idx, "negative_local_styles", el.value)));
+  }
+  window._renderCompSections = _renderCompSections;
+
+  async function _planCompositionSections() {
+    const prompt = promptEl.value.trim();
+    if (!prompt) { showError("Enter a prompt first."); return false; }
+    if (compSectionsList) compSectionsList.innerHTML =
+      `<div class="canvas-empty"><div class="canvas-empty-icon tl-spin">✦</div>
+        <p class="canvas-empty-title">Designing your arrangement…</p>
+        <p class="canvas-empty-sub">Claude is composing the sections from your prompt.</p></div>`;
+    if (btnPlanSections) btnPlanSections.disabled = true;
+    try {
+      const res = await fetch("/api/compose-plan", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt, music_length: parseFloat(musicLengthEl.value) || 10 }),
+      });
+      const data = await res.json();
+      if (data.error) { showError("Plan failed: " + data.error); _renderCompSections(window._compositionPlan); return false; }
+      if (data.composition_plan) { _selectedSection = 0; _renderCompSections(data.composition_plan); return true; }
+      _renderCompSections(window._compositionPlan); return false;
+    } catch (e) { showError("Plan failed: " + e.message); _renderCompSections(window._compositionPlan); return false; }
+    finally { if (btnPlanSections) btnPlanSections.disabled = false; }
+  }
+  window._planCompositionSections = _planCompositionSections;
+  btnPlanSections?.addEventListener("click", _planCompositionSections);
+
+  // Auto-grow the prompt textarea so the full text is always visible
+  function _autogrowPrompt() {
+    if (!promptEl) return;
+    promptEl.style.height = "auto";
+    promptEl.style.height = Math.max(promptEl.scrollHeight, 120) + "px";
+  }
+  window._autogrowPrompt = _autogrowPrompt;
+  promptEl?.addEventListener("input", _autogrowPrompt);
+
+  _toggleCompSections();
 
   // ── Real credit balance from ElevenLabs API ──────
   const creditBarFill = document.getElementById("credit-bar-fill");
@@ -222,6 +346,7 @@
       const d = await r.json();
       _lastBalance = d;
       _renderCreditBalance(d);
+      updateCreditEstimate();  // now that the USD rate is known, show $ in the price
       return d;
     } catch (e) {
       if (creditRemainingEl) creditRemainingEl.textContent = "Could not load balance";
@@ -244,22 +369,14 @@
     else if (pct < 5) cls = "credit-danger-text";
     else if (pct < 20) cls = "credit-warn-text";
 
-    let mainLine = `<span class="${cls}">${fmt(d.remaining)}</span> / ${fmt(d.limit)} credits`;
+    // One clean line: just how much is left.
+    let mainLine = `<span class="${cls}">${fmt(d.remaining)}</span> credits left`;
     if (d.usd_per_credit) {
       const remainingUsd = d.remaining * d.usd_per_credit;
-      const limitUsd = d.limit * d.usd_per_credit;
-      mainLine = `<span class="${cls}">$${remainingUsd.toFixed(2)}</span> / $${limitUsd.toFixed(2)} remaining ` +
-        `<span class="credit-subtle">(${fmt(d.remaining)} cr)</span>`;
-    } else {
-      mainLine += " remaining";
+      mainLine = `<span class="${cls}">$${remainingUsd.toFixed(2)}</span> left`;
     }
     creditRemainingEl.innerHTML = mainLine;
-
-    if (d.reset_unix) {
-      const resetDate = new Date(d.reset_unix * 1000);
-      const daysLeft = Math.max(0, Math.ceil((resetDate - Date.now()) / 86400000));
-      creditResetEl.textContent = `Resets in ${daysLeft}d (${resetDate.toLocaleDateString()})`;
-    }
+    if (creditResetEl) creditResetEl.textContent = "";  // reset date removed — too noisy
   }
 
   async function fetchGeminiUsage() {
@@ -347,7 +464,7 @@
       const raw = localStorage.getItem(FORM_KEY);
       if (!raw) return;
       const s = JSON.parse(raw);
-      if (s.prompt) promptEl.value = s.prompt;
+      if (s.prompt) { promptEl.value = s.prompt; _autogrowPrompt(); }
       if (s.mode) {
         currentMode = s.mode;
         modeButtons.forEach(b => b.classList.toggle("active", b.dataset.mode === s.mode));
@@ -364,6 +481,9 @@
       }
       if (plannerModeEl && s.planner_mode) plannerModeEl.value = s.planner_mode;
       if (musicGenerationModeEl && s.music_generation_mode) musicGenerationModeEl.value = s.music_generation_mode;
+      if (typeof _toggleCompSections === "function") _toggleCompSections();
+      if (s.composition_plan && s.composition_plan.sections) _renderCompSections(s.composition_plan);
+      else { window._compositionPlan = null; _renderCompSections(null); }
       if (s.music_length) musicLengthEl.value = s.music_length;
       if (s.reference_url) referenceUrlEl.value = s.reference_url;
       if (s.ref_start) refStartEl.value = s.ref_start;
@@ -417,7 +537,7 @@
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
         const p = prompts[parseInt(btn.dataset.idx)];
-        promptEl.value = p.prompt;
+        promptEl.value = p.prompt; _autogrowPrompt();
         if (p.mode) {
           currentMode = p.mode;
           modeButtons.forEach(b => b.classList.toggle("active", b.dataset.mode === p.mode));
@@ -486,6 +606,7 @@
       btn.classList.add("active");
       currentMode = btn.dataset.mode;
       _updateApproachVisibility();
+      if (typeof _toggleCompSections === "function") _toggleCompSections();
       saveFormState();
       updateCreditEstimate();
     });
@@ -515,16 +636,10 @@
   }
 
   function _updateApproachVisibility() {
-    const approachToggle = document.getElementById("approach-toggle");
-    const stemGroup = document.getElementById("stem-select-group");
     const musicExperimentGroup = document.getElementById("music-experiment-group");
     if (currentMode === "musical") {
-      approachToggle.classList.remove("hidden");
-      stemGroup.classList.toggle("hidden", currentApproach !== "unified");
       musicExperimentGroup.classList.remove("hidden");
     } else {
-      approachToggle.classList.add("hidden");
-      stemGroup.classList.add("hidden");
       musicExperimentGroup.classList.add("hidden");
     }
   }
@@ -664,15 +779,22 @@
         enhanceStatus.className = "enhance-status error";
       } else {
         promptEl.value = data.enhanced_prompt;
-        promptEl.style.height = "auto";
-        promptEl.style.height = promptEl.scrollHeight + "px";
-        if (data.layers && data.layers.length) {
+        _autogrowPrompt();
+        // Unified flow: ONE plan artifact at a time.
+        //  Composition plan → timeline (hide the layer plan)
+        //  Ambient / Text   → layer plan
+        const wantsPlan = currentMode === "musical" && musicGenerationModeEl?.value === "composition_plan";
+        if (wantsPlan) {
+          if (planPreview) planPreview.classList.add("hidden");
+          enhanceStatus.textContent = "Designing composition timeline…";
+          btnEnhancePrompt.textContent = "Planning…";
+          await _planCompositionSections();
+          enhanceStatus.textContent = "Enhanced + composition timeline ready";
+        } else if (data.layers && data.layers.length) {
           _renderPlanPreview(data.layers);
           enhanceStatus.textContent = "Enhanced + layer plan ready";
         } else {
-          enhanceStatus.textContent = data.research_summary
-            ? "Enhanced with web research"
-            : "Enhanced";
+          enhanceStatus.textContent = data.research_summary ? "Enhanced with web research" : "Enhanced";
         }
         enhanceStatus.className = "enhance-status success";
         setTimeout(() => { enhanceStatus.textContent = ""; enhanceStatus.className = "enhance-status"; }, 5000);
@@ -682,7 +804,7 @@
       enhanceStatus.className = "enhance-status error";
     }
     btnEnhancePrompt.disabled = false;
-    btnEnhancePrompt.textContent = "Enhance & Plan";
+    btnEnhancePrompt.textContent = "✦ Enhance & Plan";
   });
 
   // ── Reference Analysis (pre-generate) ────────
@@ -845,6 +967,11 @@
           loopable: true,
       };
       if (currentLayerPlan) genBody.layer_plan = currentLayerPlan;
+      // Send the visible/edited composition plan so what-you-see-is-what-generates.
+      if (musicGenerationModeEl?.value === "composition_plan" &&
+          window._compositionPlan && window._compositionPlan.sections?.length) {
+        genBody.composition_plan = window._compositionPlan;
+      }
       const plannerUsesReference = genBody.planner_mode === "reference_direct";
       if ((useReferenceGenerationEl?.checked || plannerUsesReference) && _lastRefAnalysis && _lastRefSignature === _referenceSignature()) {
         genBody.reference_analysis = _lastRefAnalysis;
@@ -897,8 +1024,14 @@
           stopGenerationBtn.textContent = "Stop";
 
           if (data.status === "complete") {
+            currentJobId = jobId; visCurrentJobId = jobId; pubCurrentJobId = jobId;
             showPlayer(data);
             enableFeedback();
+            if (typeof loadVisualsForTrack === "function") loadVisualsForTrack(jobId, data);
+            if (typeof loadPublishForTrack === "function") loadPublishForTrack(jobId, data);
+            // Jump to the Listen tab so the finished track is front-and-center.
+            const listenBtn = document.querySelector('.tab-btn[data-tab="listen"]');
+            if (listenBtn) listenBtn.click();
             if (data.stems_status === "processing") {
               startStemPolling(jobId);
             }
@@ -1091,6 +1224,13 @@
 
   if (btnPlayPause) {
     btnPlayPause.addEventListener("click", () => {
+      if (usingAudioElement) {
+        // A tap here is the iOS user-gesture: build + resume the Web Audio graph.
+        _ensureElementAudioGraph();
+        _resumeElementCtx();
+        if (audioPlayer.paused) audioPlayer.play().catch(() => {}); else audioPlayer.pause();
+        return; // icons handled by audioPlayer onplay/onpause
+      }
       if (!mixer) return;
       mixer.togglePlayPause();
       iconPlay.classList.toggle("hidden", mixer.playing);
@@ -1103,11 +1243,22 @@
     transportSeek.addEventListener("mousedown", () => { seeking = true; });
     transportSeek.addEventListener("touchstart", () => { seeking = true; });
     transportSeek.addEventListener("input", () => {
+      if (usingAudioElement) {
+        const d = audioPlayer.duration || 0;
+        transportCurrent.textContent = formatTime((parseFloat(transportSeek.value) / 1000) * d);
+        return;
+      }
       if (!mixer) return;
       const t = (parseFloat(transportSeek.value) / 1000) * mixer.duration;
       transportCurrent.textContent = formatTime(t);
     });
     transportSeek.addEventListener("change", () => {
+      if (usingAudioElement) {
+        const d = audioPlayer.duration || 0;
+        audioPlayer.currentTime = (parseFloat(transportSeek.value) / 1000) * d;
+        seeking = false;
+        return;
+      }
       if (!mixer) return;
       const t = (parseFloat(transportSeek.value) / 1000) * mixer.duration;
       mixer.seek(t);
@@ -1133,6 +1284,12 @@
   const btnLoopToggle = document.getElementById("btn-loop-toggle");
   if (btnLoopToggle) {
     btnLoopToggle.addEventListener("click", () => {
+      if (usingAudioElement) {
+        audioPlayer.loop = !audioPlayer.loop;
+        btnLoopToggle.classList.toggle("active", audioPlayer.loop);
+        btnLoopToggle.title = audioPlayer.loop ? "Loop: ON" : "Loop: OFF";
+        return;
+      }
       if (!mixer) return;
       const looping = mixer.toggleLoop();
       btnLoopToggle.classList.toggle("active", looping);
@@ -1152,7 +1309,9 @@
     if (transportCurrent) transportCurrent.textContent = formatTime(targetSec);
   });
 
-  async function initMixer(jobId, layers, durationSec) {
+  async function initMixer(jobId, layers, durationSec, autoplay = true) {
+    usingAudioElement = false;
+    if (audioPlayer) { audioPlayer.pause(); audioPlayer.removeAttribute("src"); }
     if (mixer) mixer.destroy();
     mixer = new LiveMixer();
     await mixer.init(durationSec);
@@ -1180,7 +1339,9 @@
     const layersWithAudio = layers.filter(l => l.has_audio);
     const failedLayers = [];
     const loadPromises = layersWithAudio.map(l => {
-      const url = `/api/audio/${jobId}/layer/${encodeURIComponent(l.name)}`;
+      // full_mix_url lets us play the whole-track mix (unified tracks) through
+      // Web Audio — the path proven to actually output sound on iOS.
+      const url = l.full_mix_url || `/api/audio/${jobId}/layer/${encodeURIComponent(l.name)}`;
       return mixer.addLayer(l.name, url, {
         volume_db: l.volume_db,
         pan: l.pan || 0,
@@ -1273,14 +1434,24 @@
     // of the displayed duration, then fade back in on wrap. Lets the user
     // preview what the exported file's intro/outro will actually sound like.
     mixer.setMasterFades(5, 5);
-    mixer.play();
-    iconPlay.classList.add("hidden");
-    iconPause.classList.remove("hidden");
+    if (autoplay) {
+      mixer.play();
+      iconPlay.classList.add("hidden");
+      iconPause.classList.remove("hidden");
+    } else {
+      // Loaded but paused (e.g. preloaded on startup) — show the play icon.
+      iconPlay.classList.remove("hidden");
+      iconPause.classList.add("hidden");
+    }
   }
 
   let _currentStems = null;
 
-  function showPlayer(data) {
+  function showPlayer(data, autoplay = true) {
+    window._currentTrackData = data;
+    try { if (data && data.job_id) localStorage.setItem("ambientizer_last_track", data.job_id); } catch (e) {}
+    const gp = document.getElementById("global-player");
+    if (gp) gp.classList.remove("hidden");
     playerPanel.classList.remove("hidden");
     playerPrompt.textContent = `"${data.prompt}"`;
     fetchCreditBalance();
@@ -1290,11 +1461,12 @@
     }
     if (data.root_key) currentRootKey = data.root_key;
     _currentStems = data.stems || null;
-    if (data.layers && data.layers.length) {
+    const playable = (data.layers || []).filter(l => l.has_audio);
+    if (playable.length) {
       const durationSec = (data.duration || 5) * 60;
       currentTrackDuration = durationSec;
       renderLayers(data.layers);
-      initMixer(data.job_id, data.layers, durationSec).then(() => {
+      initMixer(data.job_id, data.layers, durationSec, autoplay).then(() => {
         const altPairs = data.alternate_pairs || [];
         for (const p of altPairs) {
           if (mixer) mixer.setAlternate(p.layer_a, p.layer_b, p.cycle_sec, p.xfade_sec);
@@ -1302,27 +1474,63 @@
         if (window._restoreTimingStateGlobal) window._restoreTimingStateGlobal();
         renderLayers(data.layers);
       }).catch(err => {
-        console.warn("LiveMixer init failed, falling back to audio element:", err);
-        audioPlayer.classList.remove("hidden");
-        liveTransport.classList.add("hidden");
-        mixerBadge.classList.add("hidden");
-        audioPlayer.src = `/api/audio/${data.job_id}?t=${Date.now()}`;
-        audioPlayer.volume = getSavedMasterVolume();
-        audioPlayer.load();
+        console.warn("LiveMixer init failed, streaming full mix instead:", err);
+        initAudioElementPlayer(data.job_id, autoplay);
       });
     } else {
-      audioPlayer.classList.remove("hidden");
-      liveTransport.classList.add("hidden");
-      mixerBadge.classList.add("hidden");
-      audioPlayer.src = `/api/audio/${data.job_id}?t=${Date.now()}`;
-      audioPlayer.volume = getSavedMasterVolume();
-      audioPlayer.load();
+      // Unified track (only a full mix exists) → play through the NATIVE <audio>
+      // element. Native media playback is clean on AirPods/Bluetooth; routing the
+      // full mix through Web Audio produced a constant background buzz on iOS BT.
+      // (The earlier "bare element is silent on iOS" finding was a red herring —
+      // the test tracks happened to be silent files, not an element problem.)
+      const durationSec = (data.duration || 5) * 60;
+      currentTrackDuration = durationSec;
+      if (data.layers && data.layers.length) renderLayers(data.layers);
+      initAudioElementPlayer(data.job_id, autoplay);
     }
     aiFeedbackPanel.classList.remove("hidden");
     aiFeedbackResult.classList.add("hidden");
     partsPanel.classList.remove("hidden");
     loadParts();
   }
+
+  // Stream the full mix through the <audio> element, driven by the global bar.
+  // Used for unified tracks (no per-layer files) — and it's the mobile-safe path
+  // since iOS can't decode a 100MB+ WAV into Web Audio.
+  function initAudioElementPlayer(jobId, autoplay = true) {
+    usingAudioElement = true;
+    if (mixer) { mixer.destroy(); mixer = null; }
+    if (liveTransport) liveTransport.classList.remove("hidden");
+    if (mixerBadge) mixerBadge.classList.add("hidden");
+    if (!audioPlayer) return;
+    audioPlayer.classList.add("hidden");   // the bar is the controls, not the native element
+    audioPlayer.loop = true;
+    if (btnLoopToggle) { btnLoopToggle.classList.add("active"); btnLoopToggle.title = "Loop: ON"; }
+    audioPlayer.onloadedmetadata = () => {
+      if (transportTotal) transportTotal.textContent = formatTime(audioPlayer.duration || 0);
+    };
+    audioPlayer.ontimeupdate = () => {
+      if (window._seekDragging && window._seekDragging()) return;
+      const d = audioPlayer.duration || 0;
+      if (transportCurrent) transportCurrent.textContent = formatTime(audioPlayer.currentTime);
+      if (transportSeek) transportSeek.value = d ? Math.round((audioPlayer.currentTime / d) * 1000) : 0;
+    };
+    audioPlayer.onplay = () => { iconPlay.classList.add("hidden"); iconPause.classList.remove("hidden"); };
+    audioPlayer.onpause = () => { iconPlay.classList.remove("hidden"); iconPause.classList.add("hidden"); };
+    audioPlayer.src = `/api/audio/${jobId}?t=${Date.now()}`;
+    audioPlayer.volume = getSavedMasterVolume();
+    audioPlayer.load();
+    _ensureElementAudioGraph();
+    if (autoplay) {
+      _resumeElementCtx();
+      audioPlayer.play().catch(() => {});  // iOS may block until a tap; the bar play button then works
+    } else {
+      // Preloaded/paused — show the play icon so the bar invites a tap.
+      iconPlay.classList.remove("hidden");
+      iconPause.classList.add("hidden");
+    }
+  }
+  window.initAudioElementPlayer = initAudioElementPlayer;
 
   function markLayerLoadFailures(failedNames) {
     document.querySelectorAll(".layer-card").forEach(card => {
@@ -2782,6 +2990,10 @@
     let items = _historyCache;
     if (showFavoritesOnly) items = items.filter((j) => j.favorite);
 
+    // Reveal the global player bar as soon as any track exists.
+    const gp = document.getElementById("global-player");
+    if (gp && _historyCache.length) gp.classList.remove("hidden");
+
     historySelect.innerHTML = "";
     if (!items.length) {
       const opt = document.createElement("option");
@@ -2809,8 +3021,12 @@
       }
       const star = j.favorite ? "\u2605 " : "";
       const dot = j.status === "complete" ? "\u2713" : j.status === "running" ? "\u25CB" : "\u2717";
-      const prompt = j.prompt.length > 60 ? j.prompt.slice(0, 57) + "..." : j.prompt;
-      opt.textContent = `${star}${dot} ${prompt}  (${timeStr})`;
+      // Prefer the short evocative title; fall back to the prompt if absent.
+      const label = (j.title && j.title.trim()) ? j.title.trim() : j.prompt;
+      const shown = label.length > 60 ? label.slice(0, 57) + "..." : label;
+      opt.textContent = `${star}${dot} ${shown}  (${timeStr})`;
+      // Full description on hover so identical titles are still distinguishable.
+      opt.title = j.prompt || "";
 
       if (j.job_id === currentJobId) opt.selected = true;
       historySelect.appendChild(opt);
@@ -2858,23 +3074,42 @@
     });
   }
 
-  async function viewJob(jobId) {
+  async function viewJob(jobId, autoplay = true) {
     try {
       const res = await fetch(`/api/status/${jobId}`);
       const data = await res.json();
-      if (data.prompt) promptEl.value = data.prompt;
-      if (data.mode) {
-        currentMode = data.mode;
-        modeButtons.forEach(b => b.classList.toggle("active", b.dataset.mode === data.mode));
+      if (data.prompt) { promptEl.value = data.prompt; window._autogrowPrompt && window._autogrowPrompt(); }
+      // Restore the ElevenLabs method + composition timeline this track was made with.
+      const _hasPlan = !!(data.composition_plan && data.composition_plan.sections && data.composition_plan.sections.length);
+      // A stored plan implies Musical + Composition plan (older jobs didn't persist the mode).
+      const _restoredMode = data.mode || (_hasPlan ? "musical" : null);
+      if (_restoredMode) {
+        currentMode = _restoredMode;
+        modeButtons.forEach(b => b.classList.toggle("active", b.dataset.mode === _restoredMode));
+        _updateApproachVisibility();   // reveal the Music engine group in Musical mode
       }
       if (data.reference_url) referenceUrlEl.value = data.reference_url;
+      if (musicGenerationModeEl) {
+        musicGenerationModeEl.value = data.music_generation_mode || (_hasPlan ? "composition_plan" : musicGenerationModeEl.value);
+      }
+      if (typeof _toggleCompSections === "function") _toggleCompSections();
+      if (_hasPlan) {
+        _renderCompSections(data.composition_plan);
+      } else {
+        window._compositionPlan = null;
+        if (typeof _renderCompSections === "function") _renderCompSections(null);
+      }
       saveFormState();
       if (data.status === "complete") {
         currentJobId = jobId;
-        progressPanel.classList.remove("hidden"); layersPanel.classList.add("hidden");
-        updateProgress(data); showPlayer(data); enableFeedback();
+        visCurrentJobId = jobId;
+        pubCurrentJobId = jobId;
+        showPlayer(data, autoplay); enableFeedback();
         feedbackMessages.innerHTML = '<div class="feedback-hint">Listen, then describe what to change.</div>';
         if (data.feedback_history) data.feedback_history.forEach((entry) => { addChatMessage("user", entry.feedback); addChatMessage("system", `Updated! ${entry.changes}`); });
+        // Keep every tab's view in sync with the one global selection.
+        if (typeof loadVisualsForTrack === "function") loadVisualsForTrack(jobId, data);
+        if (typeof loadPublishForTrack === "function") loadPublishForTrack(jobId, data);
       } else if (data.status === "running") {
         progressPanel.classList.remove("hidden"); playerPanel.classList.add("hidden"); feedbackPanel.classList.add("hidden");
         currentJobId = jobId; startPolling(jobId);
@@ -2885,6 +3120,7 @@
       }
       historySelect.value = jobId;
       _updateFavBtn(jobId);
+      try { localStorage.setItem("ambientizer_last_track", jobId); } catch (e) {}
     } catch (err) { console.error("View job error:", err); }
   }
 
@@ -2998,6 +3234,20 @@
     stopBtn.textContent = "Stop";
   }
 
+  // Drive a .task-bar fill from any progress message containing "N/M"
+  // (e.g. "frame 153/384"). Switches off the indeterminate sweep once real.
+  function _updateTaskBar(progressEl, message) {
+    if (!progressEl || !message) return;
+    const fill = progressEl.querySelector(".task-bar-fill");
+    const bar = progressEl.querySelector(".task-bar");
+    if (!fill || !bar) return;
+    const m = message.match(/(\d+)\s*\/\s*(\d+)/);
+    if (!m) return;
+    const pct = Math.max(2, Math.min(100, Math.round((+m[1] / +m[2]) * 100)));
+    bar.classList.remove("indeterminate");
+    fill.style.width = pct + "%";
+  }
+
   async function runLongTask(jobId, options) {
     const {
       startRequest,
@@ -3013,6 +3263,11 @@
     longTaskJobId = jobId;
     if (progressTextEl) progressTextEl.textContent = initialMessage;
     progressEl?.classList.remove("hidden");
+    // Reset the progress bar to an indeterminate sweep until the first "N/M" tick.
+    const _bar = progressEl?.querySelector(".task-bar");
+    const _fill = progressEl?.querySelector(".task-bar-fill");
+    if (_bar) _bar.classList.add("indeterminate");
+    if (_fill) _fill.style.width = "0%";
     setTaskStopVisible(stopBtn, true);
 
     try {
@@ -3034,12 +3289,14 @@
       }
 
       if (data.message && progressTextEl) progressTextEl.textContent = data.message;
+      _updateTaskBar(progressEl, data.message);
 
       longTaskPollTimer = setInterval(async () => {
         try {
           const sr = await fetch(`/api/task-status/${jobId}`);
           const sd = await sr.json();
           if (sd.message && progressTextEl) progressTextEl.textContent = sd.message;
+          _updateTaskBar(progressEl, sd.message);
 
           if (sd.status === "done") {
             stopLongTaskPolling();
@@ -3141,7 +3398,11 @@
       btn.classList.add("active");
       currentVideoMode = btn.dataset.vmode;
       const isUpload = currentVideoMode === "upload";
-      motionPromptGroup.classList.toggle("hidden", currentVideoMode !== "ai");
+      // Motion Prompt steers BOTH AI Animation and Living Still (the latter feeds
+      // it to the motion director: "deep space, slow drift, faint red glow, no clouds").
+      motionPromptGroup.classList.toggle("hidden", !(currentVideoMode === "ai" || currentVideoMode === "motion"));
+      const motionSettings = document.getElementById("motion-settings-group");
+      if (motionSettings) motionSettings.classList.toggle("hidden", currentVideoMode !== "motion");
       if (uploadVideoGroup) uploadVideoGroup.classList.toggle("hidden", !isUpload);
       btnCreateClip.classList.toggle("hidden", isUpload);
     });
@@ -3237,45 +3498,18 @@
     }
   }
 
-  visTrackSelect.addEventListener("change", async () => {
-    const jobId = visTrackSelect.value;
-    if (!jobId) {
-      visTrackInfo.classList.add("hidden");
-      visImagePanel.classList.add("hidden");
-      visAnimatePanel.classList.add("hidden");
-      visExportPanel.classList.add("hidden");
-      if (visMixer) { visMixer.destroy(); visMixer = null; }
-      visTransport.classList.add("hidden");
-      visCurrentJobId = null;
-      return;
-    }
-
+  // Render the Visuals tab for the globally-selected track (audio plays via the global bar).
+  async function loadVisualsForTrack(jobId, data) {
+    if (!jobId) return;
     visCurrentJobId = jobId;
-
     try {
-      const res = await fetch(`/api/status/${jobId}`);
-      const data = await res.json();
+      if (!data) { const res = await fetch(`/api/status/${jobId}`); data = await res.json(); }
 
-      visTrackPrompt.textContent = `"${data.prompt}"`;
-      visTrackInfo.classList.remove("hidden");
-      visImagePanel.classList.remove("hidden");
+      if (visTrackPrompt) visTrackPrompt.textContent = `"${data.prompt}"`;
+      if (visTrackInfo) visTrackInfo.classList.remove("hidden");
+      if (visImagePanel) visImagePanel.classList.remove("hidden");
 
-      // Spin up a LiveMixer — same setup as the Create tab
-      if (data.layers && data.layers.length) {
-        const durationSec = (data.duration || 5) * 60;
-        visLoadingMsg.classList.remove("hidden");
-        visTransport.classList.add("hidden");
-        try {
-          await initVisMixer(jobId, data.layers, durationSec);
-          visTransport.classList.remove("hidden");
-        } catch (err) {
-          console.warn("[VisMixer] init failed:", err);
-        }
-        visLoadingMsg.classList.add("hidden");
-      }
-
-      imagePromptEl.value = data.visual_image_prompt || "";
-      motionPromptEl.value = "";
+      if (imagePromptEl && !imagePromptEl.value) imagePromptEl.value = data.visual_image_prompt || "";
 
       if (data.visual_image_url) {
         previewImg.src = data.visual_image_url + "?t=" + Date.now();
@@ -3302,9 +3536,10 @@
         videoDownload.classList.add("hidden");
       }
     } catch (err) {
-      console.error("Failed to load track info:", err);
+      console.error("Failed to load visuals for track:", err);
     }
-  });
+  }
+  window.loadVisualsForTrack = loadVisualsForTrack;
 
   // ── Auto prompt ───────────────────────────────
   btnAutoPrompt.addEventListener("click", async () => {
@@ -3360,6 +3595,38 @@
     btnRegenImage.disabled = false;
   }
 
+  // ── Upload your own image / screenshot (instead of generating) ──
+  const btnUploadImage = document.getElementById("btn-upload-image");
+  const uploadImageInput = document.getElementById("upload-image-input");
+  if (btnUploadImage && uploadImageInput) {
+    btnUploadImage.addEventListener("click", () => {
+      if (!visCurrentJobId) { alert("Select a track first"); return; }
+      uploadImageInput.click();
+    });
+    uploadImageInput.addEventListener("change", async () => {
+      const file = uploadImageInput.files && uploadImageInput.files[0];
+      if (!file || !visCurrentJobId) return;
+      btnUploadImage.disabled = true; btnUploadImage.textContent = "Uploading...";
+      try {
+        const fd = new FormData();
+        fd.append("file", file);
+        const res = await fetch(`/api/visual/upload-image/${visCurrentJobId}`, { method: "POST", body: fd });
+        const data = await res.json();
+        if (data.error) { alert("Upload failed: " + data.error); }
+        else {
+          previewImg.src = data.image_url;
+          imagePreview.classList.remove("hidden");
+          visAnimatePanel.classList.remove("hidden");
+          clipPreview.classList.add("hidden");
+          visExportPanel.classList.add("hidden");
+          videoDownload.classList.add("hidden");
+        }
+      } catch (e) { alert("Upload failed: " + e.message); }
+      btnUploadImage.disabled = false; btnUploadImage.textContent = "⬆ Upload Image";
+      uploadImageInput.value = "";  // allow re-selecting the same file
+    });
+  }
+
   // ── Clip generation (step 2) ──────────────────
   btnCreateClip.addEventListener("click", async () => {
     if (!visCurrentJobId) return;
@@ -3385,6 +3652,14 @@
         body: JSON.stringify({
           mode: currentVideoMode,
           motion_prompt: motionPromptEl.value.trim(),
+          motion_style: (document.getElementById("motion-style") || {}).value || "auto",
+          motion_intensity: parseFloat((document.getElementById("motion-intensity") || {}).value) || 0.8,
+          motion_loop_sec: parseFloat((document.getElementById("motion-loop-sec") || {}).value) || 16,
+          motion_effects: {
+            twinkle: !!(document.getElementById("fx-twinkle") || {}).checked,
+            nebula: !!(document.getElementById("fx-nebula") || {}).checked,
+            water: !!(document.getElementById("fx-water") || {}).checked,
+          },
         }),
       }),
       onDone: (data) => showClipPreview(data.clip_url),
@@ -3649,22 +3924,13 @@
     }
   }
 
-  pubTrackSelect.addEventListener("change", async () => {
-    const jobId = pubTrackSelect.value;
-    if (!jobId) {
-      pubTrackInfo.classList.add("hidden");
-      pubMetaPanel.classList.add("hidden");
-      pubUploadPanel.classList.add("hidden");
-      clearPubVideoPreview();
-      pubCurrentJobId = null;
-      return;
-    }
-
+  // Render the Publish tab for the globally-selected track.
+  async function loadPublishForTrack(jobId, data) {
+    if (!jobId) return;
     pubCurrentJobId = jobId;
 
     try {
-      const res = await fetch(`/api/status/${jobId}`);
-      const data = await res.json();
+      if (!data) { const res = await fetch(`/api/status/${jobId}`); data = await res.json(); }
 
       pubTrackPrompt.textContent = `"${data.prompt}"`;
 
@@ -3714,7 +3980,8 @@
     } catch (err) {
       console.error("Failed to load track:", err);
     }
-  });
+  }
+  window.loadPublishForTrack = loadPublishForTrack;
 
   // ── Auto-generate metadata ────────────────────
   btnAutoMeta.addEventListener("click", async () => {
@@ -4600,5 +4867,17 @@
   }
 
   // ── Init ──────────────────────────────────────
-  refreshHistory();
+  refreshHistory().then(() => {
+    // Restore whichever track was selected last time (persisted in localStorage);
+    // fall back to the most recent if that track no longer exists. Loaded PAUSED
+    // and ready, so the first tap on play actually plays (works on iOS too).
+    if (currentJobId || !historySelect) return;
+    let target = "";
+    try {
+      const saved = localStorage.getItem("ambientizer_last_track");
+      if (saved && [...historySelect.options].some(o => o.value === saved)) target = saved;
+    } catch (e) {}
+    if (!target) target = historySelect.value;  // most recent
+    if (target) { historySelect.value = target; viewJob(target, false); }
+  });
 })();

@@ -769,6 +769,7 @@ class AudioEngine:
                 and (layer.independent_loop or layer.loop)
             )
 
+            is_sparse = False
             if use_crossfaded_tiling:
                 sample_cf = min(crossfade_ms, int(len(sample) * 0.25))
                 if sample_cf > 500:
@@ -781,11 +782,14 @@ class AudioEngine:
                 loops = math.ceil(render_ms / len(sample)) + 1
                 layer_audio = (sample * loops)[:render_ms]
             else:
+                # _render_sparse_layer already bakes layer.volume_db into each occurrence
                 layer_audio = self._render_sparse_layer(
                     sample, layer, render_ms, config.energy_curve
                 )
+                is_sparse = True
 
-            layer_audio = layer_audio + layer.volume_db
+            if not is_sparse:
+                layer_audio = layer_audio + layer.volume_db
             if gain_offset != 0.0:
                 layer_audio = layer_audio + gain_offset
 
