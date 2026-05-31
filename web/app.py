@@ -284,6 +284,7 @@ def _save_job(job_id: str):
         "visual_clips": job.get("visual_clips"),
         "visual_clip_sources": job.get("visual_clip_sources"),
         "visual_active_tab": job.get("visual_active_tab"),
+        "brush_mask_path": job.get("brush_mask_path"),
         "visual_video_path": job.get("visual_video_path"),
         "youtube_url": job.get("youtube_url"),
         "youtube_video_id": job.get("youtube_video_id"),
@@ -355,6 +356,7 @@ def _load_saved_jobs():
                 "visual_clips": data.get("visual_clips"),
                 "visual_clip_sources": data.get("visual_clip_sources"),
                 "visual_active_tab": data.get("visual_active_tab"),
+                "brush_mask_path": data.get("brush_mask_path"),
                 "visual_video_path": data.get("visual_video_path"),
                 "youtube_url": data.get("youtube_url"),
                 "youtube_video_id": data.get("youtube_video_id"),
@@ -1164,6 +1166,7 @@ def api_status(job_id: str):
             m: f"/api/visual/clip/{job['job_id']}/view?mode={m}"
             for m, p in (job.get("visual_clips") or {}).items() if p
         },
+        "brush_mask_url": f"/api/visual/brush-mask/{job['job_id']}/view" if job.get("brush_mask_path") else None,
         "visual_video_url": f"/api/visual/video/{job['job_id']}/download" if job.get("visual_video_path") else None,
         "youtube_url": job.get("youtube_url"),
         "yt_title": job.get("yt_title", ""),
@@ -2536,6 +2539,63 @@ def upload_custom_image(job_id: str):
     })
 
 
+@app.route("/api/visual/brush-mask/<job_id>", methods=["POST"])
+def upload_brush_mask(job_id: str):
+    """Save a hand-painted motion-brush mask (WHITE=move, BLACK/transparent=freeze).
+    The frontend paints over the scene image on a canvas and POSTs the result as a
+    PNG. Living Still then confines motion to the painted region."""
+    with jobs_lock:
+        job = jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+    if "file" not in request.files:
+        return jsonify({"error": "No mask uploaded"}), 400
+    f = request.files["file"]
+    image_path = job.get("visual_image_path")
+    if not image_path:
+        return jsonify({"error": "Generate or upload a scene image first"}), 400
+
+    mask_path = str(Path(image_path).with_name(Path(image_path).stem + "_brushmask.png"))
+    f.save(mask_path)
+
+    with jobs_lock:
+        jobs[job_id]["brush_mask_path"] = mask_path
+    _save_job(job_id)
+
+    return jsonify({"status": "ready"})
+
+
+@app.route("/api/visual/brush-mask/<job_id>", methods=["DELETE"])
+def clear_brush_mask(job_id: str):
+    """Forget the saved motion-brush mask (so the whole scene animates again)."""
+    with jobs_lock:
+        job = jobs.get(job_id)
+        if not job:
+            return jsonify({"error": "Job not found"}), 404
+        mp = job.get("brush_mask_path")
+        job["brush_mask_path"] = None
+    if mp and os.path.exists(mp):
+        try:
+            os.remove(mp)
+        except OSError:
+            pass
+    _save_job(job_id)
+    return jsonify({"status": "cleared"})
+
+
+@app.route("/api/visual/brush-mask/<job_id>/view")
+def view_brush_mask(job_id: str):
+    """Serve the saved brush mask so the canvas can restore it on reopen."""
+    with jobs_lock:
+        job = jobs.get(job_id)
+    if not job:
+        abort(404)
+    mp = job.get("brush_mask_path")
+    if not mp or not os.path.exists(mp):
+        abort(404)
+    return send_file(mp, mimetype="image/png")
+
+
 @app.route("/api/visual/motion-plan/<job_id>", methods=["POST"])
 def api_motion_plan(job_id: str):
     """Vision director: Claude looks at the scene image and returns a motion layer
@@ -2638,6 +2698,13 @@ def generate_visual_clip(job_id: str):
             motion_style = (data.get("motion_style") or "auto").lower()
             intensity = max(0.3, min(2.0, float(data.get("motion_intensity", 0.8))))
             loop_sec = max(8, min(40, float(data.get("motion_loop_sec", 16))))
+            # Motion brush: confine motion to a painted region, freeze the rest.
+            # Triggered by the UI flag; layer SELECTION still comes from the editor/
+            # preset/auto director below (the brush only says WHERE motion happens).
+            use_brush = bool(data.get("use_brush"))
+            brush_mask_path = job.get("brush_mask_path") if use_brush else None
+            if brush_mask_path and not os.path.exists(brush_mask_path):
+                brush_mask_path = None
             user_layers = data.get("motion_layers")
             if isinstance(user_layers, list) and user_layers:
                 # Editor-composed layers → render EXACTLY this (what-you-see-is-what-
@@ -2677,6 +2744,7 @@ def generate_visual_clip(job_id: str):
                 image_path, clip_path, layers=layers,
                 loop_sec=loop_sec, fps=24, size=(1920, 1080),
                 on_status=lambda m: _long_task_update(job_id, message=m),
+                brush_mask_path=brush_mask_path,
             )
         else:
             gen = VisualGenerator(xai_api_key="", output_dir=str(PROJECT_ROOT / "output"))
