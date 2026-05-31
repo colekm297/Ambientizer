@@ -3627,6 +3627,123 @@
     });
   }
 
+  // ── Motion Layer editor (Living Still) ─────────
+  // Every motion effect is a layer with its own params. The list IS what renders.
+  window._motionLayers = [];
+  const MOTION_SCHEMA = {
+    breathing_zoom: { label: "Camera", params: [
+      { key: "amount", label: "Zoom", min: 0, max: 0.25, step: 0.01, def: 0.08 },
+      { key: "orbit", label: "Orbit", min: 0, max: 1, step: 0.05, def: 0.3 },
+      { key: "pan", label: "Pan (glide)", min: 0, max: 1, step: 0.05, def: 0 } ] },
+    parallax: { label: "Parallax depth", params: [
+      { key: "amount", label: "Depth", min: 0, max: 1, step: 0.05, def: 0.5 } ] },
+    particles: { label: "Particles", params: [
+      { key: "kind", label: "Kind", type: "select", options: ["dust", "snow", "rain", "embers", "fireflies", "bokeh"], def: "dust" },
+      { key: "count", label: "Count", min: 10, max: 500, step: 10, def: 200 },
+      { key: "amount", label: "Strength", min: 0, max: 1.2, step: 0.05, def: 0.6 } ] },
+    nebula: { label: "Nebula / gas drift", params: [
+      { key: "amount", label: "Drift", min: 0, max: 1, step: 0.05, def: 0.5 } ] },
+    shimmer: { label: "Shimmer", params: [
+      { key: "amount", label: "Strength", min: 0, max: 1, step: 0.05, def: 0.5 },
+      { key: "region", label: "Only on", type: "select", options: ["(whole frame)", "water"], def: "(whole frame)" } ] },
+    twinkle: { label: "Twinkle lights", params: [
+      { key: "amount", label: "Strength", min: 0, max: 1, step: 0.05, def: 0.7 } ] },
+    god_rays: { label: "God rays", params: [
+      { key: "amount", label: "Strength", min: 0, max: 0.9, step: 0.05, def: 0.5 },
+      { key: "count", label: "Beams", min: 3, max: 16, step: 1, def: 8 } ] },
+    aurora: { label: "Aurora", params: [
+      { key: "amount", label: "Strength", min: 0, max: 1, step: 0.05, def: 0.7 } ] },
+    color_glow: { label: "Color glow", params: [
+      { key: "amount", label: "Strength", min: 0, max: 0.6, step: 0.02, def: 0.28 },
+      { key: "color", label: "Color", type: "select", options: ["red", "amber", "gold", "orange", "blue", "cyan", "teal", "green", "purple", "magenta", "white", "warm"], def: "amber" } ] },
+    fog: { label: "Fog / mist", params: [
+      { key: "amount", label: "Density", min: 0, max: 0.5, step: 0.02, def: 0.22 } ] },
+    light: { label: "Light breathing", params: [
+      { key: "amount", label: "Strength", min: 0, max: 0.25, step: 0.01, def: 0.1 } ] },
+    vignette_pulse: { label: "Vignette pulse", params: [
+      { key: "amount", label: "Strength", min: 0, max: 0.4, step: 0.02, def: 0.16 } ] },
+  };
+  const MOTION_PRESETS = {
+    drift: [{ type: "breathing_zoom", amount: 0.08, orbit: 0.35 }, { type: "light", amount: 0.07 }, { type: "vignette_pulse", amount: 0.14 }],
+    stargaze: [{ type: "breathing_zoom", amount: 0.1, orbit: 0.5 }, { type: "twinkle", amount: 0.8 }, { type: "nebula", amount: 0.5 }, { type: "light", amount: 0.07 }, { type: "vignette_pulse", amount: 0.14 }],
+    parallax: [{ type: "parallax", amount: 0.5 }, { type: "light", amount: 0.08 }, { type: "vignette_pulse", amount: 0.14 }],
+    calm: [{ type: "breathing_zoom", amount: 0.1, orbit: 0.5 }, { type: "particles", kind: "dust", count: 140, amount: 0.5 }, { type: "fog", amount: 0.22 }, { type: "light", amount: 0.1 }, { type: "vignette_pulse", amount: 0.15 }],
+  };
+  const motionLayersList = document.getElementById("motion-layers-list");
+
+  function _defaultMotionLayer(type) {
+    const layer = { type };
+    (MOTION_SCHEMA[type]?.params || []).forEach(p => {
+      if (p.type === "select") { if (p.def !== "(whole frame)") layer[p.key] = p.def; }
+      else layer[p.key] = p.def;
+    });
+    return layer;
+  }
+
+  function _renderMotionLayers() {
+    if (!motionLayersList) return;
+    const layers = window._motionLayers || [];
+    if (!layers.length) {
+      motionLayersList.innerHTML = '<div class="canvas-empty"><p class="canvas-empty-sub">No layers yet. <strong>Auto-plan from image</strong>, load a preset, or add layers — then tweak and Generate.</p></div>';
+      return;
+    }
+    motionLayersList.innerHTML = layers.map((l, i) => {
+      const schema = MOTION_SCHEMA[l.type] || { label: l.type, params: [] };
+      const rows = schema.params.map(p => {
+        if (p.type === "select") {
+          const cur = l[p.key] != null ? l[p.key] : p.def;
+          const opts = p.options.map(o => `<option value="${o}"${o === cur ? " selected" : ""}>${o}</option>`).join("");
+          return `<label class="ml-param"><span>${p.label}</span><select class="ml-input" data-idx="${i}" data-key="${p.key}" data-kind="select">${opts}</select></label>`;
+        }
+        const cur = l[p.key] != null ? l[p.key] : p.def;
+        return `<label class="ml-param"><span>${p.label}</span>
+          <input type="range" class="ml-input" data-idx="${i}" data-key="${p.key}" min="${p.min}" max="${p.max}" step="${p.step}" value="${cur}">
+          <span class="ml-val">${cur}</span></label>`;
+      }).join("");
+      return `<div class="ml-card"><div class="ml-card-head"><span class="ml-card-name">${schema.label}</span>
+        <button class="ml-remove" data-idx="${i}" title="Remove">&times;</button></div>${rows}</div>`;
+    }).join("");
+    motionLayersList.querySelectorAll(".ml-input").forEach(el => {
+      el.addEventListener("input", () => {
+        const i = +el.dataset.idx, key = el.dataset.key;
+        if (el.dataset.kind === "select") {
+          if (el.value === "(whole frame)") delete window._motionLayers[i][key];
+          else window._motionLayers[i][key] = el.value;
+        } else {
+          window._motionLayers[i][key] = parseFloat(el.value);
+          const v = el.parentElement.querySelector(".ml-val"); if (v) v.textContent = el.value;
+        }
+      });
+    });
+    motionLayersList.querySelectorAll(".ml-remove").forEach(el => {
+      el.addEventListener("click", () => { window._motionLayers.splice(+el.dataset.idx, 1); _renderMotionLayers(); });
+    });
+  }
+  window._renderMotionLayers = _renderMotionLayers;
+
+  document.getElementById("btn-add-motion-layer")?.addEventListener("click", () => {
+    const type = document.getElementById("motion-add-type").value;
+    window._motionLayers.push(_defaultMotionLayer(type));
+    _renderMotionLayers();
+  });
+  document.getElementById("motion-loadpreset")?.addEventListener("change", (e) => {
+    const preset = MOTION_PRESETS[e.target.value];
+    if (preset) { window._motionLayers = preset.map(l => ({ ...l })); _renderMotionLayers(); }
+    e.target.value = "";
+  });
+  document.getElementById("btn-auto-plan-motion")?.addEventListener("click", async () => {
+    if (!visCurrentJobId) { alert("Select a track + scene image first"); return; }
+    const btn = document.getElementById("btn-auto-plan-motion");
+    btn.disabled = true; btn.textContent = "✦ Looking at image…";
+    try {
+      const res = await fetch(`/api/visual/motion-plan/${visCurrentJobId}`, { method: "POST" });
+      const data = await res.json();
+      if (data.error) alert("Auto-plan failed: " + data.error);
+      else { window._motionLayers = (data.layers || []).map(l => ({ ...l })); _renderMotionLayers(); }
+    } catch (e) { alert("Auto-plan failed: " + e.message); }
+    btn.disabled = false; btn.textContent = "✦ Auto-plan from image";
+  });
+
   // ── Clip generation (step 2) ──────────────────
   btnCreateClip.addEventListener("click", async () => {
     if (!visCurrentJobId) return;
@@ -3652,14 +3769,9 @@
         body: JSON.stringify({
           mode: currentVideoMode,
           motion_prompt: motionPromptEl.value.trim(),
-          motion_style: (document.getElementById("motion-style") || {}).value || "auto",
-          motion_intensity: parseFloat((document.getElementById("motion-intensity") || {}).value) || 0.8,
+          // Editor-composed layers (what-you-see-is-what-renders). Empty → backend auto-plans.
+          motion_layers: window._motionLayers || [],
           motion_loop_sec: parseFloat((document.getElementById("motion-loop-sec") || {}).value) || 16,
-          motion_effects: {
-            twinkle: !!(document.getElementById("fx-twinkle") || {}).checked,
-            nebula: !!(document.getElementById("fx-nebula") || {}).checked,
-            water: !!(document.getElementById("fx-water") || {}).checked,
-          },
         }),
       }),
       onDone: (data) => showClipPreview(data.clip_url),

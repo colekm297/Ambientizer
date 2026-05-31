@@ -3784,3 +3784,19 @@ body { padding-bottom: 92px; }   /* clear the fixed bar */
     margin: 8px 0 4px;
 }
 .motion-fx-row .toggle-label { font-size: 0.86rem; }
+
+/* ── Living Still motion layer editor ───────────── */
+.motion-editor-head { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px; }
+.motion-layers-list { display:flex; flex-direction:column; gap:8px; }
+.ml-card { background: var(--bg-secondary); border:1px solid var(--border); border-radius:9px; padding:10px 12px; }
+.ml-card-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; }
+.ml-card-name { font-weight:700; font-size:0.85rem; color:var(--text-primary); }
+.ml-remove { background:none; border:none; color:var(--text-muted); font-size:1.1rem; cursor:pointer; line-height:1; padding:0 4px; }
+.ml-remove:hover { color: var(--accent); }
+.ml-param { display:flex; align-items:center; gap:10px; font-size:0.78rem; color:var(--text-secondary); margin:4px 0; }
+.ml-param > span:first-child { flex:0 0 84px; }
+.ml-param input[type="range"] { flex:1; }
+.ml-param select.ml-input { flex:1; padding:5px 8px !important; font-size:0.8rem !important; }
+.ml-val { flex:0 0 38px; text-align:right; font-family:'SF Mono',monospace; font-size:0.72rem; color:var(--text-muted); }
+.motion-editor-add { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; align-items:center; }
+.motion-add-select { flex:1; min-width:140px; padding:7px 10px !important; font-size:0.82rem !important; }
