@@ -3849,18 +3849,23 @@
       if (!visCurrentJobId) return;
 
       const speed = parseFloat(clipSpeedEl?.value || "0.5");
+      const smooth = !!document.getElementById("clip-smooth")?.checked;
       btnApplySpeed.disabled = true;
       btnApplySpeed.textContent = "Applying...";
 
+      const msg = speed === 1
+        ? "Reverting to original speed..."
+        : `Creating ${speed}x ${smooth ? "smooth " : ""}slowed clip...`;
+
       await runLongTask(visCurrentJobId, {
-        initialMessage: `Creating ${speed}x slowed clip...`,
+        initialMessage: msg,
         progressEl: clipProgress,
         progressTextEl: clipProgressText,
         stopBtn: clipStopBtn,
         startRequest: () => fetch(`/api/visual/slow/${visCurrentJobId}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ speed }),
+          body: JSON.stringify({ speed, smooth }),
         }),
         onDone: (data) => showClipPreview(data.clip_url),
         onError: (msg) => { if (msg) alert("Speed change failed: " + msg); },

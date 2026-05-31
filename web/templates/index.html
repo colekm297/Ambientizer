@@ -446,12 +446,15 @@
                             <div class="form-group clip-speed-group">
                                 <label for="clip-speed">Video Speed</label>
                                 <select id="clip-speed">
-                                    <option value="1">1x</option>
+                                    <option value="1">1x (original)</option>
                                     <option value="0.75">0.75x</option>
                                     <option value="0.5" selected>0.5x</option>
                                     <option value="0.25">0.25x</option>
                                 </select>
                             </div>
+                            <label class="clip-smooth-label" title="Synthesize in-between frames for smooth slow motion (slower to render; can warp on fast motion)">
+                                <input type="checkbox" id="clip-smooth"> Smooth
+                            </label>
                             <button id="btn-apply-speed" class="btn btn-secondary">Apply Speed</button>
                             <button id="btn-boomerang" class="btn btn-secondary" title="Play forward then reverse — perfectly seamless loop with no hard cut. Great for uploaded clips.">↔ Boomerang Loop</button>
                         </div>
