@@ -23,6 +23,7 @@
       tabContents.forEach((c) => c.classList.remove("active"));
       btn.classList.add("active");
       document.getElementById(`tab-${target}`).classList.add("active");
+      try { localStorage.setItem("ambientizer_active_tab", target); } catch (e) {}
 
       // Single global player keeps playing across tabs — never pause on switch.
       // Each tab just renders a view of the currently-selected track.
@@ -4979,6 +4980,15 @@
   }
 
   // ── Init ──────────────────────────────────────
+  // Restore the tab you were on across refreshes.
+  try {
+    const savedTab = localStorage.getItem("ambientizer_active_tab");
+    if (savedTab && savedTab !== "create") {
+      const tb = document.querySelector(`.tab-btn[data-tab="${savedTab}"]`);
+      if (tb) tb.click();
+    }
+  } catch (e) {}
+
   refreshHistory().then(() => {
     // Restore whichever track was selected last time (persisted in localStorage);
     // fall back to the most recent if that track no longer exists. Loaded PAUSED
