@@ -281,6 +281,8 @@ def _save_job(job_id: str):
         "visual_image_prompt": job.get("visual_image_prompt"),
         "visual_clip_path": job.get("visual_clip_path"),
         "visual_clip_mode": job.get("visual_clip_mode"),
+        "visual_clips": job.get("visual_clips"),
+        "visual_active_tab": job.get("visual_active_tab"),
         "visual_video_path": job.get("visual_video_path"),
         "youtube_url": job.get("youtube_url"),
         "youtube_video_id": job.get("youtube_video_id"),
@@ -349,6 +351,8 @@ def _load_saved_jobs():
                 "visual_image_prompt": data.get("visual_image_prompt"),
                 "visual_clip_path": data.get("visual_clip_path"),
                 "visual_clip_mode": data.get("visual_clip_mode"),
+                "visual_clips": data.get("visual_clips"),
+                "visual_active_tab": data.get("visual_active_tab"),
                 "visual_video_path": data.get("visual_video_path"),
                 "youtube_url": data.get("youtube_url"),
                 "youtube_video_id": data.get("youtube_video_id"),
@@ -1152,6 +1156,12 @@ def api_status(job_id: str):
         "visual_image_url": f"/api/visual/image/{job['job_id']}/view" if job.get("visual_image_path") else None,
         "visual_image_prompt": job.get("visual_image_prompt", ""),
         "visual_clip_url": f"/api/visual/clip/{job['job_id']}/view" if job.get("visual_clip_path") else None,
+        "visual_clip_mode": job.get("visual_clip_mode"),
+        "visual_active_tab": job.get("visual_active_tab"),
+        "visual_clips": {
+            m: f"/api/visual/clip/{job['job_id']}/view?mode={m}"
+            for m, p in (job.get("visual_clips") or {}).items() if p
+        },
         "visual_video_url": f"/api/visual/video/{job['job_id']}/download" if job.get("visual_video_path") else None,
         "youtube_url": job.get("youtube_url"),
         "yt_title": job.get("yt_title", ""),
@@ -2228,6 +2238,48 @@ def _get_visual_generator() -> VisualGenerator | None:
     return VisualGenerator(xai_api_key=api_key, output_dir=str(PROJECT_ROOT / "output"))
 
 
+# Each video-mode tab (AI / Living Still / Ken Burns / Upload) keeps its OWN clip
+# so switching tabs doesn't clobber what you made in another. `visual_clips` maps
+# tab -> path; `visual_clip_path`/`visual_clip_mode` are the ACTIVE clip (what
+# export/slow/boomerang operate on); `visual_active_tab` is the current tab slot.
+TAB_MODES = {"ai", "motion", "kenburns", "upload"}
+
+
+def _store_clip(job_id: str, mode: str, path: str) -> None:
+    """Save a freshly-generated/uploaded clip into its tab slot and make it active."""
+    with jobs_lock:
+        j = jobs.get(job_id)
+        if not j:
+            return
+        clips = dict(j.get("visual_clips") or {})
+        if mode in TAB_MODES:
+            clips[mode] = path
+            j["visual_clips"] = clips
+            j["visual_active_tab"] = mode
+        j["visual_clip_path"] = path
+        j["visual_clip_mode"] = mode
+        j["visual_video_path"] = None
+    _save_job(job_id)
+
+
+def _update_active_clip(job_id: str, path: str, label: str) -> None:
+    """For derived transforms (slow/boomerang/extend): replace the active clip and
+    keep it filed under whichever tab is currently active."""
+    with jobs_lock:
+        j = jobs.get(job_id)
+        if not j:
+            return
+        tab = j.get("visual_active_tab")
+        if tab in TAB_MODES:
+            clips = dict(j.get("visual_clips") or {})
+            clips[tab] = path
+            j["visual_clips"] = clips
+        j["visual_clip_path"] = path
+        j["visual_clip_mode"] = label
+        j["visual_video_path"] = None
+    _save_job(job_id)
+
+
 # ── Parts / Interactive Builder ──────────────────────────────────────────────
 
 @app.route("/api/parts/<job_id>", methods=["GET"])
@@ -2614,10 +2666,7 @@ def generate_visual_clip(job_id: str):
 
         _long_task_check_cancel(job_id)
 
-        with jobs_lock:
-            jobs[job_id]["visual_clip_path"] = clip_path
-            jobs[job_id]["visual_clip_mode"] = mode
-        _save_job(job_id)
+        _store_clip(job_id, mode, clip_path)
 
         _long_task_finish(job_id, "done", "Clip ready", {
             "clip_url": f"/api/visual/clip/{job_id}/view?t={time.time()}",
@@ -2650,16 +2699,12 @@ def upload_custom_video(job_id: str):
     out_path = str(PROJECT_ROOT / "output" / f"{job_id}_custom_video{ext}")
     f.save(out_path)
 
-    with jobs_lock:
-        jobs[job_id]["visual_clip_path"] = out_path
-        jobs[job_id]["visual_clip_mode"] = "custom"
-
-    _save_job(job_id)
+    _store_clip(job_id, "upload", out_path)
 
     return jsonify({
         "status": "ready",
         "clip_url": f"/api/visual/clip/{job_id}/view?t={time.time()}",
-        "mode": "custom",
+        "mode": "upload",
     })
 
 
@@ -2692,11 +2737,7 @@ def extend_visual_clip(job_id: str):
         gen.extend_video(clip_path, prompt, duration=duration, output_path=extended_path)
         _long_task_check_cancel(job_id)
 
-        with jobs_lock:
-            jobs[job_id]["visual_clip_path"] = extended_path
-            jobs[job_id]["visual_clip_mode"] = "extended"
-            jobs[job_id]["visual_video_path"] = None
-        _save_job(job_id)
+        _update_active_clip(job_id, extended_path, "extended")
 
         _long_task_finish(job_id, "done", "Clip extended", {
             "clip_url": f"/api/visual/clip/{job_id}/view?t={time.time()}",
@@ -2739,11 +2780,7 @@ def slow_visual_clip(job_id: str):
         gen.slow_video(clip_path, speed, slowed_path)
         _long_task_check_cancel(job_id)
 
-        with jobs_lock:
-            jobs[job_id]["visual_clip_path"] = slowed_path
-            jobs[job_id]["visual_clip_mode"] = "slowed"
-            jobs[job_id]["visual_video_path"] = None
-        _save_job(job_id)
+        _update_active_clip(job_id, slowed_path, "slowed")
 
         _long_task_finish(job_id, "done", "Speed applied", {
             "clip_url": f"/api/visual/clip/{job_id}/view?t={time.time()}",
@@ -2777,11 +2814,7 @@ def boomerang_visual_clip(job_id: str):
         gen.boomerang_video(clip_path, boom_path)
         _long_task_check_cancel(job_id)
 
-        with jobs_lock:
-            jobs[job_id]["visual_clip_path"] = boom_path
-            jobs[job_id]["visual_clip_mode"] = "boomerang"
-            jobs[job_id]["visual_video_path"] = None
-        _save_job(job_id)
+        _update_active_clip(job_id, boom_path, "boomerang")
 
         _long_task_finish(job_id, "done", "Boomerang loop created", {
             "clip_url": f"/api/visual/clip/{job_id}/view?t={time.time()}",
@@ -2793,15 +2826,53 @@ def boomerang_visual_clip(job_id: str):
 
 @app.route("/api/visual/clip/<job_id>/view")
 def view_visual_clip(job_id: str):
-    """Serve the short preview clip for inline playback."""
+    """Serve the short preview clip for inline playback.
+
+    Optional ?mode=ai|motion|kenburns|upload serves that tab's stored clip;
+    otherwise serves the active clip."""
     with jobs_lock:
         job = jobs.get(job_id)
     if not job:
         abort(404)
-    path = job.get("visual_clip_path")
+    mode = request.args.get("mode")
+    if mode:
+        path = (job.get("visual_clips") or {}).get(mode)
+    else:
+        path = job.get("visual_clip_path")
     if not path or not os.path.exists(path):
         abort(404)
     return send_file(path, mimetype="video/mp4")
+
+
+@app.route("/api/visual/select-clip/<job_id>", methods=["POST"])
+def select_clip_mode(job_id: str):
+    """Make a given tab's stored clip the active one (called when switching video-mode
+    tabs) so export/slow/boomerang operate on the right clip. Returns whether that
+    tab has a clip and its preview URL."""
+    with jobs_lock:
+        job = jobs.get(job_id)
+        if not job:
+            return jsonify({"error": "Job not found"}), 404
+        data = request.get_json(force=True, silent=True) or {}
+        mode = data.get("mode")
+        clips = dict(job.get("visual_clips") or {})
+        # Lazy-migrate older jobs that only have a single active clip.
+        if not clips and job.get("visual_clip_path") and job.get("visual_clip_mode") in TAB_MODES:
+            clips[job["visual_clip_mode"]] = job["visual_clip_path"]
+            job["visual_clips"] = clips
+        path = clips.get(mode)
+        has = bool(path and os.path.exists(path))
+        if has:
+            job["visual_clip_path"] = path
+            job["visual_clip_mode"] = mode
+        if mode in TAB_MODES:
+            job["visual_active_tab"] = mode
+    _save_job(job_id)
+    return jsonify({
+        "has_clip": has,
+        "clip_url": f"/api/visual/clip/{job_id}/view?mode={mode}&t={time.time()}" if has else None,
+        "mode": mode,
+    })
 
 
 @app.route("/api/visual/export/<job_id>", methods=["POST"])
