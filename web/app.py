@@ -2950,6 +2950,36 @@ def export_visual_video(job_id: str):
             f"afade=t=out:st={fade_out_start}:d={fade_out_sec}"
         )
 
+        # Decide whether we can STREAM-COPY the video track instead of re-encoding
+        # it. The short clip is already a finished H.264 file; tiling it to an hour
+        # with -stream_loop and copying the packets avoids decoding+re-encoding
+        # ~86k frames — near-instant and zero generational quality loss. Each loop
+        # repetition restarts at the clip's leading keyframe, so the copy is clean.
+        # Uploaded clips may not be H.264/yuv420p, so we probe and fall back to a
+        # re-encode in that case.
+        vcodec, vpix = "", ""
+        try:
+            vp = subprocess.run(
+                ["ffprobe", "-v", "quiet", "-select_streams", "v:0",
+                 "-show_entries", "stream=codec_name,pix_fmt",
+                 "-of", "csv=p=0", clip_path],
+                capture_output=True, text=True, timeout=10,
+            )
+            parts = vp.stdout.strip().split(",")
+            vcodec = (parts[0] if parts else "").strip()
+            vpix = (parts[1] if len(parts) > 1 else "").strip()
+        except Exception:
+            pass
+
+        can_copy_video = vcodec == "h264" and vpix in ("yuv420p", "yuvj420p")
+        if can_copy_video:
+            video_args = ["-c:v", "copy"]
+            video_note = "video stream-copy (no re-encode)"
+        else:
+            video_args = ["-c:v", "libx264", "-preset", "fast", "-crf", "20",
+                          "-pix_fmt", "yuv420p"]
+            video_note = f"video re-encode (source codec: {vcodec or 'unknown'})"
+
         cmd = [
             "ffmpeg", "-y",
             "-stream_loop", "-1", "-i", clip_path,
@@ -2957,7 +2987,7 @@ def export_visual_video(job_id: str):
             "-map", "0:v:0",
             "-map", "1:a:0",
             "-t", str(target_sec),
-            "-c:v", "libx264", "-preset", "fast", "-crf", "20", "-pix_fmt", "yuv420p",
+            *video_args,
             "-af", afade_chain,
             "-c:a", "aac", "-b:a", "320k", "-cutoff", "20000",
             final_path,
@@ -2965,11 +2995,15 @@ def export_visual_video(job_id: str):
 
         _long_task_update(
             job_id,
-            message=f"Looping clip + combining with audio ({target_sec / 60:.0f} min)...",
+            message=(
+                f"Combining with audio ({target_sec / 60:.0f} min) — fast copy..."
+                if can_copy_video
+                else f"Looping clip + combining with audio ({target_sec / 60:.0f} min)..."
+            ),
         )
         print(
             f"  [export] Single-pass export: {target_sec/60:.0f} min, "
-            f"audio loop cell {loop_duration_sec:.1f}s → {final_path}"
+            f"audio loop cell {loop_duration_sec:.1f}s, {video_note} → {final_path}"
         )
         _run_ffmpeg_cancellable(job_id, cmd, total_sec=target_sec,
                                 label="Looping clip + combining audio")
