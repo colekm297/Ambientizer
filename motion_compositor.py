@@ -932,7 +932,7 @@ def scale_motion(layers: list[dict], factor: float) -> list[dict]:
     out = []
     for l in (layers or []):
         m = dict(l)
-        for k in ("amount", "orbit"):
+        for k in ("amount", "orbit", "pan"):
             if k in m:
                 try:
                     m[k] = float(m[k]) * factor
