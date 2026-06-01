@@ -87,14 +87,10 @@
                                     <input type="text" id="ref-start" class="ref-time-input" placeholder="0:00" value="0:00">
                                     <span class="ref-time-hint">to</span>
                                     <input type="text" id="ref-end" class="ref-time-input" placeholder="10:00" value="10:00">
-                                    <button id="btn-analyze-ref" class="btn btn-analyze-ref" title="Analyze this reference before generating">Analyze</button>
+                                    <button id="btn-analyze-ref" class="btn btn-analyze-ref" title="Gemini listens to this video, writes your prompt from it, and guides generation">Use as Reference</button>
                                     <span id="analyze-ref-status" class="enhance-status"></span>
                                 </div>
-                                <label class="toggle-label ref-use-toggle">
-                                    <input type="checkbox" id="use-reference-generation">
-                                    <span class="toggle-text">Also use during generation</span>
-                                </label>
-                                <span class="form-hint">Analyze builds/merges a prompt. Enable this to also let Gemini's analysis guide generation.</span>
+                                <span class="form-hint">Gemini listens to the video, writes your prompt from it, and uses the analysis to guide generation. This replaces your current prompt.</span>
                                 <div id="ref-analysis-panel" class="ref-analysis-panel hidden">
                                     <div class="ref-analysis-header">
                                         <span class="ref-analysis-title">Reference Analysis</span>
@@ -103,10 +99,6 @@
                                     <div id="ref-analysis-summary" class="ref-analysis-summary"></div>
                                     <div id="ref-analysis-layers" class="ref-analysis-layers"></div>
                                     <div id="ref-suggested-prompt" class="ref-suggested-prompt"></div>
-                                    <div class="ref-analysis-actions">
-                                        <button id="btn-ref-use" class="btn btn-ref-action" title="Replace your prompt with this">Use as Prompt</button>
-                                        <button id="btn-ref-merge" class="btn btn-ref-action" title="Add this to the end of your current prompt">Merge with Prompt</button>
-                                    </div>
                                 </div>
                             </div>
                         </details>
