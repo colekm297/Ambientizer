@@ -4734,6 +4734,10 @@
         `;
       }).join("");
       attachShortHandlers();
+      // Resume tracking any short that's mid-upload (e.g. after a page refresh).
+      items.forEach((s) => {
+        if (s.upload_status === "uploading" && !s.youtube_url) pollShortUploadStatus(s.short_id);
+      });
     } catch (err) {
       console.error("[Shorts] list failed:", err);
     }
@@ -4803,16 +4807,31 @@
 
   function pollShortUploadStatus(shortId) {
     const statusEl = shortsList.querySelector(`.short-upload-status[data-short-id="${shortId}"]`);
-    if (statusEl) statusEl.textContent = "Uploading…";
+    const setStatus = (txt, cls) => {
+      if (!statusEl) return;
+      statusEl.textContent = txt;
+      statusEl.classList.remove("upload-uploading", "upload-done", "upload-error");
+      if (cls) statusEl.classList.add(cls);
+    };
+    setStatus("⏳ Starting upload…", "upload-uploading");
     const interval = setInterval(async () => {
       try {
         const r = await fetch(`/api/distribute/shorts/${shortId}/upload-status`);
         const d = await r.json();
-        if (statusEl) statusEl.textContent = d.message || d.status || "";
-        if (d.status === "done" || d.status === "error") {
+        if (d.status === "done") {
           clearInterval(interval);
+          setStatus("✅ Published! Opening on YouTube…", "upload-done");
+          if (d.youtube_url) window.open(d.youtube_url, "_blank");
           await refreshShortsList();
           await refreshDistributeCatalog();
+        } else if (d.status === "error") {
+          clearInterval(interval);
+          setStatus("❌ Upload failed: " + (d.message || "unknown error"), "upload-error");
+          const btn = shortsList.querySelector(`.btn-short-publish[data-short-id="${shortId}"]`);
+          if (btn) { btn.disabled = false; btn.textContent = "Retry publish"; }
+        } else {
+          const pct = Math.round(d.progress || 0);
+          setStatus(`⏳ Uploading… ${pct}%` + (d.message ? ` — ${d.message}` : ""), "upload-uploading");
         }
       } catch (e) { /* keep polling */ }
     }, 2000);
