@@ -3824,16 +3824,21 @@ def api_shorts_generate(job_id: str):
 
     def worker():
         parent_dur = distribute_shorts._ffprobe_duration(parent_video or audio_path)
+        # The segment window MUST stay within the AUDIO too: the parent video may be
+        # the hour-long export while the audio is the shorter raw loop. Picking a
+        # moment past the end of the audio seeks into silence → a soundless short.
+        audio_dur = distribute_shorts._ffprobe_duration(audio_path) or parent_dur
+        seg_dur = min(parent_dur, audio_dur) if audio_dur else parent_dur
         for i in range(count):
             _long_task_check_cancel(job_id)
             _long_task_update(job_id, message=f"Generating short {i + 1}/{count}: picking moment...")
 
-            # Pick segment window.
+            # Pick segment window (bounded by seg_dur so audio always exists).
             if mode == "manual":
-                start_sec = max(0.0, min(parent_dur - clip_sec, manual_start))
+                start_sec = max(0.0, min(seg_dur - clip_sec, manual_start))
                 desc = "User-selected moment"
             elif mode in ("first", "middle", "last"):
-                start_sec = distribute_shorts.preset_window(parent_dur, mode, clip_sec)
+                start_sec = distribute_shorts.preset_window(seg_dur, mode, clip_sec)
                 desc = f"{mode.capitalize()} segment"
             else:
                 # auto — offset each subsequent short so we don't pick the same moment.
@@ -3841,10 +3846,11 @@ def api_shorts_generate(job_id: str):
                     start_sec, desc = distribute_shorts.pick_segment_auto(
                         audio_path, clip_sec=clip_sec, gemini_api_key=gemini_key,
                     )
+                    start_sec = max(0.0, min(seg_dur - clip_sec, start_sec))
                 else:
                     # Stagger across the track for variety
                     fraction = (i + 0.5) / count
-                    start_sec = max(0.0, min(parent_dur - clip_sec, fraction * (parent_dur - clip_sec)))
+                    start_sec = max(0.0, min(seg_dur - clip_sec, fraction * (seg_dur - clip_sec)))
                     desc = f"Atmospheric moment {i + 1}"
 
             short_id = distribute_shorts.new_short_id()
@@ -3858,6 +3864,18 @@ def api_shorts_generate(job_id: str):
                 on_log=lambda s: _long_task_update(job_id, message=s),
             )
             _long_task_check_cancel(job_id)
+
+            # Never ship a silent Short: verify the render actually has an audio stream.
+            acodec = subprocess.run(
+                ["ffprobe", "-v", "error", "-select_streams", "a:0",
+                 "-show_entries", "stream=codec_name", "-of", "csv=p=0", out_path],
+                capture_output=True, text=True,
+            ).stdout.strip()
+            if not acodec:
+                raise RuntimeError(
+                    f"Short {i + 1} rendered with no audio (start {start_sec:.0f}s). Aborted "
+                    "so it isn't published silent."
+                )
 
             # Metadata.
             _long_task_update(job_id, message=f"Generating short {i + 1}/{count}: writing metadata...")
