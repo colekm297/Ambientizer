@@ -4591,7 +4591,11 @@ def api_stream_start():
     rtmp_url = secrets.get("youtube_stream_url") or "rtmp://a.rtmp.youtube.com/live2"
     stream_key = secrets.get("youtube_stream_key")
     if not stream_key:
-        return jsonify({"error": "No YouTube stream key. Save one in Distribute → Secrets first."}), 400
+        return jsonify({
+            "error": "No YouTube stream key saved yet. Open “Stream settings” below, "
+                     "paste your YouTube Live stream key, and click Save stream settings.",
+            "needs_stream_key": True,
+        }), 400
 
     log_path = str(PROJECT_ROOT / "output" / "_distribute_stream.log")
     try:
