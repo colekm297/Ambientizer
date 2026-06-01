@@ -3967,13 +3967,6 @@ def api_short_publish(short_id: str):
     tags = data.get("tags", s.get("yt_tags", []))
     privacy = data.get("privacy", "unlisted")
 
-    # Funnel Short viewers to the full-length video: if the parent is published,
-    # make sure its link is in the description (the Short's metadata is generated
-    # before the long video exists, so the link is usually missing at that point).
-    parent_url = job.get("youtube_url")
-    if parent_url and parent_url not in description:
-        description = (description + f"\n\n▶ Full version (1 hour): {parent_url}").strip()
-
     if isinstance(tags, str):
         tags = [t.strip() for t in tags.split(",") if t.strip()]
 

@@ -3106,6 +3106,13 @@ audio::-webkit-media-controls-panel {
     color: var(--success);
 }
 
+.badge-action {
+    background: rgba(108, 140, 255, 0.16);
+    color: #9db1ff;
+    margin-left: 6px;
+}
+.related-hint { display: block; margin-top: 6px; line-height: 1.4; }
+
 .badge-warn {
     background: rgba(251, 191, 36, 0.12);
     color: var(--warning);
