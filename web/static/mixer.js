@@ -488,7 +488,7 @@ class LiveMixer {
 
   // ── Transport ───────────────────────────────────
 
-  async play() {
+  async play(fadeIn = true) {
     if (this.playing) return;
     // iOS: the AudioContext starts "suspended" and only resumes from a user
     // gesture. We MUST await it — otherwise currentTime stays frozen, the
@@ -510,7 +510,9 @@ class LiveMixer {
     // wraps the timer schedules its own fade-out → fade-in pair so the
     // preview matches what the exported file will sound like.
     const startTime = this.ctx.currentTime + 0.020;
-    const fadeInSec = this._fadeInSec || 5.0;
+    // fadeIn=false (e.g. after a user seek) → come in immediately at full volume,
+    // no 5s ramp. The intro fade-in is only for the initial play / loop wraps.
+    const fadeInSec = fadeIn ? (this._fadeInSec || 5.0) : 0.030;
     this.masterGain.gain.cancelScheduledValues(startTime);
     this.masterGain.gain.setValueAtTime(0, startTime);
     this.masterGain.gain.linearRampToValueAtTime(vol, startTime + fadeInSec);
@@ -550,7 +552,7 @@ class LiveMixer {
     const was = this.playing;
     if (was) this.pause();
     this.pausedAt = Math.max(0, Math.min(seconds, this.duration));
-    if (was) this.play();
+    if (was) this.play(false);   // resume instantly — no intro fade-in on seek
     if (this.onTimeUpdate) this.onTimeUpdate(this.pausedAt, this.duration);
   }
 
