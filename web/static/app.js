@@ -501,6 +501,41 @@
   restoreFormState();
   updateCreditEstimate();
 
+  // ── New song: wipe the Create form to a clean slate ──
+  function newSong() {
+    promptEl.value = "";
+    _autogrowPrompt();
+    // back to defaults
+    currentMode = "ambient";
+    modeButtons.forEach(b => b.classList.toggle("active", b.dataset.mode === "ambient"));
+    if (musicGenerationModeEl) musicGenerationModeEl.value = "text";
+    if (musicLengthEl) musicLengthEl.value = "5";
+    referenceUrlEl.value = "";
+    refStartEl.value = "0:00";
+    refEndEl.value = "10:00";
+    // clear reference analysis + composition plan
+    window._compositionPlan = null;
+    if (typeof _renderCompSections === "function") _renderCompSections(null);
+    const refPanel = document.getElementById("ref-analysis-panel");
+    if (refPanel) refPanel.classList.add("hidden");
+    const refStatus = document.getElementById("analyze-ref-status");
+    if (refStatus) { refStatus.textContent = ""; refStatus.className = "enhance-status"; }
+    if (typeof _lastRefAnalysis !== "undefined") { try { _lastRefAnalysis = null; _lastRefSuggested = ""; _lastRefSignature = ""; } catch (_) {} }
+    if (typeof _updateApproachVisibility === "function") _updateApproachVisibility();
+    if (typeof _toggleCompSections === "function") _toggleCompSections();
+    try { localStorage.removeItem(FORM_KEY); } catch (_) {}
+    saveFormState();
+    updateCreditEstimate();
+    promptEl.focus();
+  }
+  const btnNewSong = document.getElementById("btn-new-song");
+  if (btnNewSong) {
+    btnNewSong.addEventListener("click", () => {
+      if (promptEl.value.trim() && !confirm("Start a new song? This clears the current prompt and settings.")) return;
+      newSong();
+    });
+  }
+
   // ── Saved Prompts Library ─────────────────────
   function getSavedPrompts() {
     try { return JSON.parse(localStorage.getItem(SAVED_PROMPTS_KEY) || "[]"); } catch (_) { return []; }
