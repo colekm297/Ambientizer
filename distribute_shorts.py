@@ -148,8 +148,10 @@ def build_short_video(
 ) -> None:
     """Render a vertical 1080x1920 mp4 to out_path.
 
-    mode="crop"  → take parent 16:9 video, blur-fill background + centered scaled
-                   foreground (no upscaling beyond original res).
+    mode="crop"  → take parent 16:9 video and COVER-CROP a centered vertical slice
+                   that FILLS the 9:16 frame (no bars). Crops the sides.
+    mode="fit"   → fit the whole 16:9 frame inside 9:16 with a blurred-fill
+                   background above/below (keeps the full width, adds bars).
     mode="image" → static image with subtle Ken Burns pan/zoom.
     mode="auto"  → prefer crop if parent_video_path exists, else image.
     """
@@ -159,16 +161,25 @@ def build_short_video(
     log = on_log or (lambda *_: None)
     target_w, target_h = 1080, 1920
 
-    if mode == "crop" and parent_video_path and os.path.exists(parent_video_path):
-        # Two-source filter graph: blurred background + scaled foreground.
-        vf = (
-            f"[0:v]trim=start={start_sec}:duration={clip_sec},setpts=PTS-STARTPTS,"
-            f"scale={target_w}:{target_h}:force_original_aspect_ratio=increase,"
-            f"crop={target_w}:{target_h},gblur=sigma=24[bg];"
-            f"[0:v]trim=start={start_sec}:duration={clip_sec},setpts=PTS-STARTPTS,"
-            f"scale={target_w}:{target_h}:force_original_aspect_ratio=decrease[fg];"
-            f"[bg][fg]overlay=(W-w)/2:(H-h)/2,format=yuv420p[v]"
-        )
+    if mode in ("crop", "fit") and parent_video_path and os.path.exists(parent_video_path):
+        if mode == "crop":
+            # TRUE vertical crop: scale up so the frame is fully covered, then crop a
+            # centered 1080x1920 slice → the scene fills the whole short, no bars.
+            vf = (
+                f"[0:v]trim=start={start_sec}:duration={clip_sec},setpts=PTS-STARTPTS,"
+                f"scale={target_w}:{target_h}:force_original_aspect_ratio=increase,"
+                f"crop={target_w}:{target_h},format=yuv420p[v]"
+            )
+        else:
+            # Fit whole 16:9 inside with blurred-fill background (bars top/bottom).
+            vf = (
+                f"[0:v]trim=start={start_sec}:duration={clip_sec},setpts=PTS-STARTPTS,"
+                f"scale={target_w}:{target_h}:force_original_aspect_ratio=increase,"
+                f"crop={target_w}:{target_h},gblur=sigma=24[bg];"
+                f"[0:v]trim=start={start_sec}:duration={clip_sec},setpts=PTS-STARTPTS,"
+                f"scale={target_w}:{target_h}:force_original_aspect_ratio=decrease[fg];"
+                f"[bg][fg]overlay=(W-w)/2:(H-h)/2,format=yuv420p[v]"
+            )
         cmd = [
             "ffmpeg", "-y",
             "-i", parent_video_path,
