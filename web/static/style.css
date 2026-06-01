@@ -3112,6 +3112,10 @@ audio::-webkit-media-controls-panel {
     margin-left: 6px;
 }
 .related-hint { display: block; margin-top: 6px; line-height: 1.4; }
+.full-link-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+.full-link-input { flex: 1; min-width: 160px; padding: 6px 8px; font-size: 0.8rem;
+    background: var(--inset, #11151c); border: 1px solid var(--border, #2a2f3a);
+    border-radius: 6px; color: var(--text-primary, #e8edf5); }
 
 .badge-warn {
     background: rgba(251, 191, 36, 0.12);

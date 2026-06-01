@@ -4827,17 +4827,28 @@
         if (d.status === "done") {
           clearInterval(interval);
           const studioUrl = d.video_id ? `https://studio.youtube.com/video/${d.video_id}/edit` : null;
+          const fullUrl = d.parent_youtube_url || "";
           if (statusEl) {
             statusEl.classList.remove("upload-uploading", "upload-error");
             statusEl.classList.add("upload-done");
-            statusEl.innerHTML =
-              "✅ Published! " +
+            let html = "✅ Published! " +
               (d.youtube_url ? `<a href="${d.youtube_url}" target="_blank">View Short</a> · ` : "") +
-              (studioUrl
-                ? `<a href="${studioUrl}" target="_blank">➕ Link the full video in Studio</a> (Related video → pick your full video → Save)`
-                : "");
+              (studioUrl ? `<a href="${studioUrl}" target="_blank">➕ Add Related video in Studio</a>` : "");
+            if (fullUrl) {
+              html += `<span class="full-link-row">Full video to link: ` +
+                `<input class="full-link-input" type="text" readonly value="${fullUrl}" onclick="this.select()">` +
+                `<button type="button" class="btn btn-secondary btn-sm copy-full-link" data-url="${fullUrl}">Copy</button></span>`;
+            } else {
+              html += `<span class="full-link-row">⚠ Publish the full-length video first to get its link for Related video.</span>`;
+            }
+            statusEl.innerHTML = html;
+            const copyBtn = statusEl.querySelector(".copy-full-link");
+            if (copyBtn) copyBtn.addEventListener("click", async () => {
+              try { await navigator.clipboard.writeText(copyBtn.dataset.url); copyBtn.textContent = "Copied ✓"; }
+              catch (e) { const inp = statusEl.querySelector(".full-link-input"); if (inp) { inp.select(); document.execCommand("copy"); copyBtn.textContent = "Copied ✓"; } }
+              setTimeout(() => { copyBtn.textContent = "Copy"; }, 2000);
+            });
           }
-          // Open the Studio edit page — that's where you take the one manual action.
           if (studioUrl) window.open(studioUrl, "_blank");
           await refreshShortsList();
           await refreshDistributeCatalog();
