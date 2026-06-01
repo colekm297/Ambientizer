@@ -47,7 +47,6 @@
   const referenceUrlEl = document.getElementById("reference-url");
   const refStartEl = document.getElementById("ref-start");
   const refEndEl = document.getElementById("ref-end");
-  const useReferenceGenerationEl = document.getElementById("use-reference-generation");
   const musicLengthEl = document.getElementById("music-length");
   // Track duration is auto-derived as music_length × 2 (min 5 min). Used as
   // the server-side preview render length; live player derives its own length
@@ -455,7 +454,6 @@
       reference_url: referenceUrlEl.value,
       ref_start: refStartEl.value,
       ref_end: refEndEl.value,
-      ref_use_generation: useReferenceGenerationEl?.checked || false,
     };
     try { localStorage.setItem(FORM_KEY, JSON.stringify(state)); } catch (_) {}
   }
@@ -489,7 +487,6 @@
       if (s.reference_url) referenceUrlEl.value = s.reference_url;
       if (s.ref_start) refStartEl.value = s.ref_start;
       if (s.ref_end) refEndEl.value = s.ref_end;
-      if (useReferenceGenerationEl) useReferenceGenerationEl.checked = s.ref_use_generation === true;
       _updateApproachVisibility();
     } catch (_) {}
   }
@@ -501,7 +498,6 @@
   referenceUrlEl.addEventListener("input", saveFormState);
   refStartEl.addEventListener("change", saveFormState);
   refEndEl.addEventListener("change", saveFormState);
-  if (useReferenceGenerationEl) useReferenceGenerationEl.addEventListener("change", saveFormState);
   restoreFormState();
   updateCreditEstimate();
 
@@ -815,8 +811,6 @@
   const refAnalysisSummary = document.getElementById("ref-analysis-summary");
   const refAnalysisLayers = document.getElementById("ref-analysis-layers");
   const refSuggestedPrompt = document.getElementById("ref-suggested-prompt");
-  const btnRefUse = document.getElementById("btn-ref-use");
-  const btnRefMerge = document.getElementById("btn-ref-merge");
   const btnRefClose = document.getElementById("btn-ref-close");
 
   let _lastRefSuggested = "";
@@ -837,7 +831,7 @@
       if (!url) { referenceUrlEl.focus(); return; }
 
       btnAnalyzeRef.disabled = true;
-      btnAnalyzeRef.textContent = "Analyzing...";
+      btnAnalyzeRef.textContent = "Listening...";
       analyzeRefStatus.textContent = "Gemini is listening to the audio...";
       analyzeRefStatus.className = "enhance-status active";
       refAnalysisPanel.classList.add("hidden");
@@ -866,50 +860,27 @@
           _lastRefSignature = _referenceSignature();
           refSuggestedPrompt.textContent = _lastRefSuggested;
           refAnalysisPanel.classList.remove("hidden");
-          analyzeRefStatus.textContent = "Analysis complete";
-          analyzeRefStatus.className = "enhance-status success";
+          // One-button flow: writing the prompt from the reference and keeping
+          // the analysis (attached automatically at generation, gated on the
+          // signature still matching the URL/timestamps).
+          if (_lastRefSuggested) {
+            promptEl.value = _lastRefSuggested;
+            promptEl.style.height = "auto";
+            promptEl.style.height = promptEl.scrollHeight + "px";
+            saveFormState();
+            analyzeRefStatus.textContent = "Prompt set from reference — ready to generate";
+            analyzeRefStatus.className = "enhance-status success";
+          } else {
+            analyzeRefStatus.textContent = "Analyzed, but no prompt could be derived";
+            analyzeRefStatus.className = "enhance-status error";
+          }
         }
       } catch (err) {
         analyzeRefStatus.textContent = "Analysis failed — check connection";
         analyzeRefStatus.className = "enhance-status error";
       }
       btnAnalyzeRef.disabled = false;
-      btnAnalyzeRef.textContent = "Analyze";
-    });
-  }
-
-  if (btnRefUse) {
-    btnRefUse.addEventListener("click", () => {
-      if (_lastRefSuggested) {
-        promptEl.value = _lastRefSuggested;
-        promptEl.style.height = "auto";
-        promptEl.style.height = promptEl.scrollHeight + "px";
-        saveFormState();
-        analyzeRefStatus.textContent = "Prompt replaced with reference suggestion";
-        analyzeRefStatus.className = "enhance-status success";
-        setTimeout(() => { analyzeRefStatus.textContent = ""; analyzeRefStatus.className = "enhance-status"; }, 3000);
-      } else {
-        analyzeRefStatus.textContent = "No suggested prompt available from reference analysis";
-        analyzeRefStatus.className = "enhance-status error";
-      }
-    });
-  }
-
-  if (btnRefMerge) {
-    btnRefMerge.addEventListener("click", () => {
-      if (_lastRefSuggested) {
-        const current = promptEl.value.trim();
-        promptEl.value = current ? `${current}\n\n${_lastRefSuggested}` : _lastRefSuggested;
-        promptEl.style.height = "auto";
-        promptEl.style.height = promptEl.scrollHeight + "px";
-        saveFormState();
-        analyzeRefStatus.textContent = "Reference suggestion merged into prompt";
-        analyzeRefStatus.className = "enhance-status success";
-        setTimeout(() => { analyzeRefStatus.textContent = ""; analyzeRefStatus.className = "enhance-status"; }, 3000);
-      } else {
-        analyzeRefStatus.textContent = "No suggested prompt available from reference analysis";
-        analyzeRefStatus.className = "enhance-status error";
-      }
+      btnAnalyzeRef.textContent = "Use as Reference";
     });
   }
 
@@ -962,7 +933,7 @@
           stem_separation: (currentMode === "musical" && currentApproach === "unified") ? currentStemSeparation : "none",
           planner_mode: plannerModeEl?.value || "claude",
           music_generation_mode: musicGenerationModeEl?.value || "text",
-          reference_url: useReferenceGenerationEl?.checked ? referenceUrlEl.value.trim() : "",
+          reference_url: (_lastRefAnalysis && _lastRefSignature === _referenceSignature()) ? referenceUrlEl.value.trim() : "",
           ref_start_sec: parseTimestamp(refStartEl.value),
           ref_end_sec: parseTimestamp(refEndEl.value),
           loopable: true,
@@ -973,16 +944,10 @@
           window._compositionPlan && window._compositionPlan.sections?.length) {
         genBody.composition_plan = window._compositionPlan;
       }
-      const plannerUsesReference = genBody.planner_mode === "reference_direct";
-      if ((useReferenceGenerationEl?.checked || plannerUsesReference) && _lastRefAnalysis && _lastRefSignature === _referenceSignature()) {
+      // If a reference was analyzed for the current URL/timestamps, attach its
+      // analysis so it guides generation (the same click that set the prompt).
+      if (_lastRefAnalysis && _lastRefSignature === _referenceSignature()) {
         genBody.reference_analysis = _lastRefAnalysis;
-      }
-      if (plannerUsesReference && !genBody.reference_analysis) {
-        showError("Reference Direct requires Analyze Reference first, with the same URL/timestamps.");
-        generateBtn.disabled = false;
-        generateBtn.textContent = "Generate Soundscape";
-        stopGenerationBtn.classList.add("hidden");
-        return;
       }
       console.log("[Generate] Sending:", JSON.stringify({mode: genBody.mode, approach: genBody.approach, planner_mode: genBody.planner_mode, music_generation_mode: genBody.music_generation_mode, stem_separation: genBody.stem_separation, has_plan: !!genBody.layer_plan, use_reference: !!genBody.reference_url, has_reference_analysis: !!genBody.reference_analysis}));
       const res = await fetch("/api/generate", {
