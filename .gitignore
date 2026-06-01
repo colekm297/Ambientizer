@@ -23,3 +23,8 @@ loop_demos/
 .vscode/
 *.swp
 .claude/
+
+# thumbnail previews (ephemeral)
+web/static/_thumbs/
+web/static/_tm_*.jpg
+web/static/_thumb_styles.jpg

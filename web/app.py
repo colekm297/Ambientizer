@@ -51,6 +51,7 @@ from sample_generator import ElevenLabsSampleGenerator
 from pydub import AudioSegment
 from schemas import GenerationMode, SoundscapeConfig, LayerConfig, LayerType, EffectsChain, PartSnapshot
 from visual_generator import VisualGenerator
+import thumbnail_maker
 from motion_compositor import MotionCompositor, choose_layers, choose_layers_from_image
 from youtube_publisher import YouTubePublisher, YouTubeAuthError, RECONNECT_MESSAGE, _is_invalid_grant
 from retry_utils import retry_with_backoff, is_transient_api_error
@@ -285,6 +286,8 @@ def _save_job(job_id: str):
         "visual_clip_sources": job.get("visual_clip_sources"),
         "visual_active_tab": job.get("visual_active_tab"),
         "brush_mask_path": job.get("brush_mask_path"),
+        "custom_thumbnail_path": job.get("custom_thumbnail_path"),
+        "thumbnail_design": job.get("thumbnail_design"),
         "visual_video_path": job.get("visual_video_path"),
         "youtube_url": job.get("youtube_url"),
         "youtube_video_id": job.get("youtube_video_id"),
@@ -357,6 +360,8 @@ def _load_saved_jobs():
                 "visual_clip_sources": data.get("visual_clip_sources"),
                 "visual_active_tab": data.get("visual_active_tab"),
                 "brush_mask_path": data.get("brush_mask_path"),
+                "custom_thumbnail_path": data.get("custom_thumbnail_path"),
+                "thumbnail_design": data.get("thumbnail_design"),
                 "visual_video_path": data.get("visual_video_path"),
                 "youtube_url": data.get("youtube_url"),
                 "youtube_video_id": data.get("youtube_video_id"),
@@ -1167,6 +1172,8 @@ def api_status(job_id: str):
             for m, p in (job.get("visual_clips") or {}).items() if p
         },
         "brush_mask_url": f"/api/visual/brush-mask/{job['job_id']}/view" if job.get("brush_mask_path") else None,
+        "custom_thumbnail_url": f"/api/thumbnail/{job['job_id']}/view" if job.get("custom_thumbnail_path") else None,
+        "thumbnail_design": job.get("thumbnail_design"),
         "visual_video_url": f"/api/visual/video/{job['job_id']}/download" if job.get("visual_video_path") else None,
         "youtube_url": job.get("youtube_url"),
         "yt_title": job.get("yt_title", ""),
@@ -2657,6 +2664,112 @@ def view_sam_mask(job_id: str):
     return send_file(p, mimetype="image/png")
 
 
+def _thumb_duration_label(job: dict) -> str:
+    """A friendly duration for the subtitle, from the final video if available."""
+    p = job.get("visual_video_path")
+    if p and os.path.exists(p):
+        try:
+            dur = float(subprocess.run(
+                ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+                 "-of", "csv=p=0", p], capture_output=True, text=True, timeout=10).stdout.strip())
+            mins = int(round(dur / 60))
+            if mins >= 60:
+                h = mins // 60
+                return f"{h} Hour" + ("s" if h > 1 else "")
+            return f"{mins} Min"
+        except Exception:
+            pass
+    return "1 Hour"
+
+
+_THUMB_DIR = PROJECT_ROOT / "web" / "static" / "_thumbs"
+
+
+@app.route("/api/thumbnail/styles")
+def api_thumbnail_styles():
+    return jsonify([{"key": k, "label": v.get("label", k)}
+                    for k, v in thumbnail_maker.STYLES.items()])
+
+
+@app.route("/api/thumbnail/<job_id>/previews", methods=["POST"])
+def api_thumbnail_previews(job_id: str):
+    """Render the given text in EVERY style on the scene image → preview grid."""
+    with jobs_lock:
+        job = jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+    image_path = job.get("visual_image_path")
+    if not image_path or not os.path.exists(image_path):
+        return jsonify({"error": "No scene image. Generate or upload one in Visuals first."}), 400
+
+    data = request.get_json(force=True, silent=True) or {}
+    config = job.get("config")
+    default_hook = (config.title if config else (job.get("prompt", "")[:30] or "Ambient"))
+    hook = (data.get("hook") or default_hook).strip()
+    subtitle = (data.get("subtitle") or f"Ambient · {_thumb_duration_label(job)}").strip()
+    accent = data.get("accent") or "#f5c97a"
+    position = data.get("position") if data.get("position") in ("upper", "center", "lower") else "lower"
+
+    _THUMB_DIR.mkdir(parents=True, exist_ok=True)
+    out = []
+    for style in thumbnail_maker.STYLES:
+        fname = f"{job_id}_{style}.jpg"
+        try:
+            thumbnail_maker.render_thumbnail(
+                image_path, str(_THUMB_DIR / fname), hook=hook, subtitle=subtitle,
+                style=style, accent=accent, position=position)
+            out.append({"style": style, "label": thumbnail_maker.STYLES[style].get("label", style),
+                        "url": f"/static/_thumbs/{fname}?t={time.time()}"})
+        except Exception as e:
+            print(f"  [thumbnail] {style} failed: {e}", flush=True)
+    return jsonify({"previews": out, "hook": hook, "subtitle": subtitle,
+                    "accent": accent, "position": position})
+
+
+@app.route("/api/thumbnail/<job_id>/set", methods=["POST"])
+def api_thumbnail_set(job_id: str):
+    """Render the chosen style at full quality and make it THE thumbnail for upload."""
+    with jobs_lock:
+        job = jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+    image_path = job.get("visual_image_path")
+    if not image_path or not os.path.exists(image_path):
+        return jsonify({"error": "No scene image."}), 400
+
+    data = request.get_json(force=True, silent=True) or {}
+    style = data.get("style")
+    if style not in thumbnail_maker.STYLES:
+        return jsonify({"error": "Unknown style"}), 400
+    config = job.get("config")
+    hook = (data.get("hook") or (config.title if config else "Ambient")).strip()
+    subtitle = (data.get("subtitle") or f"Ambient · {_thumb_duration_label(job)}").strip()
+    accent = data.get("accent") or "#f5c97a"
+    position = data.get("position") if data.get("position") in ("upper", "center", "lower") else "lower"
+
+    out_path = str(PROJECT_ROOT / "output" / f"{job_id}_thumbnail.jpg")
+    thumbnail_maker.render_thumbnail(image_path, out_path, hook=hook, subtitle=subtitle,
+                                     style=style, accent=accent, position=position)
+    with jobs_lock:
+        jobs[job_id]["custom_thumbnail_path"] = out_path
+        jobs[job_id]["thumbnail_design"] = {"style": style, "hook": hook, "subtitle": subtitle,
+                                            "accent": accent, "position": position}
+    _save_job(job_id)
+    return jsonify({"status": "set", "thumbnail_url": f"/api/thumbnail/{job_id}/view?t={time.time()}"})
+
+
+@app.route("/api/thumbnail/<job_id>/view")
+def api_thumbnail_view(job_id: str):
+    with jobs_lock:
+        job = jobs.get(job_id)
+    if not job:
+        abort(404)
+    p = job.get("custom_thumbnail_path")
+    if not p or not os.path.exists(p):
+        abort(404)
+    return send_file(p, mimetype="image/jpeg")
+
+
 @app.route("/api/visual/motion-plan/<job_id>", methods=["POST"])
 def api_motion_plan(job_id: str):
     """Vision director: Claude looks at the scene image and returns a motion layer
@@ -3500,7 +3613,10 @@ def youtube_upload(job_id: str):
     if isinstance(tags, str):
         tags = [t.strip() for t in tags.split(",") if t.strip()]
 
-    thumbnail_path = job.get("visual_image_path")
+    # Prefer the branded text-overlay thumbnail if the user made one.
+    thumbnail_path = job.get("custom_thumbnail_path")
+    if not thumbnail_path or not os.path.exists(thumbnail_path):
+        thumbnail_path = job.get("visual_image_path")
 
     with jobs_lock:
         jobs[job_id]["upload_status"] = "uploading"

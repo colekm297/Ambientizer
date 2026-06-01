@@ -4238,9 +4238,22 @@
       if (data.visual_video_url) {
         showPubVideoPreview(jobId);
         pubMetaPanel.classList.remove("hidden");
+        const thumbPanel = document.getElementById("pub-thumb-panel");
+        if (thumbPanel) thumbPanel.classList.remove("hidden");
         pubUploadPanel.classList.remove("hidden");
         uploadResult.classList.add("hidden");
         uploadProgress.classList.add("hidden");
+
+        // Prefill the thumbnail editor from saved design or the title.
+        const dz = data.thumbnail_design || {};
+        const hookEl = document.getElementById("thumb-hook");
+        const subEl = document.getElementById("thumb-sub");
+        const accEl = document.getElementById("thumb-accent");
+        const posEl = document.getElementById("thumb-pos");
+        if (hookEl && !hookEl.value) hookEl.value = dz.hook || (data.yt_title || data.prompt || "").split("—")[0].split("|")[0].trim().slice(0, 32);
+        if (subEl && !subEl.value) subEl.value = dz.subtitle || "";
+        if (accEl && dz.accent) accEl.value = dz.accent;
+        if (posEl && dz.position) posEl.value = dz.position;
 
         if (data.yt_title) ytTitleEl.value = data.yt_title;
         if (data.yt_description) ytDescEl.value = data.yt_description;
@@ -4251,7 +4264,9 @@
         pubPreviewTitle.textContent = ytTitleEl.value || "—";
         pubPreviewPrivacy.textContent = ytPrivacyEl.value;
 
-        if (data.visual_image_url) {
+        if (data.custom_thumbnail_url) {
+          pubThumbPreview.innerHTML = `<img src="${data.custom_thumbnail_url}?t=${Date.now()}" alt="Thumbnail">`;
+        } else if (data.visual_image_url) {
           pubThumbPreview.innerHTML = `<img src="${data.visual_image_url}?t=${Date.now()}" alt="Thumbnail">`;
         } else {
           pubThumbPreview.innerHTML = '<span class="no-thumb">No thumbnail</span>';
@@ -4267,6 +4282,8 @@
       } else {
         clearPubVideoPreview();
         pubMetaPanel.classList.add("hidden");
+        const thumbPanel = document.getElementById("pub-thumb-panel");
+        if (thumbPanel) thumbPanel.classList.add("hidden");
         pubUploadPanel.classList.add("hidden");
       }
     } catch (err) {
@@ -4274,6 +4291,58 @@
     }
   }
   window.loadPublishForTrack = loadPublishForTrack;
+
+  // ── Thumbnail maker ───────────────────────────
+  const btnThumbPreviews = document.getElementById("btn-thumb-previews");
+  const thumbGrid = document.getElementById("thumb-grid");
+  const thumbStatusEl = document.getElementById("thumb-status");
+  function _thumbPayload() {
+    return {
+      hook: document.getElementById("thumb-hook")?.value || "",
+      subtitle: document.getElementById("thumb-sub")?.value || "",
+      accent: document.getElementById("thumb-accent")?.value || "#f5c97a",
+      position: document.getElementById("thumb-pos")?.value || "lower",
+    };
+  }
+  if (btnThumbPreviews) {
+    btnThumbPreviews.addEventListener("click", async () => {
+      if (!pubCurrentJobId) { alert("Select a track first"); return; }
+      btnThumbPreviews.disabled = true; btnThumbPreviews.textContent = "Rendering…";
+      thumbStatusEl.textContent = "";
+      try {
+        const res = await fetch(`/api/thumbnail/${pubCurrentJobId}/previews`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(_thumbPayload()),
+        });
+        const out = await res.json();
+        if (out.error) throw new Error(out.error);
+        thumbGrid.innerHTML = out.previews.map((p) =>
+          `<div class="thumb-card" data-style="${p.style}">
+             <img src="${p.url}" alt="${p.label}">
+             <span class="thumb-card-label">${p.label}</span>
+           </div>`).join("");
+        thumbStatusEl.textContent = "Click the one you want →";
+        thumbGrid.querySelectorAll(".thumb-card").forEach((card) => {
+          card.addEventListener("click", async () => {
+            thumbGrid.querySelectorAll(".thumb-card").forEach((c) => c.classList.remove("selected"));
+            card.classList.add("selected");
+            thumbStatusEl.textContent = "Setting…";
+            try {
+              const r = await fetch(`/api/thumbnail/${pubCurrentJobId}/set`, {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ ..._thumbPayload(), style: card.dataset.style }),
+              });
+              const d = await r.json();
+              if (d.error) throw new Error(d.error);
+              thumbStatusEl.textContent = "✓ Set as thumbnail";
+              if (pubThumbPreview && d.thumbnail_url) pubThumbPreview.innerHTML = `<img src="${d.thumbnail_url}" alt="Thumbnail">`;
+            } catch (e) { thumbStatusEl.textContent = "Error: " + e.message; }
+          });
+        });
+      } catch (e) { thumbStatusEl.textContent = "Error: " + e.message; }
+      btnThumbPreviews.disabled = false; btnThumbPreviews.textContent = "Generate previews";
+    });
+  }
 
   // ── Auto-generate metadata ────────────────────
   btnAutoMeta.addEventListener("click", async () => {
