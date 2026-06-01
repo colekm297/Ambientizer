@@ -4703,9 +4703,14 @@
         const preview = s.preview_url
           ? `<video class="short-preview" controls preload="metadata" src="${s.preview_url}"></video>`
           : `<div class="short-preview-missing">video missing</div>`;
+        const studioUrl = s.youtube_video_id ? `https://studio.youtube.com/video/${s.youtube_video_id}/edit` : null;
         const ytLink = s.youtube_url
           ? `<a class="badge badge-ready" href="${s.youtube_url}" target="_blank">View on YouTube</a>`
+            + (studioUrl ? `<a class="badge badge-action" href="${studioUrl}" target="_blank" title="YouTube can't set this via API — one tap opens Studio, then pick the full video under Related video → Save">➕ Link full video (Studio)</a>` : "")
           : `<button class="btn btn-primary btn-short-publish" data-short-id="${s.short_id}">Publish</button>`;
+        const relatedHint = s.youtube_url
+          ? `<span class="form-hint related-hint">⚠ One manual step: tap <strong>Link full video (Studio)</strong> → choose your full video under <em>Related video</em> → Save. Shows a clickable link on the Short.</span>`
+          : "";
         return `
           <div class="short-card" data-short-id="${s.short_id}">
             ${preview}
@@ -4729,6 +4734,7 @@
               </div>
               <span class="form-hint">Moment: ${escapeHtml(s.moment_description || '')} · ${s.clip_sec || 0}s starting ${s.start_sec ? s.start_sec.toFixed(1) : '0'}s</span>
               <span class="short-upload-status form-hint" data-short-id="${s.short_id}">${s.upload_status === 'uploading' ? 'Uploading…' : ''}</span>
+              ${relatedHint}
             </div>
           </div>
         `;
