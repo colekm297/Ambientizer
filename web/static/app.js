@@ -4708,9 +4708,17 @@
           ? `<a class="badge badge-ready" href="${s.youtube_url}" target="_blank">View on YouTube</a>`
             + (studioUrl ? `<a class="badge badge-action" href="${studioUrl}" target="_blank" title="YouTube can't set this via API — one tap opens Studio, then pick the full video under Related video → Save">➕ Link full video (Studio)</a>` : "")
           : `<button class="btn btn-primary btn-short-publish" data-short-id="${s.short_id}">Publish</button>`;
-        const relatedHint = s.youtube_url
-          ? `<span class="form-hint related-hint">⚠ One manual step: tap <strong>Link full video (Studio)</strong> → choose your full video under <em>Related video</em> → Save. Shows a clickable link on the Short.</span>`
-          : "";
+        let relatedHint = "";
+        if (s.youtube_url) {
+          relatedHint = `<span class="form-hint related-hint">⚠ One manual step: tap <strong>Link full video (Studio)</strong> → choose your full video under <em>Related video</em> → Save.</span>`;
+          if (s.parent_youtube_url) {
+            relatedHint += `<span class="full-link-row">Full video to link:`
+              + `<input class="full-link-input" type="text" readonly value="${escapeHtml(s.parent_youtube_url)}" onclick="this.select()">`
+              + `<button type="button" class="btn btn-secondary btn-sm copy-full-link" data-url="${escapeHtml(s.parent_youtube_url)}">Copy link</button></span>`;
+          } else {
+            relatedHint += `<span class="form-hint related-hint">⚠ Publish the full-length video first to get its link to paste here.</span>`;
+          }
+        }
         return `
           <div class="short-card" data-short-id="${s.short_id}">
             ${preview}
@@ -4750,6 +4758,18 @@
   }
 
   function attachShortHandlers() {
+    shortsList.querySelectorAll(".copy-full-link").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const url = btn.dataset.url;
+        try { await navigator.clipboard.writeText(url); }
+        catch (e) {
+          const inp = btn.closest(".full-link-row")?.querySelector(".full-link-input");
+          if (inp) { inp.select(); document.execCommand("copy"); }
+        }
+        const orig = btn.textContent; btn.textContent = "Copied ✓";
+        setTimeout(() => { btn.textContent = orig; }, 2000);
+      });
+    });
     shortsList.querySelectorAll(".btn-short-save").forEach((btn) => {
       btn.addEventListener("click", async () => {
         const card = btn.closest(".short-card");
@@ -4826,32 +4846,12 @@
         const d = await r.json();
         if (d.status === "done") {
           clearInterval(interval);
-          const studioUrl = d.video_id ? `https://studio.youtube.com/video/${d.video_id}/edit` : null;
-          const fullUrl = d.parent_youtube_url || "";
-          if (statusEl) {
-            statusEl.classList.remove("upload-uploading", "upload-error");
-            statusEl.classList.add("upload-done");
-            let html = "✅ Published! " +
-              (d.youtube_url ? `<a href="${d.youtube_url}" target="_blank">View Short</a> · ` : "") +
-              (studioUrl ? `<a href="${studioUrl}" target="_blank">➕ Add Related video in Studio</a>` : "");
-            if (fullUrl) {
-              html += `<span class="full-link-row">Full video to link: ` +
-                `<input class="full-link-input" type="text" readonly value="${fullUrl}" onclick="this.select()">` +
-                `<button type="button" class="btn btn-secondary btn-sm copy-full-link" data-url="${fullUrl}">Copy</button></span>`;
-            } else {
-              html += `<span class="full-link-row">⚠ Publish the full-length video first to get its link for Related video.</span>`;
-            }
-            statusEl.innerHTML = html;
-            const copyBtn = statusEl.querySelector(".copy-full-link");
-            if (copyBtn) copyBtn.addEventListener("click", async () => {
-              try { await navigator.clipboard.writeText(copyBtn.dataset.url); copyBtn.textContent = "Copied ✓"; }
-              catch (e) { const inp = statusEl.querySelector(".full-link-input"); if (inp) { inp.select(); document.execCommand("copy"); copyBtn.textContent = "Copied ✓"; } }
-              setTimeout(() => { copyBtn.textContent = "Copy"; }, 2000);
-            });
-          }
-          if (studioUrl) window.open(studioUrl, "_blank");
+          // Re-render the card — it now permanently shows View / Studio link / the
+          // full-video Copy link for this published short.
           await refreshShortsList();
           await refreshDistributeCatalog();
+          const studioUrl = d.video_id ? `https://studio.youtube.com/video/${d.video_id}/edit` : null;
+          if (studioUrl) window.open(studioUrl, "_blank");
         } else if (d.status === "error") {
           clearInterval(interval);
           setStatus("❌ Upload failed: " + (d.message || "unknown error"), "upload-error");

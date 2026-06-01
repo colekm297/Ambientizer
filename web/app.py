@@ -3734,12 +3734,14 @@ def api_shorts_list(job_id: str):
     if not job:
         return jsonify({"error": "Job not found"}), 404
     shorts = job.get("shorts") or []
+    parent_url = job.get("youtube_url")
     out = []
     for s in shorts:
         out.append({
             **{k: v for k, v in s.items() if k != "video_path"},
             "preview_url": f"/api/distribute/shorts/{s['short_id']}/preview"
                            if s.get("video_path") and os.path.exists(s["video_path"]) else None,
+            "parent_youtube_url": parent_url,
         })
     return jsonify(out)
 
