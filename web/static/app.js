@@ -4710,7 +4710,7 @@
           : `<button class="btn btn-primary btn-short-publish" data-short-id="${s.short_id}">Publish</button>`;
         let relatedHint = "";
         if (s.youtube_url) {
-          relatedHint = `<span class="form-hint related-hint">⚠ One manual step: tap <strong>Link full video (Studio)</strong> → choose your full video under <em>Related video</em> → Save.</span>`;
+          relatedHint = `<span class="form-hint related-hint">⚠ <strong>Desktop only:</strong> on a computer go to studio.youtube.com → Content → this Short → <em>Related video</em> → paste/pick the full video → Save. (Not available in the phone Studio app.)</span>`;
           if (s.parent_youtube_url) {
             relatedHint += `<span class="full-link-row">Full video to link:`
               + `<input class="full-link-input" type="text" readonly value="${escapeHtml(s.parent_youtube_url)}" onclick="this.select()">`
@@ -4847,11 +4847,10 @@
         if (d.status === "done") {
           clearInterval(interval);
           // Re-render the card — it now permanently shows View / Studio link / the
-          // full-video Copy link for this published short.
+          // full-video Copy link. (No auto-open: the Related-video step is desktop-
+          // only, so yanking a mobile user to Studio is a dead end.)
           await refreshShortsList();
           await refreshDistributeCatalog();
-          const studioUrl = d.video_id ? `https://studio.youtube.com/video/${d.video_id}/edit` : null;
-          if (studioUrl) window.open(studioUrl, "_blank");
         } else if (d.status === "error") {
           clearInterval(interval);
           setStatus("❌ Upload failed: " + (d.message || "unknown error"), "upload-error");
