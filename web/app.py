@@ -4039,12 +4039,14 @@ def api_short_upload_status(short_id: str):
             "progress": data.get("progress", 0),
             "message": data.get("message", ""),
             "youtube_url": data.get("youtube_url"),
+            "video_id": data.get("video_id") or s.get("youtube_video_id", ""),
         })
 
     return jsonify({
         "status": s.get("upload_status", "idle"),
         "progress": 100 if s.get("youtube_url") else 0,
         "youtube_url": s.get("youtube_url"),
+        "video_id": s.get("youtube_video_id", ""),
     })
 
 
