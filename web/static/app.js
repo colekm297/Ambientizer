@@ -4598,6 +4598,35 @@
     btnShortsGenerate.disabled = true;
     btnShortsGenerate.textContent = "Generating…";
     shortsStatus.textContent = "Starting…";
+
+    const progEl = document.getElementById("shorts-progress");
+    const progText = document.getElementById("shorts-progress-text");
+    const barFill = progEl?.querySelector(".task-bar-fill");
+    const barEl = progEl?.querySelector(".task-bar");
+    if (progEl) progEl.classList.remove("hidden");
+    if (barEl) barEl.classList.add("indeterminate");      // sweep until first N/M tick
+    if (barFill) barFill.style.width = "0%";
+    if (progText) progText.textContent = "Starting…";
+
+    const setBar = (msg) => {
+      if (progText && msg) progText.textContent = msg;
+      // Parse "<n>/<total>" out of the progress message to fill the bar.
+      const m = (msg || "").match(/(\d+)\s*\/\s*(\d+)/);
+      if (m && barFill && barEl) {
+        const n = +m[1], total = +m[2] || 1;
+        barEl.classList.remove("indeterminate");
+        // Each short has sub-steps; show it partway through the current one.
+        barFill.style.width = Math.min(100, Math.round(((n - 0.5) / total) * 100)) + "%";
+      }
+    };
+
+    const finish = () => {
+      if (progEl) progEl.classList.add("hidden");
+      if (barEl) barEl.classList.remove("indeterminate");
+      btnShortsGenerate.disabled = false;
+      btnShortsGenerate.textContent = "Generate Shorts";
+    };
+
     try {
       const res = await fetch(`/api/distribute/shorts/${distSelectedJobId}/generate`, {
         method: "POST",
@@ -4612,10 +4641,11 @@
           const sr = await fetch(`/api/task-status/${distSelectedJobId}`);
           const sd = await sr.json();
           shortsStatus.textContent = sd.message || sd.status || "";
+          setBar(sd.message);
           if (sd.status === "done" || sd.status === "error" || sd.status === "canceled") {
             clearInterval(poll);
-            btnShortsGenerate.disabled = false;
-            btnShortsGenerate.textContent = "Generate Shorts";
+            if (sd.status === "done" && barFill) barFill.style.width = "100%";
+            finish();
             await refreshShortsList();
             await refreshDistributeCatalog();
           }
@@ -4623,8 +4653,7 @@
       }, 1500);
     } catch (err) {
       shortsStatus.textContent = "Error: " + err.message;
-      btnShortsGenerate.disabled = false;
-      btnShortsGenerate.textContent = "Generate Shorts";
+      finish();
     }
   });
 
