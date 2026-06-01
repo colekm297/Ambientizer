@@ -90,11 +90,14 @@ class ReferenceAnalyzer:
     Uses Gemini's native YouTube URL processing — no download needed.
     """
 
-    # Prefer stable 3.5 Flash; fall back through preview/pro tiers if unavailable.
+    # Quality-first: reference analysis is "listen carefully and describe the track,"
+    # which the PRO tier does noticeably better than Flash. Lead with the only
+    # available Pro (2.5-pro), then fall through to Flash tiers for availability /
+    # rate limits. (3.x-pro names probed as 404 in May 2026 — re-add if they ship.)
     FALLBACK_MODELS = [
+        "gemini-2.5-pro",
         "gemini-3.5-flash",
         "gemini-3-flash-preview",
-        "gemini-2.5-pro",
         "gemini-2.5-flash",
     ]
 
