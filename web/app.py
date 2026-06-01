@@ -3955,6 +3955,14 @@ def api_short_publish(short_id: str):
     # The upload_worker writes status to a file named after the "job_id" passed
     # in. Reuse the short_id slot in the same output dir.
     status_file = str(PROJECT_ROOT / "output" / f"{short_id}_upload_status.json")
+    # Reset before spawning so the poller can't read a stale status from a prior
+    # publish of this short (same fix as the main video upload).
+    try:
+        with open(status_file, "w") as _sf:
+            json.dump({"status": "uploading", "progress": 0,
+                       "message": "Starting upload..."}, _sf)
+    except OSError:
+        pass
     worker_params = json.dumps({
         "status_file": status_file,
         "video_path": video_path,

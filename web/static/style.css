@@ -3430,6 +3430,9 @@ audio::-webkit-media-controls-panel {
     display: block;
     margin-top: 4px;
 }
+.short-upload-status.upload-uploading { color: #d8b15a; font-weight: 600; }
+.short-upload-status.upload-done { color: #3fb950; font-weight: 600; }
+.short-upload-status.upload-error { color: #f85149; font-weight: 600; }
 
 .stream-status-block {
     padding: 10px 14px;
