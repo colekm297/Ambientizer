@@ -4826,8 +4826,19 @@
         const d = await r.json();
         if (d.status === "done") {
           clearInterval(interval);
-          setStatus("✅ Published! Opening on YouTube…", "upload-done");
-          if (d.youtube_url) window.open(d.youtube_url, "_blank");
+          const studioUrl = d.video_id ? `https://studio.youtube.com/video/${d.video_id}/edit` : null;
+          if (statusEl) {
+            statusEl.classList.remove("upload-uploading", "upload-error");
+            statusEl.classList.add("upload-done");
+            statusEl.innerHTML =
+              "✅ Published! " +
+              (d.youtube_url ? `<a href="${d.youtube_url}" target="_blank">View Short</a> · ` : "") +
+              (studioUrl
+                ? `<a href="${studioUrl}" target="_blank">➕ Link the full video in Studio</a> (Related video → pick your full video → Save)`
+                : "");
+          }
+          // Open the Studio edit page — that's where you take the one manual action.
+          if (studioUrl) window.open(studioUrl, "_blank");
           await refreshShortsList();
           await refreshDistributeCatalog();
         } else if (d.status === "error") {
