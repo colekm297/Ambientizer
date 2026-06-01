@@ -3117,6 +3117,16 @@ audio::-webkit-media-controls-panel {
     background: var(--inset, #11151c); border: 1px solid var(--border, #2a2f3a);
     border-radius: 6px; color: var(--text-primary, #e8edf5); }
 
+/* Thumbnail maker grid */
+.thumb-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-top: 14px; }
+.thumb-card { cursor: pointer; border: 2px solid transparent; border-radius: 8px; overflow: hidden;
+    background: var(--inset, #11151c); transition: border-color .15s, transform .1s; }
+.thumb-card:hover { border-color: var(--border-strong, #3a4150); transform: translateY(-1px); }
+.thumb-card.selected { border-color: var(--peach, #e8b06a); }
+.thumb-card img { width: 100%; display: block; }
+.thumb-card-label { display: block; padding: 6px 8px; font-size: 0.78rem; color: var(--text-secondary, #aab); }
+@media (max-width: 700px) { .thumb-grid { grid-template-columns: 1fr; } }
+
 .badge-warn {
     background: rgba(251, 191, 36, 0.12);
     color: var(--warning);

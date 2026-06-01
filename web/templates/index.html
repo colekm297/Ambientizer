@@ -611,9 +611,42 @@
                 </div>
             </section>
 
+            <!-- Thumbnail -->
+            <section id="pub-thumb-panel" class="panel publish-panel hidden">
+                <h2>3. Thumbnail</h2>
+                <p class="form-hint">Branded text-overlay thumbnail from your scene image. Edit the text, pick where it sits, then Generate previews and click the style you like.</p>
+                <div class="form-row">
+                    <div class="form-group" style="flex:2;min-width:220px">
+                        <label for="thumb-hook">Hook (big text)</label>
+                        <input type="text" id="thumb-hook" maxlength="32" placeholder="e.g., Project Hail Mary">
+                    </div>
+                    <div class="form-group" style="flex:1;min-width:120px">
+                        <label for="thumb-accent">Accent</label>
+                        <input type="color" id="thumb-accent" value="#f5c97a" style="width:100%;height:38px;padding:2px;background:none;border:1px solid var(--border)">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="thumb-sub">Subtitle (small text)</label>
+                    <input type="text" id="thumb-sub" maxlength="48" placeholder="e.g., Deep Space Ambience · 1 Hour">
+                </div>
+                <div class="form-group" style="max-width:280px">
+                    <label for="thumb-pos">Text placement</label>
+                    <select id="thumb-pos">
+                        <option value="lower" selected>Bottom</option>
+                        <option value="center">Center</option>
+                        <option value="upper">Top</option>
+                    </select>
+                </div>
+                <div class="visuals-actions">
+                    <button id="btn-thumb-previews" class="btn btn-primary">Generate previews</button>
+                    <span id="thumb-status" class="form-hint"></span>
+                </div>
+                <div id="thumb-grid" class="thumb-grid"></div>
+            </section>
+
             <!-- Upload -->
             <section id="pub-upload-panel" class="panel publish-panel hidden">
-                <h2>3. Upload</h2>
+                <h2>4. Upload</h2>
                 <div id="pub-upload-preview" class="pub-upload-preview">
                     <div id="pub-thumb-preview" class="pub-thumb-preview"></div>
                     <div class="pub-preview-meta">
