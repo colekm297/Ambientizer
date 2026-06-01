@@ -5138,7 +5138,17 @@
     try {
       const res = await fetch("/api/distribute/stream/start", { method: "POST" });
       const out = await res.json();
-      if (out.error) throw new Error(out.error);
+      if (out.error) {
+        // No stream key → open the Stream settings panel and focus the key field
+        // so the user lands exactly where they need to be.
+        if (out.needs_stream_key) {
+          const cfg = document.querySelector(".stream-config");
+          if (cfg) cfg.open = true;
+          const key = document.getElementById("stream-key");
+          if (key) { key.scrollIntoView({ behavior: "smooth", block: "center" }); setTimeout(() => key.focus(), 300); }
+        }
+        throw new Error(out.error);
+      }
       await refreshStreamStatus();
     } catch (e) {
       alert("Start failed: " + e.message);
