@@ -33,6 +33,7 @@ import subprocess
 import sys
 import time
 import uuid
+import shutil
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -286,6 +287,9 @@ def _save_job(job_id: str):
         "visual_clip_sources": job.get("visual_clip_sources"),
         "visual_active_tab": job.get("visual_active_tab"),
         "brush_mask_path": job.get("brush_mask_path"),
+        # Per-layer region masks for Living Still: { "0": "/path/to/mask.png", ... }
+        # Index = position in motion_layers; reordering invalidates these.
+        "layer_masks": job.get("layer_masks", {}),
         "custom_thumbnail_path": job.get("custom_thumbnail_path"),
         "thumbnail_design": job.get("thumbnail_design"),
         "visual_video_path": job.get("visual_video_path"),
@@ -309,6 +313,8 @@ def _save_job(job_id: str):
         "reddit_drafts": job.get("reddit_drafts", {}),
         "seo_v2": job.get("seo_v2"),
         "last_promoted_at": job.get("last_promoted_at"),
+        # Per-song saved Living Stills gallery
+        "saved_living_stills": job.get("saved_living_stills", []),
     }
 
     path = JOBS_DIR / f"{job_id}.json"
@@ -360,6 +366,7 @@ def _load_saved_jobs():
                 "visual_clip_sources": data.get("visual_clip_sources"),
                 "visual_active_tab": data.get("visual_active_tab"),
                 "brush_mask_path": data.get("brush_mask_path"),
+                "layer_masks": data.get("layer_masks", {}),
                 "custom_thumbnail_path": data.get("custom_thumbnail_path"),
                 "thumbnail_design": data.get("thumbnail_design"),
                 "visual_video_path": data.get("visual_video_path"),
@@ -382,6 +389,7 @@ def _load_saved_jobs():
                 "reddit_drafts": data.get("reddit_drafts", {}),
                 "seo_v2": data.get("seo_v2"),
                 "last_promoted_at": data.get("last_promoted_at"),
+                "saved_living_stills": data.get("saved_living_stills", []),
             }
             loaded += 1
         except Exception as e:
@@ -849,6 +857,11 @@ def enhance_prompt():
     raw_prompt = data.get("prompt", "").strip()
     mode = data.get("mode", "ambient")
     approach = data.get("approach", "unified")
+    # "world"  → describe the setting, atmosphere, lore, iconic visuals
+    # "score"  → describe the soundtrack, composer, instrument palette, harmonic language
+    enhance_style = (data.get("enhance_style") or "world").lower()
+    if enhance_style not in ("world", "score"):
+        enhance_style = "world"
     if not raw_prompt:
         return jsonify({"error": "No prompt provided"}), 400
 
@@ -856,6 +869,31 @@ def enhance_prompt():
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
     if not anthropic_key:
         return jsonify({"error": "ANTHROPIC_API_KEY not set"}), 500
+
+    if enhance_style == "score":
+        search_query = (
+            f'For "{raw_prompt}", describe the MUSICAL SCORE / SOUNDTRACK only — '
+            f'not the world, story, or visuals. Focus tightly on:\n'
+            f'- The composer(s) and their scoring philosophy / signature techniques\n'
+            f'- Specific instruments and vocal techniques (e.g. processed female vocals, '
+            f'duduk, ney flute, frame drums, granular synthesis, prepared piano, ethnic '
+            f'percussion, choir treatments)\n'
+            f'- Harmonic language, modes, key centers, tempo ranges, time-feel\n'
+            f'- Production aesthetics (reverb character, layering, granular textures, '
+            f'mic techniques)\n'
+            f'- What makes the score sonically distinctive vs other films/games in the genre\n\n'
+            f'Do NOT describe characters, locations, plot, or lore — only musical/sonic '
+            f'qualities. If the input is not a recognizable IP with a known score, briefly '
+            f'suggest 2-3 real composers or musical references whose work matches the '
+            f'mood/style being requested. 3-4 paragraphs max.'
+        )
+    else:
+        search_query = (
+            f'What is "{raw_prompt}"? Give a concise summary focusing on the setting, '
+            f'atmosphere, visual aesthetic, emotional tone, and any iconic sounds or '
+            f'music associated with it. If it\'s a book, movie, game, or place, describe '
+            f'the world and mood in sensory detail. 3-4 paragraphs max.'
+        )
 
     search_context = ""
     if gemini_key and gemini_limiter.wait_if_needed(timeout=30):
@@ -867,10 +905,7 @@ def enhance_prompt():
             gemini_limiter.record_call("enhance_search")
             response = client.models.generate_content(
                 model="gemini-2.5-flash",
-                contents=f'What is "{raw_prompt}"? Give a concise summary focusing on the setting, '
-                         f"atmosphere, visual aesthetic, emotional tone, and any iconic sounds or "
-                         f"music associated with it. If it's a book, movie, game, or place, describe "
-                         f"the world and mood in sensory detail. 3-4 paragraphs max.",
+                contents=search_query,
                 config=types.GenerateContentConfig(tools=[search_tool]),
             )
             search_context = response.text.strip()
@@ -920,7 +955,8 @@ Output ONLY valid JSON, no markdown fences."""
 
     context_block = ""
     if search_context:
-        context_block = f"\n\nRESEARCH CONTEXT:\n{search_context}"
+        label = "SCORE / MUSIC ANALYSIS" if enhance_style == "score" else "RESEARCH CONTEXT"
+        context_block = f"\n\n{label}:\n{search_context}"
 
     layer_structure = ""
     if mode == "musical" and approach == "unified":
@@ -930,12 +966,31 @@ Output ONLY valid JSON, no markdown fences."""
     else:
         layer_structure = "\nLAYER STRUCTURE: 2-3 continuous environmental texture layers. Steady beds only — no occasional/discrete sounds."
 
+    style_addendum = ""
+    if enhance_style == "score":
+        style_addendum = (
+            "\n\nSCORE-FIRST INTERPRETATION (IMPORTANT):\n"
+            "The user wants this in the MUSICAL STYLE of the reference — NOT a tour of its "
+            "universe. Treat the reference as a SCORE to emulate, not a setting to depict.\n"
+            "- DO translate the score's instruments, vocal techniques, harmonic language, "
+            "production aesthetics, tempo and dynamic philosophy into the prompt.\n"
+            "- DO name composers, performers, or specific techniques where relevant "
+            "(e.g. 'in the style of Loire Cotler', 'Hans Zimmer-esque sustained brass swells', "
+            "'granular synthesis textures à la Jóhann Jóhannsson').\n"
+            "- DO NOT include narrative or lore: no characters, locations, vehicles, fauna, "
+            "weapons, creatures, or world-specific imagery (no sand worms, no spice, no "
+            "lightsabers, no dragons, no spacecraft sounds, etc.).\n"
+            "- DO NOT reference the source material by name in the prompt itself — let the "
+            "musical description carry the identity.\n"
+            "- The result should read like a music director's brief, not a scene description."
+        )
+
     @retry_with_backoff(max_retries=3, base_delay=2.0, retryable_check=is_transient_api_error)
     def _call_enhance():
         return client.messages.create(
             model="claude-opus-4-7",
             max_tokens=1200,
-            system=ENHANCE_SYSTEM,
+            system=ENHANCE_SYSTEM + style_addendum,
             messages=[{
                 "role": "user",
                 "content": f"""Create a {mode} soundscape from this idea:
@@ -2603,6 +2658,99 @@ def view_brush_mask(job_id: str):
     return send_file(mp, mimetype="image/png")
 
 
+# ── Per-layer region masks (Living Still) ─────────────────────────────────
+# Each motion layer can scope its effect to a painted region. Stored by the
+# layer's INDEX in motion_layers (string keys for JSON safety). Reordering
+# the layer list invalidates these masks; the UI repaints when that happens.
+def _layer_mask_path_for(job: dict, layer_idx: int) -> str:
+    """Where the file for this layer's region mask lives on disk."""
+    image_path = job.get("visual_image_path")
+    if not image_path:
+        return ""
+    p = Path(image_path)
+    return str(p.with_name(f"{p.stem}_layermask_{layer_idx}.png"))
+
+
+@app.route("/api/visual/layer-mask/<job_id>/<int:layer_idx>", methods=["POST"])
+def upload_layer_mask(job_id: str, layer_idx: int):
+    """Save a hand-painted region mask for ONE motion layer. The compositor uses
+    it to scope that layer's effect (nebula drift, shimmer, twinkle, …) to the
+    painted region while other layers stay full-frame."""
+    with jobs_lock:
+        job = jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+    if "file" not in request.files:
+        return jsonify({"error": "No mask uploaded"}), 400
+    image_path = job.get("visual_image_path")
+    if not image_path:
+        return jsonify({"error": "Generate or upload a scene image first"}), 400
+    if layer_idx < 0:
+        return jsonify({"error": "Invalid layer index"}), 400
+
+    mask_path = _layer_mask_path_for(job, layer_idx)
+    request.files["file"].save(mask_path)
+
+    with jobs_lock:
+        lm = dict(jobs[job_id].get("layer_masks") or {})
+        lm[str(layer_idx)] = mask_path
+        jobs[job_id]["layer_masks"] = lm
+    _save_job(job_id)
+    return jsonify({"status": "ready", "layer_idx": layer_idx,
+                    "mask_url": f"/api/visual/layer-mask/{job_id}/{layer_idx}/view?t={int(time.time())}"})
+
+
+@app.route("/api/visual/layer-mask/<job_id>/<int:layer_idx>", methods=["DELETE"])
+def clear_layer_mask(job_id: str, layer_idx: int):
+    """Forget the saved region mask for ONE motion layer (revert to full-frame)."""
+    with jobs_lock:
+        job = jobs.get(job_id)
+        if not job:
+            return jsonify({"error": "Job not found"}), 404
+        lm = dict(job.get("layer_masks") or {})
+        mp = lm.pop(str(layer_idx), None)
+        job["layer_masks"] = lm
+    if mp and os.path.exists(mp):
+        try:
+            os.remove(mp)
+        except OSError:
+            pass
+    _save_job(job_id)
+    return jsonify({"status": "cleared", "layer_idx": layer_idx})
+
+
+@app.route("/api/visual/layer-mask/<job_id>/<int:layer_idx>/view")
+def view_layer_mask(job_id: str, layer_idx: int):
+    """Serve a saved per-layer mask so the canvas can restore it when the user
+    switches the brush target back to that layer."""
+    with jobs_lock:
+        job = jobs.get(job_id)
+    if not job:
+        abort(404)
+    lm = job.get("layer_masks") or {}
+    mp = lm.get(str(layer_idx))
+    if not mp or not os.path.exists(mp):
+        abort(404)
+    return send_file(mp, mimetype="image/png")
+
+
+@app.route("/api/visual/layer-mask/<job_id>", methods=["GET"])
+def list_layer_masks(job_id: str):
+    """List which layer indices currently have a saved per-layer region mask."""
+    with jobs_lock:
+        job = jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+    lm = job.get("layer_masks") or {}
+    items = []
+    for k, p in lm.items():
+        if not p or not os.path.exists(p):
+            continue
+        items.append({"layer_idx": int(k),
+                      "mask_url": f"/api/visual/layer-mask/{job_id}/{int(k)}/view?t={int(time.time())}"})
+    return jsonify({"layer_masks": items})
+
+
 @app.route("/api/visual/segment-point/<job_id>", methods=["POST"])
 def segment_point(job_id: str):
     """AI-assisted motion brush: SAM segments the object the user clicked and returns
@@ -2662,6 +2810,233 @@ def view_sam_mask(job_id: str):
     if not p or not os.path.exists(p):
         abort(404)
     return send_file(p, mimetype="image/png")
+
+
+# ── Saved Living Stills (per-song gallery) ──────────────────────────
+
+
+def _find_living_still(job: dict, still_id: str) -> Optional[dict]:
+    for s in job.get("saved_living_stills", []) or []:
+        if s.get("id") == still_id:
+            return s
+    return None
+
+
+def _living_still_to_payload(job_id: str, s: dict) -> dict:
+    """Serialize a saved Living Still for the frontend, swapping disk paths for URLs."""
+    sid = s["id"]
+    return {
+        "id": sid,
+        "name": s.get("name", ""),
+        "created_at": s.get("created_at", ""),
+        "favorite": bool(s.get("favorite", False)),
+        "duration_sec": s.get("duration_sec"),
+        "has_mask": bool(s.get("mask_path") and os.path.exists(s["mask_path"])),
+        "video_url": f"/api/visual/saved-still/{job_id}/{sid}/video",
+        "thumb_url": f"/api/visual/saved-still/{job_id}/{sid}/thumb",
+    }
+
+
+@app.route("/api/visual/living-still/<job_id>", methods=["POST"])
+def save_living_still(job_id: str):
+    """Snapshot the current visual_video_path + brush_mask_path into a new saved
+    Living Still slot for this song. Generates a first-frame thumbnail via ffmpeg.
+
+    Body: { "name": "optional display name" }
+    """
+    with jobs_lock:
+        job = jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+    src_video = job.get("visual_video_path")
+    if not src_video or not os.path.exists(src_video):
+        return jsonify({"error": "No exported video to save. Render one first."}), 400
+
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()
+
+    still_id = uuid.uuid4().hex[:8]
+    base = PROJECT_ROOT / "output" / f"{job_id}_livingstill_{still_id}"
+    dst_video = str(base.with_suffix(".mp4"))
+    dst_mask = None
+    dst_thumb = str(base) + "_thumb.jpg"
+
+    try:
+        shutil.copy2(src_video, dst_video)
+    except Exception as e:
+        return jsonify({"error": f"Could not copy video: {e}"}), 500
+
+    src_mask = job.get("brush_mask_path")
+    if src_mask and os.path.exists(src_mask):
+        dst_mask = str(base) + "_mask.png"
+        try:
+            shutil.copy2(src_mask, dst_mask)
+        except Exception as e:
+            print(f"  [living-still] mask copy failed (non-fatal): {e}")
+            dst_mask = None
+
+    # Thumbnail: first frame, scaled to 1280x720 contain, JPEG q=4.
+    try:
+        subprocess.run(
+            ["ffmpeg", "-y", "-loglevel", "error", "-ss", "0", "-i", dst_video,
+             "-frames:v", "1",
+             "-vf", "scale='min(1280,iw)':'min(720,ih)':force_original_aspect_ratio=decrease",
+             "-q:v", "4", dst_thumb],
+            check=True, capture_output=True, timeout=30,
+        )
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+        print(f"  [living-still] thumbnail generation failed (non-fatal): {e}")
+        dst_thumb = None
+
+    # Probe duration for the gallery card.
+    duration_sec = None
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+             "-of", "csv=p=0", dst_video],
+            capture_output=True, text=True, timeout=10,
+        ).stdout.strip()
+        if out:
+            duration_sec = float(out)
+    except Exception:
+        pass
+
+    if not name:
+        with jobs_lock:
+            existing = len(job.get("saved_living_stills") or [])
+        name = f"Living Still {existing + 1}"
+
+    record = {
+        "id": still_id,
+        "name": name,
+        "created_at": datetime.now().isoformat(),
+        "video_path": dst_video,
+        "mask_path": dst_mask,
+        "thumbnail_path": dst_thumb,
+        "favorite": False,
+        "duration_sec": duration_sec,
+    }
+    with jobs_lock:
+        lst = job.setdefault("saved_living_stills", [])
+        lst.append(record)
+    _save_job(job_id)
+
+    return jsonify({"ok": True, "still": _living_still_to_payload(job_id, record)})
+
+
+@app.route("/api/visual/living-still/<job_id>", methods=["GET"])
+def list_living_stills(job_id: str):
+    """List all saved Living Stills for a song, sorted favorites-first then newest-first."""
+    with jobs_lock:
+        job = jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+    items = [_living_still_to_payload(job_id, s) for s in (job.get("saved_living_stills") or [])]
+    items.sort(key=lambda x: (not x["favorite"], -1 * _safe_dt(x.get("created_at"))))
+    return jsonify(items)
+
+
+def _safe_dt(iso: str) -> float:
+    try:
+        return datetime.fromisoformat(iso).timestamp() if iso else 0.0
+    except Exception:
+        return 0.0
+
+
+@app.route("/api/visual/living-still/<job_id>/<still_id>", methods=["PATCH"])
+def update_living_still(job_id: str, still_id: str):
+    """Rename and/or toggle favorite on a saved Living Still.
+    Body: { "name": "...", "favorite": true|false }
+    """
+    with jobs_lock:
+        job = jobs.get(job_id)
+        if not job:
+            return jsonify({"error": "Job not found"}), 404
+        s = _find_living_still(job, still_id)
+        if not s:
+            return jsonify({"error": "Saved still not found"}), 404
+        data = request.get_json(silent=True) or {}
+        if "name" in data:
+            s["name"] = (data["name"] or "").strip() or s.get("name", "")
+        if "favorite" in data:
+            s["favorite"] = bool(data["favorite"])
+    _save_job(job_id)
+    return jsonify({"ok": True, "still": _living_still_to_payload(job_id, s)})
+
+
+@app.route("/api/visual/living-still/<job_id>/<still_id>", methods=["DELETE"])
+def delete_living_still(job_id: str, still_id: str):
+    """Remove a saved Living Still entry and its files."""
+    with jobs_lock:
+        job = jobs.get(job_id)
+        if not job:
+            return jsonify({"error": "Job not found"}), 404
+        lst = job.get("saved_living_stills") or []
+        match = next((s for s in lst if s.get("id") == still_id), None)
+        if not match:
+            return jsonify({"error": "Saved still not found"}), 404
+        job["saved_living_stills"] = [s for s in lst if s.get("id") != still_id]
+    for key in ("video_path", "mask_path", "thumbnail_path"):
+        p = match.get(key)
+        if p and os.path.exists(p):
+            try:
+                os.remove(p)
+            except OSError as e:
+                print(f"  [living-still] could not delete {p}: {e}")
+    _save_job(job_id)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/visual/living-still/<job_id>/<still_id>/restore-mask", methods=["POST"])
+def restore_living_still_mask(job_id: str, still_id: str):
+    """Adopt this saved Living Still's brush mask as the song's active brush mask
+    (so the user can iterate on top of an old composition)."""
+    with jobs_lock:
+        job = jobs.get(job_id)
+        if not job:
+            return jsonify({"error": "Job not found"}), 404
+        s = _find_living_still(job, still_id)
+        if not s:
+            return jsonify({"error": "Saved still not found"}), 404
+        mask_path = s.get("mask_path")
+        if not mask_path or not os.path.exists(mask_path):
+            return jsonify({"error": "This saved still has no associated mask."}), 400
+        image_path = job.get("visual_image_path")
+        if not image_path:
+            return jsonify({"error": "Song has no scene image to attach the mask to."}), 400
+        active_mask = str(Path(image_path).with_name(Path(image_path).stem + "_brushmask.png"))
+        try:
+            shutil.copy2(mask_path, active_mask)
+        except Exception as e:
+            return jsonify({"error": f"Could not restore mask: {e}"}), 500
+        job["brush_mask_path"] = active_mask
+    _save_job(job_id)
+    return jsonify({"ok": True, "brush_mask_url": f"/api/visual/brush-mask/{job_id}/view?t={int(time.time())}"})
+
+
+@app.route("/api/visual/saved-still/<job_id>/<still_id>/video")
+def view_saved_still_video(job_id: str, still_id: str):
+    with jobs_lock:
+        job = jobs.get(job_id)
+    if not job:
+        abort(404)
+    s = _find_living_still(job, still_id)
+    if not s or not s.get("video_path") or not os.path.exists(s["video_path"]):
+        abort(404)
+    return send_file(s["video_path"], mimetype="video/mp4")
+
+
+@app.route("/api/visual/saved-still/<job_id>/<still_id>/thumb")
+def view_saved_still_thumb(job_id: str, still_id: str):
+    with jobs_lock:
+        job = jobs.get(job_id)
+    if not job:
+        abort(404)
+    s = _find_living_still(job, still_id)
+    p = s.get("thumbnail_path") if s else None
+    if not p or not os.path.exists(p):
+        abort(404)
+    return send_file(p, mimetype="image/jpeg")
 
 
 def _thumb_duration_label(job: dict) -> str:
@@ -2773,7 +3148,13 @@ def api_thumbnail_view(job_id: str):
 @app.route("/api/visual/motion-plan/<job_id>", methods=["POST"])
 def api_motion_plan(job_id: str):
     """Vision director: Claude looks at the scene image and returns a motion layer
-    plan for the editor to load (so the user can then tweak it). No render."""
+    plan for the editor to load (so the user can then tweak it). No render.
+
+    Accepts an optional motion_director_style in the request body (subtle / balanced
+    / dynamic) — same dropdown the render endpoint reads. Auto-plan from the UI
+    now passes whatever the user has selected so the styles actually affect the
+    layer list that lands in the editor.
+    """
     with jobs_lock:
         job = jobs.get(job_id)
     if not job:
@@ -2781,13 +3162,22 @@ def api_motion_plan(job_id: str):
     image_path = job.get("visual_image_path")
     if not image_path or not os.path.exists(image_path):
         return jsonify({"error": "No scene image yet — generate or upload one first."}), 400
+    body = request.get_json(force=True, silent=True) or {}
+    director_style = (body.get("motion_director_style") or "subtle").lower()
+    if director_style not in ("subtle", "balanced", "dynamic"):
+        director_style = "subtle"
     scene_text = job.get("prompt", "")
     config = job.get("config")
     if config:
         scene_text = f"{config.title}. {config.description}. {scene_text}"
+    print(f"[motion-plan] job={job_id} style={director_style}", flush=True)
     layers, src = choose_layers_from_image(
-        image_path, scene_text, anthropic_key=os.environ.get("ANTHROPIC_API_KEY"))
-    return jsonify({"layers": layers, "source": src})
+        image_path, scene_text,
+        anthropic_key=os.environ.get("ANTHROPIC_API_KEY"),
+        director_style=director_style,
+    )
+    print(f"[motion-plan] result src={src} count={len(layers)} layers={layers}", flush=True)
+    return jsonify({"layers": layers, "source": src, "director_style": director_style})
 
 
 @app.route("/api/visual/image/<job_id>/view")
@@ -2872,6 +3262,12 @@ def generate_visual_clip(job_id: str):
             motion_style = (data.get("motion_style") or "auto").lower()
             intensity = max(0.3, min(2.5, float(data.get("motion_intensity", 1.0))))
             loop_sec = max(8, min(40, float(data.get("motion_loop_sec", 16))))
+            # Director style: "subtle" (today's premium-wallpaper restraint),
+            # "balanced" (3-5 layers, visible motion), or "dynamic" (4-6 layers,
+            # assertive cinema). Only consulted when auto-planning.
+            director_style = (data.get("motion_director_style") or "subtle").lower()
+            if director_style not in ("subtle", "balanced", "dynamic"):
+                director_style = "subtle"
             # Motion brush: confine motion to a painted region, freeze the rest.
             # Triggered by the UI flag; layer SELECTION still comes from the editor/
             # preset/auto director below (the brush only says WHERE motion happens).
@@ -2879,6 +3275,13 @@ def generate_visual_clip(job_id: str):
             brush_mask_path = job.get("brush_mask_path") if use_brush else None
             if brush_mask_path and not os.path.exists(brush_mask_path):
                 brush_mask_path = None
+            # Per-layer region masks: each painted mask scopes a single effect's
+            # region. ADDITIVE to (and independent of) the global brush above —
+            # you can paint shimmer-only-on-water without confining the camera.
+            layer_masks_resolved: dict = {}
+            for k, p in (job.get("layer_masks") or {}).items():
+                if p and os.path.exists(p):
+                    layer_masks_resolved[k] = p
             user_layers = data.get("motion_layers")
             if isinstance(user_layers, list) and user_layers:
                 # Editor-composed layers → render EXACTLY this (what-you-see-is-what-
@@ -2891,9 +3294,11 @@ def generate_visual_clip(job_id: str):
                 # Auto = VISION director: Claude looks at the actual scene image and
                 # composes motion matched to what's really there (sky/gas, water,
                 # lights, composition) — not guessing from text.
-                _long_task_update(job_id, message="Claude is studying the image to plan the motion...")
+                _long_task_update(job_id, message=f"Claude is studying the image to plan the motion ({director_style})...")
                 layers, src = choose_layers_from_image(
-                    image_path, scene_text, anthropic_key=os.environ.get("ANTHROPIC_API_KEY")
+                    image_path, scene_text,
+                    anthropic_key=os.environ.get("ANTHROPIC_API_KEY"),
+                    director_style=director_style,
                 )
             # Bring-to-life toggles only apply to preset/auto modes (not the editor,
             # whose layers are taken verbatim).
@@ -2914,8 +3319,13 @@ def generate_visual_clip(job_id: str):
             # "Overall movement" is a GLOBAL multiplier applied in EVERY mode — incl.
             # Auto-planned / editor / brush layers — so "same look, just more motion"
             # is one slider nudge + regenerate. At 1.0 it's a no-op (true WYSIWYG).
+            print(f"[clip] job={job_id} src={src} intensity={intensity:.2f} style={director_style} "
+                  f"editor_layer_count={len(layers)} layer_masks={list(layer_masks_resolved.keys())} "
+                  f"global_brush={'yes' if brush_mask_path else 'no'}", flush=True)
+            print(f"[clip] layers_pre_scale={layers}", flush=True)
             if abs(intensity - 1.0) > 1e-3:
                 layers = scale_motion(layers, intensity)
+                print(f"[clip] layers_post_scale={layers}", flush=True)
             _long_task_update(job_id, message=f"Motion: {src}, movement ×{intensity:.1f}, {loop_sec:.0f}s loop; rendering...")
             clip_path = str(PROJECT_ROOT / "output" / f"{safe_title}_motion_{timestamp}.mp4")
             MotionCompositor().render(
@@ -2923,6 +3333,7 @@ def generate_visual_clip(job_id: str):
                 loop_sec=loop_sec, fps=24, size=(1920, 1080),
                 on_status=lambda m: _long_task_update(job_id, message=m),
                 brush_mask_path=brush_mask_path,
+                layer_masks=layer_masks_resolved or None,
             )
         else:
             gen = VisualGenerator(xai_api_key="", output_dir=str(PROJECT_ROOT / "output"))

@@ -692,6 +692,18 @@
   // ── Enhance & Plan ──────────────────────────────
   const btnEnhancePrompt = document.getElementById("btn-enhance-prompt");
   const enhanceStatus = document.getElementById("enhance-status");
+  const enhanceStyleBtns = document.querySelectorAll(".enhance-style-btn");
+  const ENHANCE_STYLE_KEY = "ambientizer.enhanceStyle";
+  let currentEnhanceStyle = localStorage.getItem(ENHANCE_STYLE_KEY) || "world";
+  if (currentEnhanceStyle !== "world" && currentEnhanceStyle !== "score") currentEnhanceStyle = "world";
+  enhanceStyleBtns.forEach((b) => {
+    b.classList.toggle("active", b.dataset.style === currentEnhanceStyle);
+    b.addEventListener("click", () => {
+      currentEnhanceStyle = b.dataset.style;
+      localStorage.setItem(ENHANCE_STYLE_KEY, currentEnhanceStyle);
+      enhanceStyleBtns.forEach((x) => x.classList.toggle("active", x.dataset.style === currentEnhanceStyle));
+    });
+  });
   const planPreview = document.getElementById("plan-preview");
 
   function _renderPlanPreview(layers) {
@@ -792,7 +804,9 @@
 
     btnEnhancePrompt.disabled = true;
     btnEnhancePrompt.textContent = "Researching...";
-    enhanceStatus.textContent = "Searching the web for context...";
+    enhanceStatus.textContent = currentEnhanceStyle === "score"
+      ? "Analyzing the score and musical references..."
+      : "Searching the web for context...";
     enhanceStatus.className = "enhance-status active";
 
     try {
@@ -803,6 +817,7 @@
           prompt: raw,
           mode: currentMode,
           approach: currentApproach,
+          enhance_style: currentEnhanceStyle,
         }),
       });
       const data = await res.json();
@@ -3492,7 +3507,8 @@
     });
   }
 
-  // ── Motion brush (paint what moves, freeze the rest) ──────────
+  // ── Motion brush (Living Still — paint semantic flips between
+  //                 "what moves" and "what stays still") ─────────
   (function initMotionBrush() {
     const useBrush = document.getElementById("use-brush");
     const editor = document.getElementById("brush-editor");
@@ -3505,9 +3521,144 @@
     const btnClear = document.getElementById("brush-clear");
     const btnSave = document.getElementById("brush-save");
     const btnTap = document.getElementById("brush-tap");
+    const semanticBtns = document.querySelectorAll("#brush-semantic-toggle .enhance-style-btn");
+    const brushHint = document.getElementById("brush-hint");
+    const brushTargetSel = document.getElementById("brush-target");
+    const btnClearLayer = document.getElementById("brush-clear-layer");
     if (!useBrush || !canvas) return;
     const ctx = canvas.getContext("2d");
     let erasing = false, drawing = false, tapMode = false;
+    // Brush target: "global" (the legacy whole-scene mask that anchors the
+    // camera) OR a layer-index string (per-layer region mask — scopes JUST
+    // that effect, camera still moves). Default: global.
+    let brushTarget = "global";
+    // Cache of which layer indices already have a saved per-layer mask, so we
+    // can show a 🖌 indicator on the layer card. Populated from the server on
+    // editor open / track switch.
+    let savedLayerMasks = new Set();
+
+    function postUrlForTarget() {
+      if (!visCurrentJobId) return null;
+      if (brushTarget === "global") return `/api/visual/brush-mask/${visCurrentJobId}`;
+      return `/api/visual/layer-mask/${visCurrentJobId}/${parseInt(brushTarget, 10)}`;
+    }
+    function viewUrlForTarget(bust = true) {
+      if (!visCurrentJobId) return null;
+      const t = bust ? `?t=${Date.now()}` : "";
+      if (brushTarget === "global") return `/api/visual/brush-mask/${visCurrentJobId}/view${t}`;
+      return `/api/visual/layer-mask/${visCurrentJobId}/${parseInt(brushTarget, 10)}/view${t}`;
+    }
+
+    async function refreshSavedLayerMasks() {
+      if (!visCurrentJobId) { savedLayerMasks = new Set(); return; }
+      try {
+        const res = await fetch(`/api/visual/layer-mask/${visCurrentJobId}`);
+        const d = await res.json();
+        savedLayerMasks = new Set((d.layer_masks || []).map((m) => m.layer_idx));
+      } catch { savedLayerMasks = new Set(); }
+      _decorateMotionLayerCards();
+    }
+
+    function _decorateMotionLayerCards() {
+      // Add a 🖌 badge to each motion layer card that has a saved per-layer
+      // mask. Lets the user see at a glance which layers are scoped.
+      const list = document.getElementById("motion-layers-list");
+      if (!list) return;
+      list.querySelectorAll(".ml-card").forEach((card, idx) => {
+        const head = card.querySelector(".ml-card-head");
+        if (!head) return;
+        let badge = head.querySelector(".ml-mask-badge");
+        if (savedLayerMasks.has(idx)) {
+          if (!badge) {
+            badge = document.createElement("button");
+            badge.type = "button";
+            badge.className = "ml-mask-badge";
+            badge.title = "This layer has a region mask — click to edit it";
+            badge.textContent = "🖌 region";
+            badge.addEventListener("click", () => {
+              if (!useBrush.checked) useBrush.click();
+              brushTarget = String(idx);
+              if (brushTargetSel) brushTargetSel.value = brushTarget;
+              applyTargetUI();
+              restoreMask();
+            });
+            head.insertBefore(badge, head.querySelector(".ml-remove"));
+          }
+        } else if (badge) {
+          badge.remove();
+        }
+      });
+    }
+    // Allow other code paths (auto-plan, preset load, manual edits) to
+    // trigger a redecoration after re-rendering the layer cards.
+    window._refreshLayerMaskBadges = _decorateMotionLayerCards;
+
+    function populateBrushTargetOptions() {
+      if (!brushTargetSel) return;
+      const layers = window._motionLayers || [];
+      const prev = brushTarget;
+      const MOTION_SCHEMA = window._MOTION_SCHEMA || {};
+      const opts = [`<option value="global"${prev === "global" ? " selected" : ""}>Whole scene (global mask)</option>`];
+      layers.forEach((l, idx) => {
+        const label = (MOTION_SCHEMA[l.type] && MOTION_SCHEMA[l.type].label) || l.type;
+        const mark = savedLayerMasks.has(idx) ? "🖌 " : "";
+        const sel = String(idx) === prev ? " selected" : "";
+        opts.push(`<option value="${idx}"${sel}>${mark}Layer ${idx + 1}: ${label}</option>`);
+      });
+      brushTargetSel.innerHTML = opts.join("");
+      // If the previously-selected target no longer exists (layer removed),
+      // fall back to global.
+      if (brushTarget !== "global" && parseInt(brushTarget, 10) >= layers.length) {
+        brushTarget = "global";
+        brushTargetSel.value = "global";
+      }
+    }
+    window._refreshBrushTargetOptions = populateBrushTargetOptions;
+
+    function applyTargetUI() {
+      // Update the hint based on which target is selected: for global, the
+      // existing wording about anchored camera applies; for per-layer, motion
+      // outside the masked region still happens (camera still moves, other
+      // unmasked layers still play).
+      if (!brushHint) return;
+      if (brushTarget === "global") {
+        brushHint.innerHTML = brushSemantic === "stays"
+          ? 'Paint over what should <strong>stay still</strong> (e.g. the figure, the cathedral, the city). Everything you leave unpainted will animate. Click <strong>Save mask</strong>, then Generate. In brush mode the camera is anchored, so motion comes from the layers above (nebula drift, twinkle, particles…).'
+          : 'Paint over what should <strong>move</strong> (e.g. the sky / nebula). Unpainted areas stay frozen. Click <strong>Save mask</strong>, then Generate. In brush mode the camera is anchored, so motion comes from the layers above (nebula drift, twinkle, particles…).';
+      } else {
+        const idx = parseInt(brushTarget, 10);
+        const layer = (window._motionLayers || [])[idx];
+        const label = (window._MOTION_SCHEMA?.[layer?.type]?.label) || layer?.type || `Layer ${idx + 1}`;
+        const moves = brushSemantic === "moves";
+        brushHint.innerHTML = moves
+          ? `Per-layer mask — <strong>${label}</strong> only fires inside the painted region. Camera and other layers still play normally everywhere. Save, then Generate.`
+          : `Per-layer mask — <strong>${label}</strong> is SUPPRESSED inside the painted region. Other layers + camera still play normally everywhere. Save, then Generate.`;
+      }
+    }
+
+    // Semantic: "moves" → painted region animates (today's behavior).
+    //           "stays" → painted region freezes; rest animates.
+    // The on-disk mask is always canonical "white = moves" — the semantic only
+    // controls whether we invert the canvas alpha at save and restore.
+    const BRUSH_SEMANTIC_KEY = "ambientizer.brushSemantic";
+    let brushSemantic = localStorage.getItem(BRUSH_SEMANTIC_KEY) || "moves";
+    if (brushSemantic !== "moves" && brushSemantic !== "stays") brushSemantic = "moves";
+
+    function applySemanticUI() {
+      semanticBtns.forEach((b) => b.classList.toggle("active", b.dataset.semantic === brushSemantic));
+      if (btnTap) {
+        btnTap.textContent = brushSemantic === "stays" ? "✦ Tap to freeze (AI)" : "✦ Tap to animate (AI)";
+        btnTap.title = brushSemantic === "stays"
+          ? "Click an object (e.g. the city) and AI segments it onto the canvas — it'll stay perfectly still"
+          : "Click an object (e.g. the sky/nebula) and AI segments it onto the canvas — it'll be what moves";
+      }
+      if (brushHint) {
+        brushHint.innerHTML = brushSemantic === "stays"
+          ? 'Paint over what should <strong>stay still</strong> (e.g. the figure, the cathedral, the city). Everything you leave unpainted will animate. Click <strong>Save mask</strong>, then Generate. In brush mode the camera is anchored, so motion comes from the layers above (nebula drift, twinkle, particles…).'
+          : 'Paint over what should <strong>move</strong> (e.g. the sky / nebula). Unpainted areas stay frozen. Click <strong>Save mask</strong>, then Generate. In brush mode the camera is anchored, so motion comes from the layers above (nebula drift, twinkle, particles…).';
+      }
+    }
+    applySemanticUI();
 
     function syncSize() {
       const w = bg.naturalWidth || 1280, h = bg.naturalHeight || 720;
@@ -3516,8 +3667,29 @@
     function restoreMask() {
       if (!visCurrentJobId) return;
       const img = new Image();
-      img.onload = () => { ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.drawImage(img, 0, 0, canvas.width, canvas.height); };
-      img.src = `/api/visual/brush-mask/${visCurrentJobId}/view?t=${Date.now()}`;
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        // The saved file is canonical "white = moves". Convert that to canvas
+        // alpha based on the current semantic: in "moves" mode painted alpha =
+        // white-ness; in "stays" mode painted alpha = 255 - white-ness.
+        const tmp = document.createElement("canvas");
+        tmp.width = canvas.width; tmp.height = canvas.height;
+        const tctx = tmp.getContext("2d");
+        tctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const src = tctx.getImageData(0, 0, canvas.width, canvas.height);
+        const out = ctx.createImageData(canvas.width, canvas.height);
+        const d = src.data, o = out.data;
+        const stays = brushSemantic === "stays";
+        for (let i = 0; i < d.length; i += 4) {
+          const whiteness = d[i + 3] > 0 ? d[i] : 0; // ignore fully transparent pixels
+          o[i] = 255; o[i + 1] = 40; o[i + 2] = 200;
+          o[i + 3] = stays ? (255 - whiteness) : whiteness;
+        }
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.putImageData(out, 0, 0);
+      };
+      img.onerror = () => { ctx.clearRect(0, 0, canvas.width, canvas.height); };
+      img.src = viewUrlForTarget(true) || `/api/visual/brush-mask/${visCurrentJobId}/view?t=${Date.now()}`;
     }
     function loadBrushImage() {
       const src = previewImg?.src;
@@ -3525,6 +3697,9 @@
       bg.onload = () => { syncSize(); restoreMask(); };
       bg.src = src;
       if (bg.complete && bg.naturalWidth) { syncSize(); restoreMask(); }
+      // Pull the latest set of saved per-layer masks AND rebuild the target
+      // dropdown so the editor always reflects the current layer list.
+      refreshSavedLayerMasks().then(() => populateBrushTargetOptions());
     }
     function pos(e) {
       const r = canvas.getBoundingClientRect();
@@ -3564,14 +3739,24 @@
       const xn = (e.clientX - r.left) / r.width;
       const yn = (e.clientY - r.top) / r.height;
       statusEl.textContent = "Segmenting…";
+      // Always ask SAM for the OBJECT region (mask="move" returns object=white).
+      // Painting the object onto the canvas is intuitive in both semantics;
+      // we'll invert at save/restore time only.
       runLongTask(visCurrentJobId, {
         initialMessage: "Segmenting the region you clicked (SAM)…",
         progressEl: clipProgress, progressTextEl: clipProgressText, stopBtn: clipStopBtn,
         startRequest: () => fetch(`/api/visual/segment-point/${visCurrentJobId}`, {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ x: xn, y: yn, mode: "freeze" }),
+          body: JSON.stringify({ x: xn, y: yn, mode: "move" }),
         }),
-        onDone: (d) => { if (d.mask_url) { drawMaskUrl(d.mask_url); statusEl.textContent = "Frozen ✓ — refine with Paint/Erase, then Save"; } },
+        onDone: (d) => {
+          if (d.mask_url) {
+            drawMaskUrl(d.mask_url);
+            statusEl.textContent = brushSemantic === "stays"
+              ? "Painted to FREEZE this region — refine with Paint/Erase, then Save"
+              : "Painted to ANIMATE this region — refine with Paint/Erase, then Save";
+          }
+        },
         onError: (msg) => { statusEl.textContent = ""; if (msg) alert("Segment failed: " + msg); },
       });
     }
@@ -3587,7 +3772,38 @@
       tapMode = !tapMode;
       btnTap.classList.toggle("active", tapMode);
       canvas.style.cursor = tapMode ? "pointer" : "crosshair";
-      statusEl.textContent = tapMode ? "Click the object to freeze (e.g. the city)" : "";
+      if (!tapMode) { statusEl.textContent = ""; }
+      else {
+        statusEl.textContent = brushSemantic === "stays"
+          ? "Click the object that should stay still (e.g. the city / figure)"
+          : "Click the object that should animate (e.g. the sky / nebula)";
+      }
+    });
+
+    semanticBtns.forEach((b) => {
+      b.addEventListener("click", () => {
+        if (b.dataset.semantic === brushSemantic) return;
+        brushSemantic = b.dataset.semantic;
+        localStorage.setItem(BRUSH_SEMANTIC_KEY, brushSemantic);
+        applySemanticUI();
+        // Re-paint the existing canvas under the new semantic. The canvas
+        // pixels stay visually identical (the user's painted region IS still
+        // the same region they care about); only the meaning flips. So we
+        // simply leave the canvas alone — Save will now interpret it correctly.
+        // But if the canvas is empty AND a saved mask exists on the server,
+        // re-load it under the new semantic so what shows matches what'll save.
+        const hasPaint = (() => {
+          const d = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+          for (let i = 3; i < d.length; i += 4) if (d[i] > 0) return true;
+          return false;
+        })();
+        if (!hasPaint && visCurrentJobId) restoreMask();
+        if (tapMode) {
+          statusEl.textContent = brushSemantic === "stays"
+            ? "Click the object that should stay still (e.g. the city / figure)"
+            : "Click the object that should animate (e.g. the sky / nebula)";
+        }
+      });
     });
     btnPaint?.addEventListener("click", () => { erasing = false; tapMode = false; btnTap?.classList.remove("active"); canvas.style.cursor = "crosshair"; btnPaint.classList.add("active"); btnErase.classList.remove("active"); });
     btnErase?.addEventListener("click", () => { erasing = true; tapMode = false; btnTap?.classList.remove("active"); canvas.style.cursor = "crosshair"; btnErase.classList.add("active"); btnPaint.classList.remove("active"); });
@@ -3596,13 +3812,50 @@
       return new Promise((resolve) => {
         if (!visCurrentJobId) { resolve(false); return; }
         statusEl.textContent = "Saving…";
-        canvas.toBlob(async (blob) => {
+        // Convert the canvas (magenta-on-transparent) into a canonical mask before
+        // uploading. In "stays" mode we invert so the painted region lands as
+        // BLACK (freeze) in the saved file.
+        //
+        // CRITICAL: encode the mask in BOTH the alpha channel AND the RGB
+        // luminance. The Python-side _load_brush_mask prefers the alpha
+        // channel when present — so writing dd[i+3]=255 (constant) silently
+        // produced a "whole frame is painted" mask, making every saved mask
+        // a no-op. Mirroring the value into alpha makes the file unambiguous
+        // for either reader strategy and fixes per-layer + global masks alike.
+        const out = document.createElement("canvas");
+        out.width = canvas.width; out.height = canvas.height;
+        const octx = out.getContext("2d");
+        const src = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const dst = octx.createImageData(canvas.width, canvas.height);
+        const sd = src.data, dd = dst.data;
+        const stays = brushSemantic === "stays";
+        for (let i = 0; i < sd.length; i += 4) {
+          const a = sd[i + 3];
+          const v = stays ? (255 - a) : a;
+          dd[i] = v; dd[i + 1] = v; dd[i + 2] = v; dd[i + 3] = v;
+        }
+        octx.putImageData(dst, 0, 0);
+        out.toBlob(async (blob) => {
           const form = new FormData(); form.append("file", blob, "mask.png");
+          const url = postUrlForTarget();
+          if (!url) { statusEl.textContent = "Save failed"; resolve(false); return; }
           try {
-            const res = await fetch(`/api/visual/brush-mask/${visCurrentJobId}`, { method: "POST", body: form });
+            const res = await fetch(url, { method: "POST", body: form });
             const d = await res.json();
-            statusEl.textContent = d.error ? ("Error: " + d.error) : "Mask saved ✓";
-            resolve(!d.error);
+            if (d.error) {
+              statusEl.textContent = "Error: " + d.error;
+              resolve(false); return;
+            }
+            statusEl.textContent = brushTarget === "global"
+              ? "Mask saved ✓"
+              : "Layer mask saved ✓";
+            // Refresh the badge + the dropdown labels so the "🖌" marker shows up.
+            if (brushTarget !== "global") {
+              savedLayerMasks.add(parseInt(brushTarget, 10));
+              _decorateMotionLayerCards();
+              populateBrushTargetOptions();
+            }
+            resolve(true);
           } catch (err) { statusEl.textContent = "Save failed"; resolve(false); }
         }, "image/png");
       });
@@ -3610,6 +3863,32 @@
     btnSave?.addEventListener("click", () => {
       if (!visCurrentJobId) { alert("Select a track first"); return; }
       saveMask();
+    });
+    // ── Brush target picker ──────────────────────────────────────────────
+    brushTargetSel?.addEventListener("change", () => {
+      brushTarget = brushTargetSel.value || "global";
+      applyTargetUI();
+      // Load whatever mask exists for the newly-selected target.
+      if (visCurrentJobId) restoreMask();
+    });
+    // ── Clear-this-mask button ───────────────────────────────────────────
+    btnClearLayer?.addEventListener("click", async () => {
+      if (!visCurrentJobId) { return; }
+      const url = postUrlForTarget();
+      if (!url) return;
+      if (!confirm(brushTarget === "global"
+        ? "Clear the global motion-brush mask for this song?"
+        : "Clear this layer's region mask?")) return;
+      try {
+        await fetch(url, { method: "DELETE" });
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (brushTarget !== "global") {
+          savedLayerMasks.delete(parseInt(brushTarget, 10));
+          _decorateMotionLayerCards();
+          populateBrushTargetOptions();
+        }
+        statusEl.textContent = "Cleared.";
+      } catch (e) { statusEl.textContent = "Failed to clear"; }
     });
     // Auto-save on Generate so the user can't forget the Save step.
     window._saveBrushMaskIfActive = () => (useBrush.checked ? saveMask() : Promise.resolve(true));
@@ -3622,6 +3901,169 @@
       if (hasMask) { useBrush.checked = true; editor.classList.remove("hidden"); loadBrushImage(); }
       else { useBrush.checked = false; editor.classList.add("hidden"); }
     };
+  })();
+
+  // ── Saved Living Stills (per-song gallery) ────────────────────
+  (function initSavedLivingStills() {
+    const btnSave = document.getElementById("btn-save-living-still");
+    const nameInput = document.getElementById("save-still-name");
+    const statusEl = document.getElementById("save-still-status");
+    const panel = document.getElementById("saved-stills-panel");
+    const grid = document.getElementById("saved-stills-grid");
+    const countEl = document.getElementById("saved-stills-count");
+    if (!btnSave || !grid) return;
+
+    function setStatus(text, kind) {
+      if (!statusEl) return;
+      statusEl.textContent = text || "";
+      statusEl.className = "form-hint" + (kind ? " " + kind : "");
+      if (text) setTimeout(() => { if (statusEl.textContent === text) { statusEl.textContent = ""; statusEl.className = "form-hint"; } }, 4000);
+    }
+
+    function fmtDuration(sec) {
+      if (!sec || sec < 1) return "";
+      const m = Math.floor(sec / 60);
+      const s = Math.floor(sec % 60);
+      return m > 0 ? `${m}m ${s}s` : `${s}s`;
+    }
+    function fmtDate(iso) {
+      if (!iso) return "";
+      try {
+        const d = new Date(iso);
+        return d.toLocaleDateString(undefined, { month: "short", day: "numeric" })
+             + " " + d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+      } catch { return ""; }
+    }
+
+    async function refresh(jobId) {
+      jobId = jobId || (typeof visCurrentJobId !== "undefined" ? visCurrentJobId : null);
+      if (!jobId) { panel.classList.add("hidden"); grid.innerHTML = ""; return; }
+      try {
+        const res = await fetch(`/api/visual/living-still/${jobId}`);
+        const items = await res.json();
+        if (!Array.isArray(items) || items.length === 0) {
+          panel.classList.add("hidden"); grid.innerHTML = ""; if (countEl) countEl.textContent = "";
+          return;
+        }
+        panel.classList.remove("hidden");
+        if (countEl) countEl.textContent = `(${items.length})`;
+        grid.innerHTML = items.map(renderCard).join("");
+        attachCardHandlers(jobId);
+      } catch (err) {
+        console.warn("[living-still] list failed:", err);
+      }
+    }
+    window._refreshSavedLivingStills = refresh;
+
+    function renderCard(s) {
+      const star = s.favorite ? "★" : "☆";
+      return `
+        <div class="saved-still-card${s.favorite ? " is-fav" : ""}" data-id="${s.id}">
+          <div class="saved-still-thumb">
+            <img loading="lazy" src="${s.thumb_url}?t=${Date.now()}" alt="">
+            <button class="saved-still-play" data-action="play" title="Play this saved Living Still">▶</button>
+          </div>
+          <input type="text" class="saved-still-name" value="${escapeHtml(s.name || "")}" data-action="rename" maxlength="60">
+          <div class="saved-still-meta">${escapeHtml(fmtDate(s.created_at))}${s.duration_sec ? " · " + fmtDuration(s.duration_sec) : ""}</div>
+          <div class="saved-still-actions">
+            <button class="saved-still-btn fav" data-action="fav" title="${s.favorite ? "Unstar" : "Mark as favorite"}">${star}</button>
+            ${s.has_mask ? `<button class="saved-still-btn" data-action="restore" title="Adopt this still's brush mask as the song's active mask">↺ Mask</button>` : ""}
+            <a class="saved-still-btn" href="${s.video_url}" download title="Download this saved video">↓</a>
+            <button class="saved-still-btn danger" data-action="delete" title="Delete this saved Living Still">✕</button>
+          </div>
+        </div>
+      `;
+    }
+
+    function attachCardHandlers(jobId) {
+      grid.querySelectorAll(".saved-still-card").forEach((card) => {
+        const stillId = card.dataset.id;
+
+        card.querySelector('[data-action="play"]').addEventListener("click", () => {
+          const exportVideo = document.getElementById("export-video");
+          const exportPreview = document.getElementById("export-preview");
+          if (!exportVideo) return;
+          exportVideo.src = `/api/visual/saved-still/${jobId}/${stillId}/video?t=${Date.now()}`;
+          exportVideo.load();
+          exportVideo.play().catch(() => {});
+          exportPreview?.classList.remove("hidden");
+          exportPreview?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        });
+
+        const favBtn = card.querySelector('[data-action="fav"]');
+        favBtn.addEventListener("click", async () => {
+          const willBe = !card.classList.contains("is-fav");
+          favBtn.disabled = true;
+          try {
+            const res = await fetch(`/api/visual/living-still/${jobId}/${stillId}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ favorite: willBe }),
+            });
+            if (res.ok) refresh(jobId);
+          } finally { favBtn.disabled = false; }
+        });
+
+        const restoreBtn = card.querySelector('[data-action="restore"]');
+        if (restoreBtn) {
+          restoreBtn.addEventListener("click", async () => {
+            if (!confirm("Replace the current brush mask with this saved still's mask?")) return;
+            restoreBtn.disabled = true;
+            try {
+              const res = await fetch(`/api/visual/living-still/${jobId}/${stillId}/restore-mask`, { method: "POST" });
+              const data = await res.json();
+              if (!res.ok) { alert(data.error || "Restore failed"); return; }
+              if (typeof window._restoreBrush === "function") window._restoreBrush(true);
+              setStatus("Brush mask restored ✓", "success");
+            } finally { restoreBtn.disabled = false; }
+          });
+        }
+
+        card.querySelector('[data-action="delete"]').addEventListener("click", async () => {
+          if (!confirm("Delete this saved Living Still? The video and mask files will be removed from disk.")) return;
+          const res = await fetch(`/api/visual/living-still/${jobId}/${stillId}`, { method: "DELETE" });
+          if (res.ok) refresh(jobId);
+        });
+
+        const nameEl = card.querySelector('[data-action="rename"]');
+        let lastName = nameEl.value;
+        const persistName = async () => {
+          const v = nameEl.value.trim();
+          if (v === lastName) return;
+          lastName = v;
+          await fetch(`/api/visual/living-still/${jobId}/${stillId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: v }),
+          });
+        };
+        nameEl.addEventListener("blur", persistName);
+        nameEl.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); nameEl.blur(); } });
+      });
+    }
+
+    btnSave.addEventListener("click", async () => {
+      const jobId = typeof visCurrentJobId !== "undefined" ? visCurrentJobId : null;
+      if (!jobId) { setStatus("Select a track first.", "error"); return; }
+      btnSave.disabled = true;
+      setStatus("Saving…");
+      try {
+        const res = await fetch(`/api/visual/living-still/${jobId}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: (nameInput?.value || "").trim() }),
+        });
+        const data = await res.json();
+        if (!res.ok) { setStatus(data.error || "Save failed", "error"); return; }
+        setStatus("Saved ✓", "success");
+        if (nameInput) nameInput.value = "";
+        await refresh(jobId);
+      } catch (err) {
+        setStatus("Save failed: " + err.message, "error");
+      } finally {
+        btnSave.disabled = false;
+      }
+    });
   })();
 
   // Live "Overall movement" value label.
@@ -3710,6 +4152,11 @@
 
       // Restore motion-brush state (enable + repaint saved mask) for this track.
       if (typeof window._restoreBrush === "function") window._restoreBrush(!!data.brush_mask_url);
+      // Refresh the per-layer mask state for this track so the badges + the
+      // brush-target dropdown reflect what's actually saved.
+      if (typeof window._refreshBrushTargetOptions === "function") window._refreshBrushTargetOptions();
+      // Refresh this song's saved Living Stills gallery.
+      if (typeof window._refreshSavedLivingStills === "function") window._refreshSavedLivingStills(visCurrentJobId);
     } catch (err) {
       console.error("Failed to load visuals for track:", err);
     }
@@ -3838,6 +4285,9 @@
     vignette_pulse: { label: "Vignette pulse", params: [
       { key: "amount", label: "Strength", min: 0, max: 0.4, step: 0.02, def: 0.16 } ] },
   };
+  // Exposed so the brush editor can show readable layer names in the
+  // "For:" dropdown ("Layer 1: Camera", "Layer 2: Nebula / gas drift", …).
+  window._MOTION_SCHEMA = MOTION_SCHEMA;
   const MOTION_PRESETS = {
     drift: [{ type: "breathing_zoom", amount: 0.08, orbit: 0.35 }, { type: "light", amount: 0.07 }, { type: "vignette_pulse", amount: 0.14 }],
     stargaze: [{ type: "breathing_zoom", amount: 0.1, orbit: 0.5 }, { type: "twinkle", amount: 0.8 }, { type: "nebula", amount: 0.5 }, { type: "light", amount: 0.07 }, { type: "vignette_pulse", amount: 0.14 }],
@@ -3893,6 +4343,13 @@
     motionLayersList.querySelectorAll(".ml-remove").forEach(el => {
       el.addEventListener("click", () => { window._motionLayers.splice(+el.dataset.idx, 1); _renderMotionLayers(); });
     });
+    // Whenever the cards re-render, give the brush editor a chance to add its
+    // 🖌 region badges and refresh the target dropdown so layer names stay in
+    // sync with whatever's now in the editor.
+    try {
+      window._refreshLayerMaskBadges?.();
+      window._refreshBrushTargetOptions?.();
+    } catch {}
   }
   window._renderMotionLayers = _renderMotionLayers;
 
@@ -3909,15 +4366,50 @@
   document.getElementById("btn-auto-plan-motion")?.addEventListener("click", async () => {
     if (!visCurrentJobId) { alert("Select a track + scene image first"); return; }
     const btn = document.getElementById("btn-auto-plan-motion");
-    btn.disabled = true; btn.textContent = "✦ Looking at image…";
+    const style = (document.getElementById("motion-director-style") || {}).value || "subtle";
+    // If the editor already has layers, confirm — Auto-plan replaces them.
+    if ((window._motionLayers || []).length > 0) {
+      if (!confirm(`Replace the ${window._motionLayers.length} layer(s) in the editor with a fresh "${style}" plan from Claude?`)) return;
+    }
+    btn.disabled = true; btn.textContent = `✦ Planning (${style})…`;
     try {
-      const res = await fetch(`/api/visual/motion-plan/${visCurrentJobId}`, { method: "POST" });
+      const res = await fetch(`/api/visual/motion-plan/${visCurrentJobId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ motion_director_style: style }),
+      });
       const data = await res.json();
       if (data.error) alert("Auto-plan failed: " + data.error);
-      else { window._motionLayers = (data.layers || []).map(l => ({ ...l })); _renderMotionLayers(); }
+      else {
+        window._motionLayers = (data.layers || []).map(l => ({ ...l }));
+        _renderMotionLayers();
+        console.log("[auto-plan] director_style=" + style + " got " + (data.layers || []).length + " layers", data);
+      }
     } catch (e) { alert("Auto-plan failed: " + e.message); }
     btn.disabled = false; btn.textContent = "✦ Auto-plan from image";
   });
+  // ── Director style → re-plan shortcut ───────────────────────────────────
+  // Changing the dropdown is silent when the editor has layers (we don't want
+  // to surprise-replace the user's manual edits). Surface a hint + offer a
+  // one-click re-plan whenever the choice diverges from what's in the editor.
+  (function wireDirectorStyleHint() {
+    const styleSel = document.getElementById("motion-director-style");
+    if (!styleSel) return;
+    let lastStyle = styleSel.value;
+    styleSel.addEventListener("change", () => {
+      const newStyle = styleSel.value;
+      if (newStyle === lastStyle) return;
+      lastStyle = newStyle;
+      const hasEditorLayers = (window._motionLayers || []).length > 0;
+      if (!hasEditorLayers) return; // editor is empty → next Generate will use this style anyway
+      if (confirm(`Director style changed to "${newStyle}".\n\n` +
+                  `The editor already has ${window._motionLayers.length} layer(s) — these will be rendered AS-IS unless you re-plan.\n\n` +
+                  `Click OK to re-plan with the new style now (replaces the editor list).\n` +
+                  `Click Cancel to keep the current editor layers (Director style is ignored for this render).`)) {
+        document.getElementById("btn-auto-plan-motion")?.click();
+      }
+    });
+  })();
 
   // ── Clip generation (step 2) ──────────────────
   btnCreateClip.addEventListener("click", async () => {
@@ -3952,6 +4444,8 @@
           // Editor-composed layers (what-you-see-is-what-renders). Empty → backend auto-plans.
           motion_layers: window._motionLayers || [],
           motion_loop_sec: parseFloat((document.getElementById("motion-loop-sec") || {}).value) || 16,
+          // Director style picks how restrained vs assertive Claude's auto-plan is.
+          motion_director_style: (document.getElementById("motion-director-style") || {}).value || "subtle",
           // Global "Overall movement" multiplier — applies in every mode.
           motion_intensity: parseFloat((document.getElementById("motion-intensity") || {}).value) || 1.0,
           // Motion brush: confine motion to the painted region (mask saved separately).
