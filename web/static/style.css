@@ -353,6 +353,257 @@ body {
     cursor: not-allowed;
 }
 
+.enhance-style-toggle {
+    display: inline-flex;
+    border: 1px solid var(--border, #2a2a35);
+    border-radius: 6px;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.brush-semantic-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 6px 0 10px;
+    flex-wrap: wrap;
+}
+
+.brush-semantic-label {
+    font-size: 0.78rem;
+    color: var(--text-muted, #888);
+    letter-spacing: 0.02em;
+}
+
+/* "For:" target picker — sits below the moves/stays toggle, lets the user
+   switch between the global mask and per-layer region masks. */
+.brush-target-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0 0 10px;
+    flex-wrap: wrap;
+}
+.brush-target-row select {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border, #2a2a35);
+    color: var(--text, #e4e4e7);
+    border-radius: 6px;
+    padding: 5px 8px;
+    font-size: 0.78rem;
+    min-width: 240px;
+}
+
+/* 🖌 badge that appears on a motion layer card when that layer has a saved
+   region mask. Clicking it jumps the brush editor straight to that layer. */
+.ml-mask-badge {
+    background: rgba(180, 110, 255, 0.18);
+    color: #d3b4ff;
+    border: 1px solid rgba(180, 110, 255, 0.45);
+    border-radius: 12px;
+    padding: 1px 8px;
+    font-size: 0.68rem;
+    cursor: pointer;
+    margin-right: 6px;
+    transition: background 0.12s;
+}
+.ml-mask-badge:hover {
+    background: rgba(180, 110, 255, 0.30);
+}
+
+/* ── Saved Living Stills gallery ───────────────────────────── */
+
+.save-still-name {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border, #2a2a35);
+    color: var(--text, #e4e4e7);
+    border-radius: 6px;
+    padding: 5px 8px;
+    font-size: 0.78rem;
+    min-width: 180px;
+}
+.save-still-name:focus {
+    outline: none;
+    border-color: rgba(168, 85, 247, 0.45);
+}
+
+.saved-stills-panel {
+    margin-top: 16px;
+    padding: 14px;
+    border: 1px solid var(--border, #2a2a35);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.015);
+}
+
+.saved-stills-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+
+.saved-stills-title {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text, #e4e4e7);
+}
+
+.saved-stills-count {
+    color: var(--text-muted, #888);
+    font-weight: 400;
+    margin-left: 4px;
+}
+
+.saved-stills-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 12px;
+}
+
+.saved-still-card {
+    background: rgba(255, 255, 255, 0.025);
+    border: 1px solid var(--border, #2a2a35);
+    border-radius: 8px;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.saved-still-card:hover { border-color: rgba(168, 85, 247, 0.35); }
+.saved-still-card.is-fav {
+    border-color: rgba(255, 200, 0, 0.45);
+    background: rgba(255, 200, 0, 0.04);
+}
+
+.saved-still-thumb {
+    position: relative;
+    aspect-ratio: 16 / 9;
+    background: #000;
+    border-radius: 6px;
+    overflow: hidden;
+}
+.saved-still-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+.saved-still-play {
+    position: absolute;
+    inset: 0;
+    margin: auto;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(0, 0, 0, 0.5);
+    color: #fff;
+    font-size: 1.1rem;
+    cursor: pointer;
+    backdrop-filter: blur(4px);
+    transition: background 0.15s ease, transform 0.15s ease;
+}
+.saved-still-play:hover {
+    background: rgba(168, 85, 247, 0.75);
+    transform: scale(1.08);
+}
+
+.saved-still-card .saved-still-name {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text, #e4e4e7);
+    font-size: 0.85rem;
+    font-weight: 500;
+    padding: 3px 5px;
+    border-radius: 4px;
+    transition: border-color 0.15s, background 0.15s;
+    min-width: 0;
+    width: 100%;
+    box-sizing: border-box;
+}
+.saved-still-card .saved-still-name:hover {
+    background: rgba(255, 255, 255, 0.03);
+}
+.saved-still-card .saved-still-name:focus {
+    background: rgba(168, 85, 247, 0.08);
+    border-color: rgba(168, 85, 247, 0.4);
+    outline: none;
+}
+
+.saved-still-meta {
+    font-size: 0.7rem;
+    color: var(--text-muted, #888);
+    padding: 0 5px;
+}
+
+.saved-still-actions {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+.saved-still-btn {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border, #2a2a35);
+    color: var(--text, #d1d1d8);
+    border-radius: 5px;
+    padding: 4px 8px;
+    font-size: 0.72rem;
+    cursor: pointer;
+    text-decoration: none;
+    line-height: 1;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.saved-still-btn:hover {
+    background: rgba(168, 85, 247, 0.12);
+    border-color: rgba(168, 85, 247, 0.4);
+    color: #d1c4e9;
+}
+.saved-still-btn.fav {
+    font-size: 0.95rem;
+    padding: 2px 8px;
+    line-height: 1;
+}
+.saved-still-card.is-fav .saved-still-btn.fav {
+    background: rgba(255, 200, 0, 0.18);
+    border-color: rgba(255, 200, 0, 0.55);
+    color: #ffd86b;
+}
+.saved-still-btn.danger:hover {
+    background: rgba(239, 68, 68, 0.18);
+    border-color: rgba(239, 68, 68, 0.55);
+    color: #ffb4b4;
+}
+
+.enhance-style-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted, #888);
+    padding: 4px 10px;
+    font-size: 0.72rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    letter-spacing: 0.02em;
+}
+
+.enhance-style-btn + .enhance-style-btn {
+    border-left: 1px solid var(--border, #2a2a35);
+}
+
+.enhance-style-btn:hover {
+    background: rgba(168, 85, 247, 0.08);
+    color: #d1c4e9;
+}
+
+.enhance-style-btn.active {
+    background: rgba(168, 85, 247, 0.18);
+    color: #c4a8f5;
+}
+
 .enhance-status {
     font-size: 0.75rem;
     color: var(--text-muted);

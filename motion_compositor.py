@@ -82,13 +82,22 @@ class MotionCompositor:
         crf: int = 18,
         on_status=None,
         brush_mask_path: Optional[str] = None,
+        layer_masks: Optional[dict] = None,
     ) -> str:
         """Render a seamless motion loop. Returns the output path.
 
         brush_mask_path: optional PNG where WHITE = "this region moves" and BLACK =
         "freeze". When given, motion is confined to the painted region and everything
         else stays pixel-perfect static (the global camera is anchored), like a
-        motion brush. The mask is feathered so the boundary isn't a hard cut."""
+        motion brush. The mask is feathered so the boundary isn't a hard cut.
+
+        layer_masks: optional dict mapping layer-INDEX (int or str) → mask PNG path.
+        Each per-layer mask scopes JUST that effect to the painted region. This is
+        ADDITIVE to the global brush mask — apply nebula over the sky, shimmer over
+        the water, twinkle over the lights, all in one render. Only applies to
+        maskable effect layers (nebula, shimmer, twinkle, color_glow, god_rays,
+        aurora, particles); whole-frame layers (breathing_zoom, parallax, fog,
+        light, vignette_pulse) ignore per-layer masks."""
         layers = layers if layers is not None else self.default_layers()
         if not output_path:
             output_path = str(Path(image_path).with_suffix("")) + "_motionloop.mp4"
@@ -114,6 +123,42 @@ class MotionCompositor:
                 status("motion brush mask loaded — freezing unpainted regions")
             else:
                 status("brush mask empty/unreadable — ignoring")
+
+        # ── Per-layer region masks ──────────────────────────────────────────
+        # Each per-layer mask scopes JUST its layer's effect (e.g. nebula on the
+        # sky only, shimmer on the water only, all in the same render). Stored
+        # by layer-index because index is the only stable identifier the editor
+        # passes through. Reordering the layer list invalidates these masks; the
+        # UI repaints when that happens.
+        per_layer_masks: dict[int, np.ndarray] = {}
+        if layer_masks:
+            for k, p in layer_masks.items():
+                try:
+                    idx = int(k)
+                except (TypeError, ValueError):
+                    continue
+                if not p:
+                    continue
+                m = self._load_brush_mask(p, W, H)
+                if m is not None:
+                    per_layer_masks[idx] = m
+            if per_layer_masks:
+                status(f"loaded per-layer masks for {len(per_layer_masks)} effect(s)")
+
+        def layer_idx(type_name: str, occurrence: int = 0) -> Optional[int]:
+            """Index of the Nth (zero-based) layer of given type in the input list."""
+            seen = 0
+            for i, l in enumerate(layers):
+                if l.get("type") == type_name:
+                    if seen == occurrence:
+                        return i
+                    seen += 1
+            return None
+
+        def mask_for(idx: Optional[int]) -> Optional[np.ndarray]:
+            if idx is None:
+                return None
+            return per_layer_masks.get(idx)
 
         # Pre-build per-layer state that's constant across frames.
         zoom_cfg = _find(layers, "breathing_zoom")
@@ -167,8 +212,31 @@ class MotionCompositor:
 
         # Nebula: auto-masked by CONTENT (colored, mid-bright gas), not semantic
         # segmentation — ADE20K "sky" doesn't fire on stylized space art.
+        # A user-painted per-layer mask OVERRIDES this auto-mask (you decided
+        # where the drift goes).
         nebula_cfg = _find(layers, "nebula")
-        nebula_mask = self._nebula_mask(W, H, base_pil) if nebula_cfg else None
+        nebula_idx = layer_idx("nebula")
+        nebula_user_mask = mask_for(nebula_idx)
+        nebula_mask = nebula_user_mask if nebula_user_mask is not None else (
+            self._nebula_mask(W, H, base_pil) if nebula_cfg else None)
+        shimmer_idx = layer_idx("shimmer")
+        shimmer_user_mask = mask_for(shimmer_idx)
+        aurora_idx = layer_idx("aurora")
+        aurora_user_mask = mask_for(aurora_idx)
+        twinkle_idx = layer_idx("twinkle")
+        twinkle_user_mask = mask_for(twinkle_idx)
+        rays_idx = layer_idx("god_rays")
+        rays_user_mask = mask_for(rays_idx)
+        glow_idx = layer_idx("color_glow")
+        glow_user_mask = mask_for(glow_idx)
+        # Particles can have multiple layers, so resolve each field's mask by occurrence.
+        particle_indices: list[Optional[int]] = []
+        seen_particles = 0
+        for l in layers:
+            if l.get("type") == "particles":
+                particle_indices.append(layer_idx("particles", seen_particles))
+                seen_particles += 1
+        particle_masks: list[Optional[np.ndarray]] = [mask_for(i) for i in particle_indices]
 
         # Water shimmer DOES use segmentation (real water scenes are in-distribution).
         water_mask = None
@@ -191,27 +259,42 @@ class MotionCompositor:
 
                 if shimmer_state is not None:
                     sh = self._apply_shimmer(frame, shimmer_state, t)
-                    region = shimmer_cfg.get("region")
-                    if region == "water":
-                        if water_mask is not None:        # confine to water; skip if none found
-                            m = water_mask[:, :, None]
-                            frame = frame * (1.0 - m) + sh * m
+                    # User-painted per-layer mask wins; else fall back to auto water mask.
+                    mask_for_shimmer = shimmer_user_mask
+                    if mask_for_shimmer is None and shimmer_cfg.get("region") == "water":
+                        mask_for_shimmer = water_mask
+                    if mask_for_shimmer is not None:
+                        m = mask_for_shimmer[:, :, None]
+                        frame = frame * (1.0 - m) + sh * m
                     else:
                         frame = sh                        # whole-frame shimmer (no region)
 
                 if nebula_mask is not None:
                     self._apply_region_warp(frame, nebula_mask, t, nebula_cfg.get("amount", 0.5))
 
-                for field in particle_fields:
+                for fi, field in enumerate(particle_fields):
+                    pmask = particle_masks[fi] if fi < len(particle_masks) else None
+                    pre = frame.copy() if pmask is not None else None
                     self._draw_particles(frame, field, t)
+                    if pmask is not None:
+                        self._blend_with_mask(frame, pre, pmask)
 
                 if twinkle_state is not None:
+                    pre = frame.copy() if twinkle_user_mask is not None else None
                     self._apply_twinkle(frame, twinkle_state, t)
+                    if twinkle_user_mask is not None:
+                        self._blend_with_mask(frame, pre, twinkle_user_mask)
 
                 if rays_state is not None:
+                    pre = frame.copy() if rays_user_mask is not None else None
                     self._apply_god_rays(frame, rays_state, t)
+                    if rays_user_mask is not None:
+                        self._blend_with_mask(frame, pre, rays_user_mask)
                 if aurora_state is not None:
+                    pre = frame.copy() if aurora_user_mask is not None else None
                     self._apply_aurora(frame, aurora_state, t)
+                    if aurora_user_mask is not None:
+                        self._blend_with_mask(frame, pre, aurora_user_mask)
 
                 if fog_tex is not None:
                     self._apply_fog(frame, fog_tex, fog_cfg.get("amount", 0.25), t)
@@ -223,7 +306,10 @@ class MotionCompositor:
                     self._apply_vignette(frame, vignette, vign_cfg.get("amount", 0.18), t)
 
                 if glow_mask is not None:
+                    pre = frame.copy() if glow_user_mask is not None else None
                     self._apply_color_glow(frame, glow_mask, glow_cfg, t)
+                    if glow_user_mask is not None:
+                        self._blend_with_mask(frame, pre, glow_user_mask)
 
                 # Motion brush: keep motion only where painted; restore the frozen
                 # original everywhere else (feathered edge avoids a hard seam).
@@ -538,18 +624,56 @@ class MotionCompositor:
         return m if m.max() > 0.02 else None  # treat an empty mask as "not present"
 
     @staticmethod
+    def _blend_with_mask(frame_post, frame_pre, mask):
+        """In-place: frame_post = mask * frame_post + (1 - mask) * frame_pre.
+
+        Used to scope a per-layer effect to a painted region: snapshot the frame
+        before applying the effect, apply, then blend the result back so the
+        effect only "lands" where the mask is white. The mask is feathered by
+        _load_brush_mask so the boundary isn't a hard cut.
+        """
+        if mask is None or frame_pre is None:
+            return frame_post
+        m3 = mask[:, :, None]
+        np.multiply(frame_post, m3, out=frame_post)
+        frame_post += frame_pre * (1.0 - m3)
+        return frame_post
+
+    @staticmethod
     def _load_brush_mask(path, W, H):
         """Load a hand-painted motion mask (WHITE=move) → feathered float32 [0,1] at
-        (H,W). Uses the alpha channel if present (transparent canvas + white strokes),
-        else luminance. Returns None if effectively empty."""
+        (H,W).
+
+        We try the alpha channel first (the canonical place — saveMask() in the
+        UI mirrors the mask into alpha). But many older files were written with
+        alpha=255 everywhere and the actual mask in the RGB luminance, so when
+        alpha is degenerate (essentially constant) we fall back to luminance.
+        Returns None if both channels are effectively empty.
+        """
         if not path or not Path(path).exists():
             return None
         try:
             im = Image.open(path)
-            if "A" in im.getbands():
-                m = np.asarray(im.convert("RGBA").split()[-1], dtype=np.float32)
+            bands = im.getbands()
+            arr_alpha = (np.asarray(im.convert("RGBA").split()[-1], dtype=np.float32)
+                         if "A" in bands else None)
+            arr_lumin = np.asarray(im.convert("L"), dtype=np.float32)
+
+            def _useful(a):
+                if a is None:
+                    return False
+                # Real masks have meaningful spread; constant ≈ 255 (alpha set
+                # to fully opaque on every pixel) is degenerate and useless.
+                return float(a.max()) - float(a.min()) > 5.0
+
+            if _useful(arr_alpha):
+                m = arr_alpha
+            elif _useful(arr_lumin):
+                m = arr_lumin
+            elif arr_alpha is not None:
+                m = arr_alpha
             else:
-                m = np.asarray(im.convert("L"), dtype=np.float32)
+                m = arr_lumin
         except Exception:
             return None
         # Resize to render size, normalize, then feather the edges so the boundary
@@ -819,7 +943,7 @@ _GLOW_COLORS = {
     "white": (235, 235, 235), "warm": (60, 150, 240),
 }
 
-DIRECTOR_SYSTEM = """You are the motion director for a "living still": ONE image brought \
+DIRECTOR_SYSTEM_SUBTLE = """You are the motion director for a "living still": ONE image brought \
 subtly to life as a calm, hours-long ambient backdrop — think premium living wallpaper, \
 NOT an effects demo. The renderer loops it seamlessly; you only choose layers + intensities.
 
@@ -858,6 +982,102 @@ EXAMPLES (note how FEW layers):
 
 HONOR the scene text: include what it asks for ("red glow" → color_glow red); omit what it says \
 no to ("no clouds" → no fog/nebula). Output ONLY the JSON, no prose."""
+
+
+DIRECTOR_SYSTEM_BALANCED = """You are the motion director for a "living still": ONE image brought \
+to life as an ambient backdrop. The renderer loops it seamlessly.
+
+THE GOAL: motion that READS clearly as motion — not a slideshow — while still preserving the \
+image's identity. The user has chosen a BALANCED style: they want to actually see the scene \
+breathe, not stare at it wondering if anything's happening.
+
+HARD RULES:
+1. Use 3-5 layers — typically a camera move PLUS at least one content-masked warp on top.
+2. Allow up to TWO motion sources to stack as long as one is camera (full-frame) and the other(s) \
+are region-confined (nebula on sky, shimmer on water, aurora). Never stack two FULL-FRAME warps.
+3. PARALLAX only on photographic scenes with real depth (rule from subtle mode still applies).
+4. Camera amounts can sit at the HIGH end of their range (breathing_zoom amount 0.08-0.14, orbit \
+0.4-0.7, pan 0.4-0.9). Region warps (nebula 0.5-0.8, shimmer 0.5-0.7) can also be on the higher \
+side — these are masked so they don't risk mushing the whole frame.
+5. Add at least one decorative layer (twinkle, color_glow, particles, light, vignette_pulse) so \
+the motion has multiple textures, not just a single mechanical move.
+
+Palette (reply ONLY {"layers":[...]}):
+- {"type":"breathing_zoom","amount":0.08-0.14,"orbit":0.4-0.7,"pan":0.4-0.9}  // camera, more assertive
+- {"type":"parallax","amount":0.5-0.75}  // photo with depth ONLY
+- {"type":"nebula","amount":0.5-0.8}  // region-masked sky/gas drift
+- {"type":"shimmer","amount":0.5-0.7,"region":"water"}  // water only
+- {"type":"twinkle","amount":0.25-0.5}  // image's own bright lights
+- {"type":"color_glow","amount":0.18-0.35,"color":"..."}  // edge color breathing
+- {"type":"god_rays","amount":0.4-0.7,"count":6-10}  // literal sun shafts only
+- {"type":"aurora","amount":0.5-0.85}  // polar sky curtains
+- {"type":"particles","kind":"snow|rain|embers|dust|fireflies|bokeh","count":80-300,"amount":0.4-0.7}
+- {"type":"fog","amount":0.15-0.3}
+- {"type":"light","amount":0.08-0.15}
+- {"type":"vignette_pulse","amount":0.12-0.18}
+
+EXAMPLES:
+- Space city: breathing_zoom (high pan) + nebula + twinkle + color_glow. 4 layers.
+- Ocean sunset: breathing_zoom + shimmer(water) + warm color_glow + light. 4 layers.
+- Rainy window: breathing_zoom + rain particles + fog + light + vignette_pulse. 5 layers.
+
+HONOR the scene text. Output ONLY the JSON, no prose."""
+
+
+DIRECTOR_SYSTEM_DYNAMIC = """You are the motion director for a "living still" — but this user \
+has explicitly asked for DYNAMIC motion. Treat the image like a 16-second cinematic shot, not a \
+wallpaper. Make the scene feel actively alive.
+
+THE GOAL: VISIBLE, layered motion. The user should immediately recognize this as a living video, \
+not an animated still. Multiple textures of motion moving at different rates.
+
+HARD RULES:
+1. Use 4-6 layers. Stack textures so the eye always has something to track.
+2. Allow camera + TWO content-masked warps (e.g. camera + nebula on the sky + shimmer on the water). \
+Still no two FULL-FRAME warps simultaneously, but region-confined warps stack freely on top of camera.
+3. PARALLAX only on photographic scenes with real depth.
+4. Camera moves should be ASSERTIVE: breathing_zoom amount 0.12-0.18, orbit 0.5-0.9, pan 0.6-1.0. \
+The user wants to feel the camera breathing, not guess at it.
+5. Region warps on the upper end (nebula 0.7-1.0, shimmer 0.6-0.9, aurora 0.7-1.0).
+6. ALWAYS include at least two decorative layers (e.g. twinkle + particles + color_glow) so the \
+frame has multiple kinds of motion energy.
+7. If the scene has any "active" surface (water, sky, gas, lights) you MUST animate it — don't just \
+zoom and call it done.
+
+Palette (reply ONLY {"layers":[...]}, expanded ranges for dynamic style):
+- {"type":"breathing_zoom","amount":0.12-0.18,"orbit":0.5-0.9,"pan":0.6-1.0}
+- {"type":"parallax","amount":0.65-0.85}  // photo with depth ONLY
+- {"type":"nebula","amount":0.7-1.0}
+- {"type":"shimmer","amount":0.6-0.9,"region":"water"}
+- {"type":"twinkle","amount":0.4-0.7}
+- {"type":"color_glow","amount":0.25-0.45,"color":"..."}
+- {"type":"god_rays","amount":0.5-0.85,"count":7-12}
+- {"type":"aurora","amount":0.7-1.0}
+- {"type":"particles","kind":"...","count":150-400,"amount":0.5-0.9}
+- {"type":"fog","amount":0.2-0.4}
+- {"type":"light","amount":0.1-0.18}
+- {"type":"vignette_pulse","amount":0.14-0.22}
+
+EXAMPLES (notice 5-6 layers each):
+- Space nebula: breathing_zoom (high pan) + nebula + twinkle + color_glow + particles(dust). 5 layers.
+- Ocean sunset: breathing_zoom + shimmer(water) + warm color_glow + particles(bokeh) + light. 5 layers.
+- Misty forest: breathing_zoom + fog + particles(fireflies) + god_rays + light + vignette_pulse. 6 layers.
+
+HONOR the scene text. Output ONLY the JSON, no prose."""
+
+
+# Back-compat alias so any older import keeps working.
+DIRECTOR_SYSTEM = DIRECTOR_SYSTEM_SUBTLE
+
+
+def director_system_for_style(style: str) -> str:
+    """Pick the right director system prompt for the requested visual intensity."""
+    s = (style or "subtle").lower()
+    if s == "dynamic":
+        return DIRECTOR_SYSTEM_DYNAMIC
+    if s == "balanced":
+        return DIRECTOR_SYSTEM_BALANCED
+    return DIRECTOR_SYSTEM_SUBTLE
 
 
 def _strip_fences(raw: str) -> str:
@@ -933,34 +1153,55 @@ def motion_style_preset(name: str) -> list[dict]:
 
 
 def scale_motion(layers: list[dict], factor: float) -> list[dict]:
-    """Scale motion intensity (amount / orbit / particle count) by a factor, then
-    re-clamp to safe ranges. factor < 1 = calmer, > 1 = stronger."""
+    """Scale motion intensity (amount / orbit / particle count / pan) by a factor.
+
+    The historical implementation called _validate_layers() at the end, which
+    re-clamped every amount back to its director-recommended spec ceiling — so
+    cranking the intensity slider above ~1.2× had no perceptible effect.
+
+    This version validates structure (drop unknown types, coerce bad numbers)
+    but lets scaled amounts go up to 3× the spec max. The hard 3× cap still
+    prevents truly nonsensical values from breaking the render.
+    """
+    SCALABLE = ("amount", "orbit", "pan")
     out = []
     for l in (layers or []):
+        if not isinstance(l, dict):
+            continue
+        t = l.get("type")
+        spec = _LAYER_SPEC.get(t)
+        if spec is None:
+            continue  # unknown layer type → drop (same behavior as validator)
         m = dict(l)
-        for k in ("amount", "orbit", "pan"):
+        for k in SCALABLE:
             if k in m:
                 try:
                     m[k] = float(m[k]) * factor
                 except (TypeError, ValueError):
-                    pass
+                    m.pop(k, None)
+                    continue
         if "count" in m:
             try:
                 m["count"] = int(round(float(m["count"]) * factor))
             except (TypeError, ValueError):
-                pass
+                m.pop("count", None)
+        # Clamp scalable params to 3× spec ceiling (instead of 1× as before).
+        for k, (lo, hi) in spec.items():
+            if k in m and k in SCALABLE:
+                m[k] = max(lo, min(hi * 3.0, float(m[k])))
+            elif k == "count" and "count" in m:
+                m["count"] = max(int(lo), min(int(hi * 3), int(m["count"])))
         out.append(m)
-    return _validate_layers(out)
+    return out
 
 
 def choose_layers(scene_text: str, anthropic_key: Optional[str] = None,
-                  model: str = "claude-sonnet-4-6") -> tuple[list[dict], str]:
+                  model: str = "claude-sonnet-4-6",
+                  director_style: str = "subtle") -> tuple[list[dict], str]:
     """Compose motion layers for a scene. Returns (layers, source).
 
-    With an Anthropic key, Claude acts as a motion director and composes a CUSTOM
-    layer set from the full palette (handles novel scenes like "misty graveyard at
-    dusk"). Output is validated/clamped. Falls back to offline preset matching on
-    any error or empty result, so this never blocks rendering.
+    director_style picks among "subtle" (default, premium-wallpaper restraint),
+    "balanced" (3-5 layers, visible motion), and "dynamic" (4-6 layers, assertive).
     """
     if anthropic_key:
         try:
@@ -968,13 +1209,14 @@ def choose_layers(scene_text: str, anthropic_key: Optional[str] = None,
             import json as _json
             client = Anthropic(api_key=anthropic_key)
             resp = client.messages.create(
-                model=model, max_tokens=600, system=DIRECTOR_SYSTEM,
+                model=model, max_tokens=900,
+                system=director_system_for_style(director_style),
                 messages=[{"role": "user", "content": f"Scene: {scene_text}"}],
             )
             data = _json.loads(_strip_fences(resp.content[0].text))
             layers = _validate_layers(data.get("layers", []))
             if layers:
-                return layers, "claude:custom"
+                return layers, f"claude:custom:{director_style}"
         except Exception as e:
             print(f"  [motion] director fell back to presets: {e}", flush=True)
     return preset_for_scene(scene_text), "keyword"
@@ -982,11 +1224,12 @@ def choose_layers(scene_text: str, anthropic_key: Optional[str] = None,
 
 def choose_layers_from_image(image_path: str, scene_text: str = "",
                              anthropic_key: Optional[str] = None,
-                             model: str = "claude-sonnet-4-6") -> tuple[list[dict], str]:
+                             model: str = "claude-sonnet-4-6",
+                             director_style: str = "subtle") -> tuple[list[dict], str]:
     """VISION motion director: Claude actually LOOKS at the image and composes the
-    motion layers to match what's really there (where the sky/gas, water, bright
-    lights, foreground actually are) — instead of guessing from text. This is what
-    stops 'fog on a spaceship'. Falls back to the text director, then presets."""
+    motion layers to match what's really there. director_style controls how
+    restrained vs assertive the composition is — see DIRECTOR_SYSTEM_* prompts.
+    Falls back to the text director, then presets."""
     if anthropic_key:
         try:
             import base64
@@ -1002,7 +1245,8 @@ def choose_layers_from_image(image_path: str, scene_text: str = "",
 
             client = Anthropic(api_key=anthropic_key)
             resp = client.messages.create(
-                model=model, max_tokens=900, system=DIRECTOR_SYSTEM,
+                model=model, max_tokens=1200,
+                system=director_system_for_style(director_style),
                 messages=[{"role": "user", "content": [
                     {"type": "image", "source": {"type": "base64",
                      "media_type": "image/jpeg", "data": b64}},
@@ -1012,18 +1256,19 @@ def choose_layers_from_image(image_path: str, scene_text: str = "",
                         "IT to life. Match each effect to where things actually are in the "
                         "frame: drift gas/nebula only where you see sky/gas, shimmer only on "
                         "water, twinkle the bright lights you can see, and choose a camera "
-                        "move (pan vs zoom) that suits the composition. Subtle, hours-long, "
-                        "seamless. Output ONLY the JSON."},
+                        "move (pan vs zoom) that suits the composition. "
+                        f"Style requested: {director_style.upper()}. "
+                        "Output ONLY the JSON."},
                 ]}],
             )
             data = _json.loads(_strip_fences(resp.content[0].text))
             layers = _validate_layers(data.get("layers", []))
             if layers:
-                return layers, "claude:vision"
+                return layers, f"claude:vision:{director_style}"
         except Exception as e:
             print(f"  [motion] vision director failed ({e}); using text director", flush=True)
-    # Fall back to the text director (which itself falls back to presets).
-    return choose_layers(scene_text, anthropic_key=anthropic_key, model=model)
+    return choose_layers(scene_text, anthropic_key=anthropic_key, model=model,
+                         director_style=director_style)
 
 
 def _find(layers: list[dict], type_name: str) -> Optional[dict]:

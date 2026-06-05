@@ -118,6 +118,10 @@
                             placeholder="Describe your soundscape — e.g., Project Hail Mary deep space, cozy rainy cafe at midnight, Blade Runner rooftop..."></textarea>
                         <div class="prompt-tools">
                             <button id="btn-enhance-prompt" class="btn btn-enhance" title="Research your idea, rewrite it into a richer prompt — and design the composition timeline when Composition plan is selected">✦ Enhance &amp; Plan</button>
+                            <div id="enhance-style-toggle" class="enhance-style-toggle" role="group" aria-label="Enhance style">
+                                <button type="button" class="enhance-style-btn active" data-style="world" title="Use the setting / lore / atmosphere of the reference (e.g. Dune → sand worm rumbles, spice visions)">World feel</button>
+                                <button type="button" class="enhance-style-btn" data-style="score" title="Use the musical score of the reference — composer, instruments, harmonic language. No lore.">Score</button>
+                            </div>
                             <span id="enhance-status" class="enhance-status"></span>
                         </div>
                         <div id="saved-prompts-dropdown" class="saved-prompts-dropdown hidden">
@@ -400,14 +404,28 @@
                             <option value="calm">Calm</option>
                         </select>
                     </div>
-                    <!-- Motion brush: paint what moves, freeze the rest -->
+                    <!-- Motion brush: Living Still — pick which side of the paint means what -->
                     <div id="motion-brush-block" class="motion-brush-block">
-                        <label class="clip-smooth-label" title="Paint over the parts that should move (e.g. the sky/nebula); everything you leave unpainted stays perfectly still">
-                            <input type="checkbox" id="use-brush"> 🖌 Motion brush — paint what moves (freeze the rest)
+                        <label class="clip-smooth-label" title="Living Still: paint a region to mark either the moving part or the still part of the scene.">
+                            <input type="checkbox" id="use-brush"> 🖌 Motion brush — Living Still
                         </label>
                         <div id="brush-editor" class="brush-editor hidden">
+                            <div class="brush-semantic-row">
+                                <span class="brush-semantic-label">My paint =</span>
+                                <div id="brush-semantic-toggle" class="enhance-style-toggle" role="group" aria-label="Brush semantic">
+                                    <button type="button" class="enhance-style-btn active" data-semantic="moves" title="Painted region animates; everything you leave unpainted stays perfectly still">what MOVES</button>
+                                    <button type="button" class="enhance-style-btn" data-semantic="stays" title="Painted region stays perfectly still; everything you leave unpainted animates">what STAYS STILL</button>
+                                </div>
+                            </div>
+                            <div class="brush-target-row">
+                                <span class="brush-semantic-label">For:</span>
+                                <select id="brush-target" title="Pick which mask you're painting. Whole scene = the global motion brush (anchors the camera). Layer N = scope that one effect's region (e.g. nebula on the sky, shimmer on the water) — camera still moves freely.">
+                                    <option value="global" selected>Whole scene (global mask)</option>
+                                </select>
+                                <button id="brush-clear-layer" class="btn btn-sm" type="button" title="Forget this layer's region mask">Clear this mask</button>
+                            </div>
                             <div class="brush-tools">
-                                <button id="brush-tap" class="btn btn-sm" type="button" title="Click an object (e.g. the city) and AI segments it to freeze — then refine by hand">✦ Tap to freeze (AI)</button>
+                                <button id="brush-tap" class="btn btn-sm" type="button" title="Click an object (e.g. the city) and AI segments it onto the canvas — then refine by hand">✦ Tap object (AI)</button>
                                 <button id="brush-mode-paint" class="btn btn-sm active" type="button">Paint</button>
                                 <button id="brush-mode-erase" class="btn btn-sm" type="button">Erase</button>
                                 <label class="brush-size-label">Size <input type="range" id="brush-size" min="10" max="240" value="80"></label>
@@ -419,7 +437,7 @@
                                 <img id="brush-bg" alt="">
                                 <canvas id="brush-canvas"></canvas>
                             </div>
-                            <span class="form-hint">Paint over what should <strong>move</strong> (e.g. the sky / nebula). Unpainted areas stay frozen. Click <strong>Save mask</strong>, then Generate. In brush mode the camera is anchored, so motion comes from the layers above (nebula drift, twinkle, particles…).</span>
+                            <span class="form-hint" id="brush-hint">Paint over what should <strong>move</strong>. Unpainted areas stay frozen. Click <strong>Save mask</strong>, then Generate. In brush mode the camera is anchored, so motion comes from the layers above (nebula drift, twinkle, particles…).</span>
                         </div>
                     </div>
 
@@ -432,6 +450,15 @@
                                 <option value="24">24s</option>
                                 <option value="32">32s (slowest)</option>
                             </select>
+                        </div>
+                        <div class="form-group" style="margin-top:10px;max-width:220px">
+                            <label for="motion-director-style">Director style</label>
+                            <select id="motion-director-style" title="How restrained vs assertive Claude's auto-plan should be. Only consulted when no Motion Layers are composed below.">
+                                <option value="subtle">Subtle (premium wallpaper)</option>
+                                <option value="balanced" selected>Balanced</option>
+                                <option value="dynamic">Dynamic (cinematic)</option>
+                            </select>
+                            <span class="form-hint">Subtle = today's restrained look. Balanced = 3-5 layers, visible motion. Dynamic = 4-6 layers, assertive camera + stacked region warps.</span>
                         </div>
                         <div class="form-group" style="margin-top:10px;flex:1;min-width:200px">
                             <label for="motion-intensity">Overall movement <span id="motion-intensity-val" class="ml-val">1.3×</span></label>
@@ -519,6 +546,17 @@
 
                 <div id="video-download" class="video-download hidden">
                     <a id="video-download-link" href="#" class="btn btn-primary" download>Download Video (MP4)</a>
+                    <button id="btn-save-living-still" class="btn btn-secondary" type="button" title="Save this rendered video (and its brush mask) to this song's saved Living Stills gallery so you can come back to it later.">★ Save Living Still</button>
+                    <input id="save-still-name" type="text" class="save-still-name" placeholder="Optional name…" maxlength="60">
+                    <span id="save-still-status" class="form-hint"></span>
+                </div>
+
+                <div id="saved-stills-panel" class="saved-stills-panel hidden">
+                    <div class="saved-stills-head">
+                        <h4 class="saved-stills-title">Saved Living Stills <span id="saved-stills-count" class="saved-stills-count"></span></h4>
+                        <span class="form-hint">Stars float to the top.</span>
+                    </div>
+                    <div id="saved-stills-grid" class="saved-stills-grid"></div>
                 </div>
             </section>
 
