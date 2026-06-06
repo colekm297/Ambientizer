@@ -120,7 +120,7 @@
                             <button id="btn-enhance-prompt" class="btn btn-enhance" title="Research your idea, rewrite it into a richer prompt — and design the composition timeline when Composition plan is selected">✦ Enhance &amp; Plan</button>
                             <div id="enhance-style-toggle" class="enhance-style-toggle" role="group" aria-label="Enhance style">
                                 <button type="button" class="enhance-style-btn active" data-style="world" title="Use the setting / lore / atmosphere of the reference (e.g. Dune → sand worm rumbles, spice visions)">World feel</button>
-                                <button type="button" class="enhance-style-btn" data-style="score" title="Use the musical score of the reference — composer, instruments, harmonic language. No lore.">Score</button>
+                                <button type="button" class="enhance-style-btn" data-style="score" title="Capture the harmonic DNA of the score — key/mode, chord progression, tempo, characteristic instruments. No lore, no vague producer language.">Music DNA</button>
                             </div>
                             <span id="enhance-status" class="enhance-status"></span>
                         </div>
@@ -386,6 +386,7 @@
                             <option value="parallax">Parallax depth (2.5D)</option>
                             <option value="particles">Particles (snow/rain/stars…)</option>
                             <option value="nebula">Nebula / gas drift</option>
+                            <option value="cloud_drift">Cloud drift (animate real clouds)</option>
                             <option value="shimmer">Shimmer (water/heat)</option>
                             <option value="twinkle">Twinkle lights</option>
                             <option value="god_rays">God rays (sunbeams)</option>
@@ -668,16 +669,31 @@
                     <label for="thumb-sub">Subtitle (small text)</label>
                     <input type="text" id="thumb-sub" maxlength="48" placeholder="e.g., Deep Space Ambience · 1 Hour">
                 </div>
-                <div class="form-group" style="max-width:280px">
-                    <label for="thumb-pos">Text placement</label>
-                    <select id="thumb-pos">
-                        <option value="lower" selected>Bottom</option>
-                        <option value="center">Center</option>
-                        <option value="upper">Top</option>
-                    </select>
+                <div class="form-row">
+                    <div class="form-group" style="flex:1;min-width:200px">
+                        <label for="thumb-pos">Text placement</label>
+                        <select id="thumb-pos">
+                            <option value="lower" selected>Bottom</option>
+                            <option value="center">Center</option>
+                            <option value="upper">Top</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="flex:1;min-width:180px">
+                        <label for="thumb-title-scale">Hook size <span id="thumb-title-scale-val" class="form-hint" style="margin-left:6px;opacity:0.7">100%</span></label>
+                        <input type="range" id="thumb-title-scale" min="0.5" max="1.5" step="0.05" value="1">
+                    </div>
+                    <div class="form-group" style="flex:1;min-width:180px">
+                        <label for="thumb-sub-scale">Subtitle size <span id="thumb-sub-scale-val" class="form-hint" style="margin-left:6px;opacity:0.7">100%</span></label>
+                        <input type="range" id="thumb-sub-scale" min="0.5" max="1.5" step="0.05" value="1">
+                    </div>
+                    <div class="form-group" style="flex:1;min-width:180px">
+                        <label for="thumb-scrim-opacity">Darken behind text <span id="thumb-scrim-opacity-val" class="form-hint" style="margin-left:6px;opacity:0.7">100%</span></label>
+                        <input type="range" id="thumb-scrim-opacity" min="0" max="1.5" step="0.05" value="1">
+                    </div>
                 </div>
                 <div class="visuals-actions">
                     <button id="btn-thumb-previews" class="btn btn-primary">Generate previews</button>
+                    <button id="btn-thumb-reset-size" type="button" class="btn btn-secondary" style="margin-left:8px">Reset sizes</button>
                     <span id="thumb-status" class="form-hint"></span>
                 </div>
                 <div id="thumb-grid" class="thumb-grid"></div>

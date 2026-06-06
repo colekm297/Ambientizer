@@ -805,7 +805,7 @@
     btnEnhancePrompt.disabled = true;
     btnEnhancePrompt.textContent = "Researching...";
     enhanceStatus.textContent = currentEnhanceStyle === "score"
-      ? "Analyzing the score and musical references..."
+      ? "Pulling harmonic DNA — key, chord progression, tempo, instruments..."
       : "Searching the web for context...";
     enhanceStatus.className = "enhance-status active";
 
@@ -3558,6 +3558,9 @@
       } catch { savedLayerMasks = new Set(); }
       _decorateMotionLayerCards();
     }
+    // Exposed so a layer-delete (or any other index-shuffling op) can force a
+    // re-read of the saved-mask set without rummaging through this closure.
+    window._refreshSavedLayerMasksSet = refreshSavedLayerMasks;
 
     function _decorateMotionLayerCards() {
       // Add a 🖌 badge to each motion layer card that has a saved per-layer
@@ -3753,20 +3756,29 @@
           if (d.mask_url) {
             drawMaskUrl(d.mask_url);
             statusEl.textContent = brushSemantic === "stays"
-              ? "Painted to FREEZE this region — refine with Paint/Erase, then Save"
-              : "Painted to ANIMATE this region — refine with Paint/Erase, then Save";
+              ? "Painted to FREEZE this region — refine with Paint/Erase (autosaves)"
+              : "Painted to ANIMATE this region — refine with Paint/Erase (autosaves)";
+            _scheduleMaskAutoSave();
           }
         },
         onError: (msg) => { statusEl.textContent = ""; if (msg) alert("Segment failed: " + msg); },
       });
+    }
+    // Debounced auto-save after each stroke. No more "did I press Save?"
+    // anxiety. The explicit Save button is still there for muscle memory.
+    let _maskAutoSaveTimer = null;
+    function _scheduleMaskAutoSave() {
+      if (!visCurrentJobId) return;
+      clearTimeout(_maskAutoSaveTimer);
+      _maskAutoSaveTimer = setTimeout(() => { saveMask(); }, 800);
     }
     canvas.addEventListener("pointerdown", (e) => {
       if (tapMode) { tapSegment(e); return; }
       drawing = true; canvas.setPointerCapture(e.pointerId); stroke(pos(e));
     });
     canvas.addEventListener("pointermove", (e) => { if (drawing) stroke(pos(e)); });
-    canvas.addEventListener("pointerup", () => { drawing = false; });
-    canvas.addEventListener("pointercancel", () => { drawing = false; });
+    canvas.addEventListener("pointerup", () => { drawing = false; _scheduleMaskAutoSave(); });
+    canvas.addEventListener("pointercancel", () => { drawing = false; _scheduleMaskAutoSave(); });
 
     btnTap?.addEventListener("click", () => {
       tapMode = !tapMode;
@@ -3807,7 +3819,11 @@
     });
     btnPaint?.addEventListener("click", () => { erasing = false; tapMode = false; btnTap?.classList.remove("active"); canvas.style.cursor = "crosshair"; btnPaint.classList.add("active"); btnErase.classList.remove("active"); });
     btnErase?.addEventListener("click", () => { erasing = true; tapMode = false; btnTap?.classList.remove("active"); canvas.style.cursor = "crosshair"; btnErase.classList.add("active"); btnPaint.classList.remove("active"); });
-    btnClear?.addEventListener("click", () => ctx.clearRect(0, 0, canvas.width, canvas.height));
+    btnClear?.addEventListener("click", () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      // Persist the cleared state too — otherwise refreshing brings the old mask back.
+      _scheduleMaskAutoSave();
+    });
     function saveMask() {
       return new Promise((resolve) => {
         if (!visCurrentJobId) { resolve(false); return; }
@@ -4066,11 +4082,21 @@
     });
   })();
 
-  // Live "Overall movement" value label.
+  // Live "Overall movement" value label + autosave the slider and the
+  // adjacent dropdowns so a refresh restores everything verbatim.
   (function () {
     const el = document.getElementById("motion-intensity");
     const out = document.getElementById("motion-intensity-val");
-    if (el && out) el.addEventListener("input", () => { out.textContent = parseFloat(el.value).toFixed(1) + "×"; });
+    if (el && out) el.addEventListener("input", () => {
+      out.textContent = parseFloat(el.value).toFixed(1) + "×";
+      window._scheduleMotionAutosave?.("intensity");
+    });
+    document.getElementById("motion-loop-sec")?.addEventListener("change",
+      () => window._scheduleMotionAutosave?.("loop"));
+    document.getElementById("motion-director-style")?.addEventListener("change",
+      () => window._scheduleMotionAutosave?.("director-style"));
+    document.querySelector("#motion-prompt")?.addEventListener("input",
+      () => window._scheduleMotionAutosave?.("motion-prompt"));
   })();
 
   async function refreshVisTrackList() {
@@ -4104,6 +4130,11 @@
   // Render the Visuals tab for the globally-selected track (audio plays via the global bar).
   async function loadVisualsForTrack(jobId, data) {
     if (!jobId) return;
+    // Stale-cache guard: tab-switching back to Visuals calls this with the
+    // long-stale snapshot fetched at original track open. If we're returning
+    // to the SAME track, skip restoring the motion editor state — otherwise
+    // we'd clobber the user's in-flight edits with that ancient snapshot.
+    const sameTrack = (visCurrentJobId === jobId);
     visCurrentJobId = jobId;
     try {
       if (!data) { const res = await fetch(`/api/status/${jobId}`); data = await res.json(); }
@@ -4151,7 +4182,44 @@
       }
 
       // Restore motion-brush state (enable + repaint saved mask) for this track.
-      if (typeof window._restoreBrush === "function") window._restoreBrush(!!data.brush_mask_url);
+      // Same stale-cache concern as the motion editor: only repaint the canvas
+      // when actually switching tracks, otherwise tab-switching back to Visuals
+      // would clobber whatever the user has been painting since the last save.
+      if (!sameTrack && typeof window._restoreBrush === "function") {
+        window._restoreBrush(!!data.brush_mask_url);
+      }
+      // ── Restore the saved Living Still motion editor state ─────────────
+      // Without this every refresh blanks the layer list, which also breaks
+      // the per-layer mask UX (the brush target dropdown can only list layers
+      // that exist in the editor). Only restore on actual track switches —
+      // re-entering the Visuals tab on the SAME track keeps the local in-flight
+      // edits intact (otherwise the cached `data` snapshot from minutes ago
+      // would silently undo whatever the user just changed).
+      if (!sameTrack) {
+        try {
+          if (Array.isArray(data.motion_layers)) {
+            window._motionLayers = data.motion_layers.map((l) => ({ ...l }));
+            window._renderMotionLayers?.();
+          }
+          if (data.motion_director_style) {
+            const dirSel = document.getElementById("motion-director-style");
+            if (dirSel) dirSel.value = data.motion_director_style;
+          }
+          if (data.motion_intensity != null) {
+            const intSlider = document.getElementById("motion-intensity");
+            const intVal = document.getElementById("motion-intensity-val");
+            if (intSlider) intSlider.value = String(data.motion_intensity);
+            if (intVal) intVal.textContent = `${(+data.motion_intensity).toFixed(1)}×`;
+          }
+          if (data.motion_loop_sec != null) {
+            const loopSel = document.getElementById("motion-loop-sec");
+            if (loopSel) loopSel.value = String(Math.round(+data.motion_loop_sec));
+          }
+          if (typeof data.motion_prompt === "string" && motionPromptEl && !motionPromptEl.value) {
+            motionPromptEl.value = data.motion_prompt;
+          }
+        } catch (e) { console.warn("motion state restore failed", e); }
+      }
       // Refresh the per-layer mask state for this track so the badges + the
       // brush-target dropdown reflect what's actually saved.
       if (typeof window._refreshBrushTargetOptions === "function") window._refreshBrushTargetOptions();
@@ -4265,11 +4333,18 @@
       { key: "amount", label: "Strength", min: 0, max: 1.2, step: 0.05, def: 0.6 } ] },
     nebula: { label: "Nebula / gas drift", params: [
       { key: "amount", label: "Drift", min: 0, max: 1, step: 0.05, def: 0.5 } ] },
+    cloud_drift: { label: "Cloud drift", params: [
+      { key: "mode", label: "Mode (warp=real clouds / overlay=add)", type: "select", options: ["warp", "overlay"], def: "warp" },
+      { key: "amount", label: "Strength", min: 0, max: 0.8, step: 0.05, def: 0.35 },
+      { key: "speed", label: "Drift speed", min: 1, max: 4, step: 1, def: 1 },
+      { key: "tint", label: "Tint (overlay only)", type: "select", options: ["white", "warm", "grey", "gold", "dusk"], def: "white" },
+      { key: "region", label: "Only on", type: "select", options: ["sky", "(whole frame)"], def: "sky" } ] },
     shimmer: { label: "Shimmer", params: [
       { key: "amount", label: "Strength", min: 0, max: 1, step: 0.05, def: 0.5 },
       { key: "region", label: "Only on", type: "select", options: ["(whole frame)", "water"], def: "(whole frame)" } ] },
     twinkle: { label: "Twinkle lights", params: [
-      { key: "amount", label: "Strength", min: 0, max: 1, step: 0.05, def: 0.7 } ] },
+      { key: "amount", label: "Strength", min: 0, max: 1, step: 0.05, def: 0.7 },
+      { key: "sparkle", label: "Sparkle (0=breathe / 1=per-pixel)", min: 0, max: 1, step: 0.05, def: 0.7 } ] },
     god_rays: { label: "God rays", params: [
       { key: "amount", label: "Strength", min: 0, max: 0.9, step: 0.05, def: 0.5 },
       { key: "count", label: "Beams", min: 3, max: 16, step: 1, def: 8 } ] },
@@ -4288,6 +4363,51 @@
   // Exposed so the brush editor can show readable layer names in the
   // "For:" dropdown ("Layer 1: Camera", "Layer 2: Nebula / gas drift", …).
   window._MOTION_SCHEMA = MOTION_SCHEMA;
+
+  // ── Motion editor autosave ─────────────────────────────────────────────
+  // Persists motion_layers + dropdown values to the job so a page refresh
+  // restores exactly what the user composed. Debounced because slider drags
+  // fire dozens of input events; we don't want one save per pixel.
+  let _autoSaveTimer = null;
+  let _autoSaveStatusEl = null;
+  function _ensureAutoSaveStatus() {
+    if (_autoSaveStatusEl) return _autoSaveStatusEl;
+    const host = document.getElementById("motion-layers-list")?.parentElement
+      || document.getElementById("motion-add-row")?.parentElement;
+    if (!host) return null;
+    _autoSaveStatusEl = document.createElement("span");
+    _autoSaveStatusEl.className = "form-hint motion-autosave-status";
+    _autoSaveStatusEl.style.cssText = "margin-left:8px;opacity:0.6;font-size:0.74rem;";
+    host.appendChild(_autoSaveStatusEl);
+    return _autoSaveStatusEl;
+  }
+  function _snapshotMotionState() {
+    return {
+      motion_layers: window._motionLayers || [],
+      motion_director_style: (document.getElementById("motion-director-style") || {}).value || "balanced",
+      motion_intensity: parseFloat((document.getElementById("motion-intensity") || {}).value) || 1.0,
+      motion_loop_sec: parseFloat((document.getElementById("motion-loop-sec") || {}).value) || 16,
+      motion_prompt: (document.querySelector("#motion-prompt") || {}).value || "",
+    };
+  }
+  function _scheduleMotionAutosave(reason) {
+    if (!visCurrentJobId) return;
+    clearTimeout(_autoSaveTimer);
+    const status = _ensureAutoSaveStatus();
+    if (status) status.textContent = "saving…";
+    _autoSaveTimer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/visual/motion-state/${visCurrentJobId}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(_snapshotMotionState()),
+        });
+        const d = await res.json();
+        if (status) status.textContent = d.ok ? "saved ✓" : "save failed";
+      } catch { if (status) status.textContent = "save failed"; }
+    }, 500);
+  }
+  window._scheduleMotionAutosave = _scheduleMotionAutosave;
   const MOTION_PRESETS = {
     drift: [{ type: "breathing_zoom", amount: 0.08, orbit: 0.35 }, { type: "light", amount: 0.07 }, { type: "vignette_pulse", amount: 0.14 }],
     stargaze: [{ type: "breathing_zoom", amount: 0.1, orbit: 0.5 }, { type: "twinkle", amount: 0.8 }, { type: "nebula", amount: 0.5 }, { type: "light", amount: 0.07 }, { type: "vignette_pulse", amount: 0.14 }],
@@ -4312,6 +4432,26 @@
       motionLayersList.innerHTML = '<div class="canvas-empty"><p class="canvas-empty-sub">No layers yet. <strong>Auto-plan from image</strong>, load a preset, or add layers — then tweak and Generate.</p></div>';
       return;
     }
+    // Back-fill schema defaults into every layer dict that's missing them.
+    // Without this, the card UI shows the slider's default position but the
+    // layer dict itself has no value for that field — so what you SEE in the
+    // editor isn't what gets rendered. (This was making the new "Sparkle"
+    // slider read 0.7 visually while the layer payload was missing the field
+    // entirely, defaulting to the backend's fallback instead of 0.7.)
+    let backfilled = false;
+    layers.forEach((l) => {
+      const schema = MOTION_SCHEMA[l.type];
+      if (!schema) return;
+      schema.params.forEach((p) => {
+        if (l[p.key] != null) return;
+        if (p.type === "select") {
+          if (p.def !== "(whole frame)") { l[p.key] = p.def; backfilled = true; }
+        } else {
+          l[p.key] = p.def; backfilled = true;
+        }
+      });
+    });
+    if (backfilled) _scheduleMotionAutosave?.("backfill-defaults");
     motionLayersList.innerHTML = layers.map((l, i) => {
       const schema = MOTION_SCHEMA[l.type] || { label: l.type, params: [] };
       const rows = schema.params.map(p => {
@@ -4325,8 +4465,16 @@
           <input type="range" class="ml-input" data-idx="${i}" data-key="${p.key}" min="${p.min}" max="${p.max}" step="${p.step}" value="${cur}">
           <span class="ml-val">${cur}</span></label>`;
       }).join("");
-      return `<div class="ml-card"><div class="ml-card-head"><span class="ml-card-name">${schema.label}</span>
-        <button class="ml-remove" data-idx="${i}" title="Remove">&times;</button></div>${rows}</div>`;
+      // enabled defaults to true; only stored explicitly when toggled off.
+      const enabled = l.enabled !== false;
+      const togTitle = enabled ? "Layer is ON — click to mute (keeps settings)" : "Layer is MUTED — click to enable";
+      return `<div class="ml-card ${enabled ? "" : "ml-card-off"}">
+        <div class="ml-card-head">
+          <button class="ml-enable" data-idx="${i}" title="${togTitle}" aria-pressed="${enabled}">${enabled ? "● ON" : "○ OFF"}</button>
+          <span class="ml-card-name">${schema.label}</span>
+          <button class="ml-remove" data-idx="${i}" title="Remove">&times;</button>
+        </div>${rows}
+      </div>`;
     }).join("");
     motionLayersList.querySelectorAll(".ml-input").forEach(el => {
       el.addEventListener("input", () => {
@@ -4338,10 +4486,49 @@
           window._motionLayers[i][key] = parseFloat(el.value);
           const v = el.parentElement.querySelector(".ml-val"); if (v) v.textContent = el.value;
         }
+        _scheduleMotionAutosave("layer-edit");
       });
     });
     motionLayersList.querySelectorAll(".ml-remove").forEach(el => {
-      el.addEventListener("click", () => { window._motionLayers.splice(+el.dataset.idx, 1); _renderMotionLayers(); });
+      el.addEventListener("click", async () => {
+        const removedIdx = +el.dataset.idx;
+        // Compact the per-layer masks server-side BEFORE re-rendering so the
+        // 🖌 region badges + brush-target dropdown reflect the new indices.
+        // Otherwise the mask painted for the removed layer would silently
+        // re-attach to whatever ends up at that index next.
+        if (visCurrentJobId) {
+          try {
+            const res = await fetch(`/api/visual/layer-mask/${visCurrentJobId}/_compact`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ removed_idx: removedIdx }),
+            });
+            const d = await res.json();
+            if (d.shifted && d.shifted.length) {
+              console.log("[layer-mask] compacted:", d.shifted, "removed=", d.removed);
+            }
+          } catch (e) { console.warn("layer-mask compact failed", e); }
+        }
+        window._motionLayers.splice(removedIdx, 1);
+        _renderMotionLayers();
+        // Pull the fresh layer-mask list so badges + dropdown stay in sync.
+        if (typeof window._refreshSavedLayerMasksSet === "function") {
+          await window._refreshSavedLayerMasksSet();
+        }
+        if (typeof window._refreshBrushTargetOptions === "function") {
+          window._refreshBrushTargetOptions();
+        }
+        _scheduleMotionAutosave("layer-remove");
+      });
+    });
+    motionLayersList.querySelectorAll(".ml-enable").forEach(el => {
+      el.addEventListener("click", () => {
+        const i = +el.dataset.idx;
+        const cur = window._motionLayers[i].enabled !== false;
+        window._motionLayers[i].enabled = !cur;
+        _renderMotionLayers();
+        _scheduleMotionAutosave("layer-toggle");
+      });
     });
     // Whenever the cards re-render, give the brush editor a chance to add its
     // 🖌 region badges and refresh the target dropdown so layer names stay in
@@ -4357,10 +4544,17 @@
     const type = document.getElementById("motion-add-type").value;
     window._motionLayers.push(_defaultMotionLayer(type));
     _renderMotionLayers();
+    _scheduleMotionAutosave("layer-add");
   });
+  // _defaultMotionLayer initializer that bypasses select fields whose default is
+  // "(whole frame)" — keeps the layer dict clean. Other defaults DO write.
   document.getElementById("motion-loadpreset")?.addEventListener("change", (e) => {
     const preset = MOTION_PRESETS[e.target.value];
-    if (preset) { window._motionLayers = preset.map(l => ({ ...l })); _renderMotionLayers(); }
+    if (preset) {
+      window._motionLayers = preset.map(l => ({ ...l }));
+      _renderMotionLayers();
+      _scheduleMotionAutosave("preset");
+    }
     e.target.value = "";
   });
   document.getElementById("btn-auto-plan-motion")?.addEventListener("click", async () => {
@@ -4383,7 +4577,24 @@
       else {
         window._motionLayers = (data.layers || []).map(l => ({ ...l }));
         _renderMotionLayers();
-        console.log("[auto-plan] director_style=" + style + " got " + (data.layers || []).length + " layers", data);
+        // The server auto-painted region masks (sky→cloud, water→shimmer,
+        // gas→nebula). Pull them so the 🖌 badges + brush "For:" dropdown show
+        // them immediately and the user can tweak/clear before generating.
+        if (typeof window._refreshSavedLayerMasksSet === "function") {
+          await window._refreshSavedLayerMasksSet();
+        }
+        if (typeof window._refreshBrushTargetOptions === "function") {
+          window._refreshBrushTargetOptions();
+        }
+        const masked = (data.auto_masked || []).length;
+        if (masked) {
+          const st = document.getElementById("motion-plan-status") || _ensureAutoSaveStatus();
+          if (st) st.textContent = `auto-painted ${masked} region mask${masked > 1 ? "s" : ""} ✓ (edit via the brush)`;
+        }
+        // Server already persisted these, but flush the dropdowns too so a
+        // refresh restores the exact intensity / loop / prompt context too.
+        _scheduleMotionAutosave("auto-plan");
+        console.log("[auto-plan] director_style=" + style + " got " + (data.layers || []).length + " layers, auto_masked=", data.auto_masked, data);
       }
     } catch (e) { alert("Auto-plan failed: " + e.message); }
     btn.disabled = false; btn.textContent = "✦ Auto-plan from image";
@@ -4783,6 +4994,15 @@
         if (subEl && !subEl.value) subEl.value = dz.subtitle || "";
         if (accEl && dz.accent) accEl.value = dz.accent;
         if (posEl && dz.position) posEl.value = dz.position;
+        // Rehydrate the size + scrim sliders from the last saved design so
+        // reopening a track shows the same look you committed to.
+        const tScale = document.getElementById("thumb-title-scale");
+        const sScale = document.getElementById("thumb-sub-scale");
+        const scrim = document.getElementById("thumb-scrim-opacity");
+        if (tScale) tScale.value = dz.title_scale != null ? String(dz.title_scale) : "1";
+        if (sScale) sScale.value = dz.sub_scale != null ? String(dz.sub_scale) : "1";
+        if (scrim) scrim.value = dz.scrim_opacity != null ? String(dz.scrim_opacity) : "1";
+        if (typeof _syncThumbScaleLabels === "function") _syncThumbScaleLabels();
 
         if (data.yt_title) ytTitleEl.value = data.yt_title;
         if (data.yt_description) ytDescEl.value = data.yt_description;
@@ -4825,12 +5045,38 @@
   const btnThumbPreviews = document.getElementById("btn-thumb-previews");
   const thumbGrid = document.getElementById("thumb-grid");
   const thumbStatusEl = document.getElementById("thumb-status");
+  const thumbTitleScale = document.getElementById("thumb-title-scale");
+  const thumbSubScale = document.getElementById("thumb-sub-scale");
+  const thumbScrimOpacity = document.getElementById("thumb-scrim-opacity");
+  const thumbTitleScaleVal = document.getElementById("thumb-title-scale-val");
+  const thumbSubScaleVal = document.getElementById("thumb-sub-scale-val");
+  const thumbScrimOpacityVal = document.getElementById("thumb-scrim-opacity-val");
+  const btnThumbResetSize = document.getElementById("btn-thumb-reset-size");
+  function _pct(v) { return Math.round(parseFloat(v) * 100) + "%"; }
+  function _syncThumbScaleLabels() {
+    if (thumbTitleScaleVal && thumbTitleScale) thumbTitleScaleVal.textContent = _pct(thumbTitleScale.value);
+    if (thumbSubScaleVal && thumbSubScale) thumbSubScaleVal.textContent = _pct(thumbSubScale.value);
+    if (thumbScrimOpacityVal && thumbScrimOpacity) thumbScrimOpacityVal.textContent = _pct(thumbScrimOpacity.value);
+  }
+  thumbTitleScale?.addEventListener("input", _syncThumbScaleLabels);
+  thumbSubScale?.addEventListener("input", _syncThumbScaleLabels);
+  thumbScrimOpacity?.addEventListener("input", _syncThumbScaleLabels);
+  btnThumbResetSize?.addEventListener("click", () => {
+    if (thumbTitleScale) thumbTitleScale.value = "1";
+    if (thumbSubScale) thumbSubScale.value = "1";
+    if (thumbScrimOpacity) thumbScrimOpacity.value = "1";
+    _syncThumbScaleLabels();
+  });
+  _syncThumbScaleLabels();
   function _thumbPayload() {
     return {
       hook: document.getElementById("thumb-hook")?.value || "",
       subtitle: document.getElementById("thumb-sub")?.value || "",
       accent: document.getElementById("thumb-accent")?.value || "#f5c97a",
       position: document.getElementById("thumb-pos")?.value || "lower",
+      title_scale: parseFloat(thumbTitleScale?.value || "1") || 1,
+      sub_scale: parseFloat(thumbSubScale?.value || "1") || 1,
+      scrim_opacity: parseFloat(thumbScrimOpacity?.value || "1"),
     };
   }
   if (btnThumbPreviews) {

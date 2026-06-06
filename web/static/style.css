@@ -4102,6 +4102,45 @@ body { padding-bottom: 120px; }   /* clear the fixed bar */
 .ml-card-name { font-weight:700; font-size:0.85rem; color:var(--text-primary); }
 .ml-remove { background:none; border:none; color:var(--text-muted); font-size:1.1rem; cursor:pointer; line-height:1; padding:0 4px; }
 .ml-remove:hover { color: var(--accent); }
+
+/* Per-layer ON/OFF toggle — lives at the LEFT of each card head so it's the
+   first thing the eye lands on. Muted layers stay in the editor list (so the
+   user can flip them back on) but get dropped at render time. */
+.ml-enable {
+    background: rgba(80, 200, 120, 0.15);
+    color: #7be0a3;
+    border: 1px solid rgba(80, 200, 120, 0.40);
+    border-radius: 12px;
+    padding: 2px 10px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    cursor: pointer;
+    letter-spacing: 0.04em;
+    transition: background 0.12s;
+    margin-right: 8px;
+}
+.ml-enable[aria-pressed="false"] {
+    background: rgba(120, 120, 120, 0.15);
+    color: #8b8b8b;
+    border-color: rgba(120, 120, 120, 0.40);
+}
+.ml-enable:hover {
+    background: rgba(80, 200, 120, 0.28);
+}
+.ml-enable[aria-pressed="false"]:hover {
+    background: rgba(120, 120, 120, 0.28);
+}
+/* Whole card visually steps back when muted so it's obvious it won't render. */
+.ml-card-off {
+    opacity: 0.45;
+}
+.ml-card-off .ml-param input,
+.ml-card-off .ml-param select {
+    pointer-events: none;
+}
+.ml-card-off .ml-mask-badge {
+    opacity: 0.5;
+}
 .ml-param { display:flex; align-items:center; gap:10px; font-size:0.78rem; color:var(--text-secondary); margin:4px 0; }
 .ml-param > span:first-child { flex:0 0 84px; }
 .ml-param input[type="range"] { flex:1; }
