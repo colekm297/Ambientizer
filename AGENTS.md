@@ -64,6 +64,24 @@ Web layer (the big files — navigate carefully):
 - **Don't commit `output/`** (huge: ~70GB of wav/mp4) or `saved_jobs/`.
 - Validate before committing: `python -m py_compile <file>` for Python, `node --check web/static/app.js` for JS.
 
+## Cursor Cloud specific instructions (remote agents)
+
+When you are a **Cloud Agent** (running in Cursor's cloud VM, not on Cole's Mac):
+
+- The VM provisions via `.cursor/environment.json`: it `apt install`s **ffmpeg**, creates `.venv`,
+  and `pip install -r requirements.txt`. Use **`.venv/bin/python`** for anything needing deps.
+- **No `.env` / API keys and no `client_secret*.json` are present** in the cloud. Do NOT try to run
+  the live server, generate audio/visuals, or call Anthropic/Gemini/ElevenLabs/YouTube — those need
+  secrets that only exist on Cole's machine. Stick to code edits + static validation.
+- **Ignore the launchd / Tailscale steps** in "Run it" — those are local-only. There's no
+  `launchctl`, no `com.cole.ambientizer`, no Tailscale in the cloud.
+- **Validate before committing** (works without secrets):
+  `.venv/bin/python -m py_compile <file>` for Python, `node --check web/static/app.js` for JS.
+- The heavy ML extras (torch/torchvision for `depth_estimator.py` / `segmenter.py`) are NOT in
+  `requirements.txt` and won't be installed; don't run depth/segmentation in the cloud.
+- You push to a branch + open a PR; Cole reviews/merges from his phone. Keep commit messages clear
+  (per "Multi-agent workflow") — they're how the local agents learn what you changed.
+
 ## CRITICAL GOTCHAS (these have bitten us — don't repeat)
 
 1. **launchd has a minimal PATH** (no Homebrew). ffmpeg/ffprobe live in `/opt/homebrew/bin`, so
