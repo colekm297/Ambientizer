@@ -254,8 +254,15 @@ def _ensure_export_loop_audio(job_id: str, config) -> str:
     return export_loop_path
 
 
+_save_lock = threading.Lock()
+
 def _save_job(job_id: str):
-    """Persist a job's state to disk as JSON."""
+    """Persist a job's state to disk as JSON.
+
+    Serialised through _save_lock so concurrent autosaves (motion editor +
+    brush mask painting + clip render all happening near-simultaneously) can't
+    interleave their writes and corrupt the JSON file.
+    """
     with jobs_lock:
         job = jobs.get(job_id)
     if not job:
@@ -290,6 +297,15 @@ def _save_job(job_id: str):
         # Per-layer region masks for Living Still: { "0": "/path/to/mask.png", ... }
         # Index = position in motion_layers; reordering invalidates these.
         "layer_masks": job.get("layer_masks", {}),
+        # Motion editor state — persisted so a refresh restores EXACTLY the
+        # layers + dropdown values the user composed. Without this the editor
+        # blanks out on every reload, which also strands the per-layer masks
+        # (the brush-target dropdown can only list layers that exist).
+        "motion_layers": job.get("motion_layers", []),
+        "motion_director_style": job.get("motion_director_style"),
+        "motion_intensity": job.get("motion_intensity"),
+        "motion_loop_sec": job.get("motion_loop_sec"),
+        "motion_prompt": job.get("motion_prompt"),
         "custom_thumbnail_path": job.get("custom_thumbnail_path"),
         "thumbnail_design": job.get("thumbnail_design"),
         "visual_video_path": job.get("visual_video_path"),
@@ -318,11 +334,20 @@ def _save_job(job_id: str):
     }
 
     path = JOBS_DIR / f"{job_id}.json"
+    tmp = path.with_suffix(".json.tmp")
     try:
-        with open(path, "w") as f:
-            json.dump(serializable, f, indent=2, default=str)
+        # Atomic write under _save_lock so concurrent calls can't tear the JSON.
+        with _save_lock:
+            with open(tmp, "w") as f:
+                json.dump(serializable, f, indent=2, default=str)
+            os.replace(tmp, path)  # atomic rename on POSIX/macOS
     except Exception as e:
         print(f"  Warning: Could not save job {job_id}: {e}")
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except OSError:
+            pass
 
 
 def _load_saved_jobs():
@@ -367,6 +392,11 @@ def _load_saved_jobs():
                 "visual_active_tab": data.get("visual_active_tab"),
                 "brush_mask_path": data.get("brush_mask_path"),
                 "layer_masks": data.get("layer_masks", {}),
+                "motion_layers": data.get("motion_layers", []),
+                "motion_director_style": data.get("motion_director_style"),
+                "motion_intensity": data.get("motion_intensity"),
+                "motion_loop_sec": data.get("motion_loop_sec"),
+                "motion_prompt": data.get("motion_prompt"),
                 "custom_thumbnail_path": data.get("custom_thumbnail_path"),
                 "thumbnail_design": data.get("thumbnail_design"),
                 "visual_video_path": data.get("visual_video_path"),
@@ -871,21 +901,34 @@ def enhance_prompt():
         return jsonify({"error": "ANTHROPIC_API_KEY not set"}), 500
 
     if enhance_style == "score":
+        # "Score DNA" — harmony/tempo/instrument focused, NOT vague producer-brief.
+        # We want concrete musical structure (key, mode, chord motion, BPM, named
+        # instruments) because ElevenLabs Music v1 actually responds to those —
+        # it does not respond to "in the style of [composer]" or production-aesthetic
+        # adjectives. Force the analysis toward stuff the music model can emulate.
         search_query = (
-            f'For "{raw_prompt}", describe the MUSICAL SCORE / SOUNDTRACK only — '
-            f'not the world, story, or visuals. Focus tightly on:\n'
-            f'- The composer(s) and their scoring philosophy / signature techniques\n'
-            f'- Specific instruments and vocal techniques (e.g. processed female vocals, '
-            f'duduk, ney flute, frame drums, granular synthesis, prepared piano, ethnic '
-            f'percussion, choir treatments)\n'
-            f'- Harmonic language, modes, key centers, tempo ranges, time-feel\n'
-            f'- Production aesthetics (reverb character, layering, granular textures, '
-            f'mic techniques)\n'
-            f'- What makes the score sonically distinctive vs other films/games in the genre\n\n'
-            f'Do NOT describe characters, locations, plot, or lore — only musical/sonic '
-            f'qualities. If the input is not a recognizable IP with a known score, briefly '
-            f'suggest 2-3 real composers or musical references whose work matches the '
-            f'mood/style being requested. 3-4 paragraphs max.'
+            f'For "{raw_prompt}", give a music-theory analysis of the score / soundtrack. '
+            f'Focus ONLY on harmonic and structural DNA — not lore, scenes, or feelings. '
+            f'Specifically cover:\n'
+            f'- KEY / MODE used (e.g. "D Phrygian dominant", "C minor with frequent '
+            f'borrowed bVI", "modal — primarily Dorian over a drone")\n'
+            f'- The recurring / iconic CHORD PROGRESSION described in plain language AND '
+            f'in roman numerals if applicable (e.g. "i–VI–VII descending oscillation", '
+            f'"tonic-pedal with parallel-5ths upper voice motion", "two-chord pendulum on '
+            f'i and bII", "drone-based, no functional cadences")\n'
+            f'- TEMPO range and time-feel (e.g. "60–70 BPM 4/4 with offbeat snare hits", '
+            f'or "free-meter atmospheric beds with no pulse")\n'
+            f'- 1–2 CHARACTERISTIC INSTRUMENTS that carry the harmony (e.g. "church organ '
+            f'pedal tones", "processed female vocal pads", "Armenian duduk over synth '
+            f'drones", "low brass swells", "ribbon-controlled analog synth")\n'
+            f'- Harmonic DEVICES used (pedal tones, modal mixture, sus chords, drones, '
+            f'cluster chords, parallel motion, microtonal bending)\n\n'
+            f'Do NOT describe characters, locations, plot, creatures, weapons, vehicles, '
+            f'or any world-specific imagery. Do NOT use vague producer language like "epic", '
+            f'"hauntingly beautiful", "vast cinematic". Just the music theory. '
+            f'2–3 paragraphs max. If the reference doesn\'t have a famous score, name 2–3 '
+            f'real composers whose harmonic language fits the requested mood and describe '
+            f'their typical chord/mode choices.'
         )
     else:
         search_query = (
@@ -946,16 +989,35 @@ Credit estimation: musical layers cost ~30 credits/sec, SFX layers cost ~20 cred
 The enhanced_prompt should be vivid, production-ready (2-4 sentences). Name specific instruments, \
 tempo, key, effects. The layer plan shows what Claude will generate — users can edit before committing.
 
-For musical prompt_preview values, include a simple timed internal arc scaled to the music length, e.g.: \
-"0:00-1:30 core bed; ~2:30 shimmer enters for ~1 min; 3:00-4:00 fuller harmony; final 30-60s return to opening density for seamless loop." \
+MODEL GUIDANCE (from ElevenLabs Music v1 official prompting docs — follow these):
+- ALWAYS state the musical KEY or MODE (e.g. "in A minor", "D Dorian over a drone"). \
+The model reliably captures key — omitting it wastes the strongest lever you have.
+- ALWAYS state TEMPO: a BPM number (e.g. "72 BPM") or, for beatless beds, an explicit time-feel \
+(e.g. "free-meter, no pulse"). The model follows BPM accurately.
+- These are INSTRUMENTAL soundscapes. Include the word "instrumental" and do NOT write lyrics, \
+vocal lines, or vocal-entry cues. (Wordless vocal PADS/textures used as an instrument are fine — \
+e.g. "wordless female vocal pad" — but never actual lyrics.)
+- COPYRIGHT — HARD RULE: never name a real artist, band, or song in enhanced_prompt or prompt_preview \
+(e.g. NOT "like Hans Zimmer", NOT "Beatles-esque", NOT a real track title). The API REJECTS prompts that \
+name copyrighted material with a bad_prompt error. Describe what they DO musically instead \
+(instruments, harmony, production), never who did it.
+
+DESCRIBE INTERNAL MOTION QUALITATIVELY — NEVER WITH CLOCK TIMESTAMPS. \
+The music model generates from a freeform prompt + a target length; it has NO mechanism to place an event "at 2:30", \
+so written timestamps like "0:00-1:30" or "final 60s" are ignored and just waste prompt attention. \
+(Precise timed structure is handled separately by the Composition Plan feature, not here.) \
+Instead, describe the SHAPE of the movement in relative terms, e.g.: \
+"opens sparse with the core bed, gradually adds a shimmer layer and thickens the harmony toward the middle, \
+then thins back to the opening density so it loops seamlessly." \
 Avoid stasis words like "never-ending", "static", "wallpaper", "no discrete events". \
-Avoid: "verse", "chorus", "bridge", "drop", "beat", "hook", "fade-out ending".
+Avoid: "verse", "chorus", "bridge", "drop", "beat", "hook", "fade-out ending". \
+Do NOT write minute/second markers (no "0:00", "~2:30", "final 45s", "3:00-4:00", etc.) anywhere in enhanced_prompt or prompt_preview.
 
 Output ONLY valid JSON, no markdown fences."""
 
     context_block = ""
     if search_context:
-        label = "SCORE / MUSIC ANALYSIS" if enhance_style == "score" else "RESEARCH CONTEXT"
+        label = "HARMONIC DNA ANALYSIS" if enhance_style == "score" else "RESEARCH CONTEXT"
         context_block = f"\n\n{label}:\n{search_context}"
 
     layer_structure = ""
@@ -968,21 +1030,44 @@ Output ONLY valid JSON, no markdown fences."""
 
     style_addendum = ""
     if enhance_style == "score":
+        # The previous "score" mode produced vague producer-brief language that the
+        # music model couldn't actually emulate ("Hans Zimmer-esque swells in the
+        # style of Loire Cotler"). Replace that with explicit, executable musical
+        # structure that ElevenLabs Music v1 can actually pattern-match.
         style_addendum = (
-            "\n\nSCORE-FIRST INTERPRETATION (IMPORTANT):\n"
-            "The user wants this in the MUSICAL STYLE of the reference — NOT a tour of its "
-            "universe. Treat the reference as a SCORE to emulate, not a setting to depict.\n"
-            "- DO translate the score's instruments, vocal techniques, harmonic language, "
-            "production aesthetics, tempo and dynamic philosophy into the prompt.\n"
-            "- DO name composers, performers, or specific techniques where relevant "
-            "(e.g. 'in the style of Loire Cotler', 'Hans Zimmer-esque sustained brass swells', "
-            "'granular synthesis textures à la Jóhann Jóhannsson').\n"
-            "- DO NOT include narrative or lore: no characters, locations, vehicles, fauna, "
-            "weapons, creatures, or world-specific imagery (no sand worms, no spice, no "
-            "lightsabers, no dragons, no spacecraft sounds, etc.).\n"
-            "- DO NOT reference the source material by name in the prompt itself — let the "
-            "musical description carry the identity.\n"
-            "- The result should read like a music director's brief, not a scene description."
+            "\n\nHARMONIC-DNA INTERPRETATION (IMPORTANT):\n"
+            "The user wants the prompt to capture the HARMONIC IDENTITY of the reference — "
+            "the chord progression, key/mode, tempo, and characteristic instruments that "
+            "make its score recognizable. Translate that into something the music model "
+            "can directly emulate.\n\n"
+            "REQUIRED in the enhanced prompt:\n"
+            "- The KEY or MODE explicitly (e.g. 'D Phrygian dominant', 'C minor with "
+            "frequent borrowed iv', 'modal — primarily Dorian over a tonic drone').\n"
+            "- The CHORD PROGRESSION described as motion in plain language AND roman "
+            "numerals when applicable (e.g. 'i–VI–VII descending oscillation', 'tonic "
+            "pedal with parallel 5ths in upper voices, no functional cadences', "
+            "'two-chord pendulum on i and bII').\n"
+            "- The TEMPO and time-feel (BPM range + meter, or 'free-meter atmospheric').\n"
+            "- 1–2 CHARACTERISTIC INSTRUMENTS that carry the harmony "
+            "(e.g. 'church organ pedal tones', 'processed female vocal pads', "
+            "'Armenian duduk over slow-evolving synth drones', 'distorted minimalist "
+            "piano in the high register').\n"
+            "- A short note on HARMONIC DEVICES (pedal tones, drones, modal mixture, "
+            "sus chords, parallel 5ths, cluster chords) where relevant.\n\n"
+            "FORBIDDEN:\n"
+            "- No narrative or lore: no characters, locations, creatures, vehicles, "
+            "weapons, vegetation, weather, spices, etc.\n"
+            "- No naming the source material in the prompt itself — let the music carry "
+            "the identity.\n"
+            "- No vague producer adjectives ('epic', 'sweeping', 'hauntingly beautiful', "
+            "'cathedral of sound'). Replace them with the concrete musical mechanic.\n"
+            "- No composer name-drops as substitute for description "
+            "('in the style of Zimmer' is forbidden — say what Zimmer DID musically).\n\n"
+            "TARGET SHAPE — the enhanced prompt should read like a musician's lead sheet, "
+            "not a film treatment. Example: 'D Phrygian dominant at ~60 BPM. Slow two-chord "
+            "pendulum between i and bII over a sustained tonic drone. Solo Armenian duduk "
+            "carries the upper melodic line above slow-evolving granular synth pads. No "
+            "discrete events, no functional cadences — modal breathing only.'"
         )
 
     @retry_with_backoff(max_retries=3, base_delay=2.0, retryable_check=is_transient_api_error)
@@ -1227,6 +1312,14 @@ def api_status(job_id: str):
             for m, p in (job.get("visual_clips") or {}).items() if p
         },
         "brush_mask_url": f"/api/visual/brush-mask/{job['job_id']}/view" if job.get("brush_mask_path") else None,
+        # Motion editor state for the Living Still tab. Restored verbatim into
+        # the editor on track open so a page refresh doesn't blow away the user's
+        # composition (and the per-layer masks that are keyed by layer index).
+        "motion_layers": job.get("motion_layers", []) or [],
+        "motion_director_style": job.get("motion_director_style") or "balanced",
+        "motion_intensity": job.get("motion_intensity"),
+        "motion_loop_sec": job.get("motion_loop_sec"),
+        "motion_prompt": job.get("motion_prompt", ""),
         "custom_thumbnail_url": f"/api/thumbnail/{job['job_id']}/view" if job.get("custom_thumbnail_path") else None,
         "thumbnail_design": job.get("thumbnail_design"),
         "visual_video_url": f"/api/visual/video/{job['job_id']}/download" if job.get("visual_video_path") else None,
@@ -2671,6 +2764,78 @@ def _layer_mask_path_for(job: dict, layer_idx: int) -> str:
     return str(p.with_name(f"{p.stem}_layermask_{layer_idx}.png"))
 
 
+def _autopaint_region_masks(job: dict, layers: list) -> dict:
+    """Materialize the region masks the renderer would otherwise compute silently
+    (sky → cloud_drift, water → shimmer, content gas → nebula) and save them as
+    VISIBLE per-layer brush masks, so after Auto-plan the editor shows a 🖌 badge
+    on those layers and the user can repaint/clear them.
+
+    These are the EXACT masks the renderer auto-targets with, just materialized so
+    they're editable. Returns the new {str(layer_idx): mask_path} dict.
+    """
+    image_path = job.get("visual_image_path")
+    out: dict = {}
+    if not image_path or not os.path.exists(image_path):
+        return out
+    try:
+        import numpy as _np
+        from PIL import Image as _Image
+        from motion_compositor import MotionCompositor
+    except Exception as e:
+        print(f"  [autopaint] unavailable: {e}", flush=True)
+        return out
+
+    mc = MotionCompositor()
+    _seg_cache = {}
+
+    def _seg():
+        if "done" not in _seg_cache:
+            _seg_cache["sky"], _seg_cache["water"] = mc._ensure_seg_masks(image_path)
+            _seg_cache["done"] = True
+        return _seg_cache["sky"], _seg_cache["water"]
+
+    for i, l in enumerate(layers):
+        t = l.get("type")
+        kind = None
+        if t == "cloud_drift" and str(l.get("region", "sky")) == "sky":
+            kind = "sky"
+        elif t == "shimmer" and str(l.get("region", "")) == "water":
+            kind = "water"
+        elif t == "nebula":
+            kind = "nebula"
+        if not kind:
+            continue
+        dst = _layer_mask_path_for(job, i)
+        if not dst:
+            continue
+        try:
+            if kind in ("sky", "water"):
+                sky_p, water_p = _seg()
+                src = sky_p if kind == "sky" else water_p
+                if not src or not os.path.exists(src):
+                    print(f"  [autopaint] layer {i}: no {kind} segment found — left unmasked", flush=True)
+                    continue
+                m = _Image.open(src).convert("L")
+                if (_np.asarray(m, dtype=_np.float32) / 255.0).mean() < 0.01:
+                    continue  # empty mask → don't bother (renderer falls back gracefully)
+                m.save(dst)
+            else:  # nebula content mask
+                base = _Image.open(image_path).convert("RGB")
+                W, H = base.size
+                if max(W, H) > 1280:
+                    base.thumbnail((1280, 1280))
+                    W, H = base.size
+                nmask = mc._nebula_mask(W, H, base)
+                if float(nmask.mean()) < 0.01:
+                    continue
+                _Image.fromarray((_np.clip(nmask, 0, 1) * 255).astype("uint8")).save(dst)
+            out[str(i)] = dst
+            print(f"  [autopaint] layer {i} ({t}) ← {kind} mask → {dst}", flush=True)
+        except Exception as e:
+            print(f"  [autopaint] layer {i} ({kind}) failed: {e}", flush=True)
+    return out
+
+
 @app.route("/api/visual/layer-mask/<job_id>/<int:layer_idx>", methods=["POST"])
 def upload_layer_mask(job_id: str, layer_idx: int):
     """Save a hand-painted region mask for ONE motion layer. The compositor uses
@@ -2732,6 +2897,78 @@ def view_layer_mask(job_id: str, layer_idx: int):
     if not mp or not os.path.exists(mp):
         abort(404)
     return send_file(mp, mimetype="image/png")
+
+
+@app.route("/api/visual/layer-mask/<job_id>/_compact", methods=["POST"])
+def compact_layer_masks(job_id: str):
+    """Atomically shift per-layer masks when a layer is removed from the editor.
+
+    Per-layer masks are keyed by INDEX. Deleting layer N in the middle of the
+    editor shifts every later layer's index down by 1 — but without this
+    endpoint, the saved masks stay put and silently re-attach to the wrong
+    effect (e.g. the twinkle mask becomes the particles mask). Frontend calls
+    this immediately after a delete so the on-disk state stays consistent.
+
+    Body: { "removed_idx": <int> }
+    Effect:
+      • Deletes the mask file at removed_idx (if any)
+      • Renames every mask at idx > removed_idx down by 1
+      • Persists the updated layer_masks dict
+    """
+    with jobs_lock:
+        job = jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+    body = request.get_json(force=True, silent=True) or {}
+    try:
+        removed_idx = int(body.get("removed_idx"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "removed_idx required (int)"}), 400
+    if removed_idx < 0:
+        return jsonify({"error": "removed_idx must be >= 0"}), 400
+
+    with jobs_lock:
+        lm = dict(job.get("layer_masks") or {})
+    # Sort indices ASC so we shift K → K-1 in order (no clobbering).
+    items = []
+    for k, v in lm.items():
+        try:
+            items.append((int(k), v))
+        except (TypeError, ValueError):
+            continue
+    items.sort(key=lambda x: x[0])
+
+    new_lm: dict = {}
+    actions = {"removed": False, "shifted": []}
+    for old_idx, path in items:
+        if old_idx < removed_idx:
+            new_lm[str(old_idx)] = path
+            continue
+        if old_idx == removed_idx:
+            # Delete the file behind the removed layer.
+            if path and os.path.exists(path):
+                try: os.remove(path)
+                except OSError: pass
+            actions["removed"] = True
+            continue
+        # old_idx > removed_idx → rename file from layermask_<old> → layermask_<new>
+        new_idx = old_idx - 1
+        new_path = _layer_mask_path_for(job, new_idx)
+        if path and os.path.exists(path):
+            try:
+                if os.path.exists(new_path) and new_path != path:
+                    os.remove(new_path)
+                os.rename(path, new_path)
+            except OSError:
+                new_path = path  # fall back to leaving file in place
+        new_lm[str(new_idx)] = new_path
+        actions["shifted"].append({"from": old_idx, "to": new_idx})
+
+    with jobs_lock:
+        job["layer_masks"] = new_lm
+    _save_job(job_id)
+    return jsonify({"ok": True, "removed_idx": removed_idx, **actions,
+                    "layer_masks": list(new_lm.keys())})
 
 
 @app.route("/api/visual/layer-mask/<job_id>", methods=["GET"])
@@ -3084,6 +3321,13 @@ def api_thumbnail_previews(job_id: str):
     subtitle = (data.get("subtitle") or f"Ambient · {_thumb_duration_label(job)}").strip()
     accent = data.get("accent") or "#f5c97a"
     position = data.get("position") if data.get("position") in ("upper", "center", "lower") else "lower"
+    # Clamp on the wire too — defensive, render_thumbnail also clamps.
+    try: title_scale = max(0.5, min(2.0, float(data.get("title_scale", 1.0))))
+    except (TypeError, ValueError): title_scale = 1.0
+    try: sub_scale = max(0.5, min(2.0, float(data.get("sub_scale", 1.0))))
+    except (TypeError, ValueError): sub_scale = 1.0
+    try: scrim_opacity = max(0.0, min(1.5, float(data.get("scrim_opacity", 1.0))))
+    except (TypeError, ValueError): scrim_opacity = 1.0
 
     _THUMB_DIR.mkdir(parents=True, exist_ok=True)
     out = []
@@ -3092,13 +3336,17 @@ def api_thumbnail_previews(job_id: str):
         try:
             thumbnail_maker.render_thumbnail(
                 image_path, str(_THUMB_DIR / fname), hook=hook, subtitle=subtitle,
-                style=style, accent=accent, position=position)
+                style=style, accent=accent, position=position,
+                title_scale=title_scale, sub_scale=sub_scale,
+                scrim_opacity=scrim_opacity)
             out.append({"style": style, "label": thumbnail_maker.STYLES[style].get("label", style),
                         "url": f"/static/_thumbs/{fname}?t={time.time()}"})
         except Exception as e:
             print(f"  [thumbnail] {style} failed: {e}", flush=True)
     return jsonify({"previews": out, "hook": hook, "subtitle": subtitle,
-                    "accent": accent, "position": position})
+                    "accent": accent, "position": position,
+                    "title_scale": title_scale, "sub_scale": sub_scale,
+                    "scrim_opacity": scrim_opacity})
 
 
 @app.route("/api/thumbnail/<job_id>/set", methods=["POST"])
@@ -3121,14 +3369,24 @@ def api_thumbnail_set(job_id: str):
     subtitle = (data.get("subtitle") or f"Ambient · {_thumb_duration_label(job)}").strip()
     accent = data.get("accent") or "#f5c97a"
     position = data.get("position") if data.get("position") in ("upper", "center", "lower") else "lower"
+    try: title_scale = max(0.5, min(2.0, float(data.get("title_scale", 1.0))))
+    except (TypeError, ValueError): title_scale = 1.0
+    try: sub_scale = max(0.5, min(2.0, float(data.get("sub_scale", 1.0))))
+    except (TypeError, ValueError): sub_scale = 1.0
+    try: scrim_opacity = max(0.0, min(1.5, float(data.get("scrim_opacity", 1.0))))
+    except (TypeError, ValueError): scrim_opacity = 1.0
 
     out_path = str(PROJECT_ROOT / "output" / f"{job_id}_thumbnail.jpg")
     thumbnail_maker.render_thumbnail(image_path, out_path, hook=hook, subtitle=subtitle,
-                                     style=style, accent=accent, position=position)
+                                     style=style, accent=accent, position=position,
+                                     title_scale=title_scale, sub_scale=sub_scale,
+                                     scrim_opacity=scrim_opacity)
     with jobs_lock:
         jobs[job_id]["custom_thumbnail_path"] = out_path
         jobs[job_id]["thumbnail_design"] = {"style": style, "hook": hook, "subtitle": subtitle,
-                                            "accent": accent, "position": position}
+                                            "accent": accent, "position": position,
+                                            "title_scale": title_scale, "sub_scale": sub_scale,
+                                            "scrim_opacity": scrim_opacity}
     _save_job(job_id)
     return jsonify({"status": "set", "thumbnail_url": f"/api/thumbnail/{job_id}/view?t={time.time()}"})
 
@@ -3143,6 +3401,50 @@ def api_thumbnail_view(job_id: str):
     if not p or not os.path.exists(p):
         abort(404)
     return send_file(p, mimetype="image/jpeg")
+
+
+@app.route("/api/visual/motion-state/<job_id>", methods=["POST"])
+def save_motion_state(job_id: str):
+    """Persist the Living Still editor state for a song (layers + dropdowns).
+
+    The frontend autosaves on every meaningful edit (layer add/remove, slider
+    nudge, director-style change, preset load, auto-plan completion). Without
+    persistence the editor blanks out on every page refresh — which is also
+    what strands the per-layer brush masks (they're keyed by layer index, so
+    the brush-target dropdown can only surface a layer-N mask if layer N is
+    actually in the editor).
+    """
+    with jobs_lock:
+        job = jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+    data = request.get_json(force=True, silent=True) or {}
+    fields = {}
+    if "motion_layers" in data and isinstance(data["motion_layers"], list):
+        fields["motion_layers"] = data["motion_layers"]
+    if "motion_director_style" in data:
+        s = (data.get("motion_director_style") or "").lower()
+        if s in ("subtle", "balanced", "dynamic"):
+            fields["motion_director_style"] = s
+    if "motion_intensity" in data:
+        try:
+            fields["motion_intensity"] = float(data["motion_intensity"])
+        except (TypeError, ValueError):
+            pass
+    if "motion_loop_sec" in data:
+        try:
+            fields["motion_loop_sec"] = float(data["motion_loop_sec"])
+        except (TypeError, ValueError):
+            pass
+    if "motion_prompt" in data:
+        fields["motion_prompt"] = str(data["motion_prompt"] or "")
+    if not fields:
+        return jsonify({"ok": True, "saved": []})
+    with jobs_lock:
+        for k, v in fields.items():
+            job[k] = v
+    _save_job(job_id)
+    return jsonify({"ok": True, "saved": list(fields.keys())})
 
 
 @app.route("/api/visual/motion-plan/<job_id>", methods=["POST"])
@@ -3177,7 +3479,30 @@ def api_motion_plan(job_id: str):
         director_style=director_style,
     )
     print(f"[motion-plan] result src={src} count={len(layers)} layers={layers}", flush=True)
-    return jsonify({"layers": layers, "source": src, "director_style": director_style})
+
+    # Auto-paint: a fresh plan replaces the layer list, so any old per-layer
+    # masks (keyed by index) are now stale — drop their files, then materialize
+    # the region masks for the new plan so they're VISIBLE + editable in the
+    # editor instead of invisibly applied at render time.
+    for _p in (job.get("layer_masks") or {}).values():
+        try:
+            if _p and os.path.exists(_p):
+                os.remove(_p)
+        except OSError:
+            pass
+    auto_masks = _autopaint_region_masks(job, layers)
+    print(f"[motion-plan] auto-painted masks for layers {list(auto_masks.keys())}", flush=True)
+
+    # Persist the freshly-planned layers so a refresh keeps them — the frontend
+    # also autosaves, but doing it here makes auto-plan immediately durable
+    # even if the user navigates away before touching anything else.
+    with jobs_lock:
+        job["motion_layers"] = layers
+        job["motion_director_style"] = director_style
+        job["layer_masks"] = auto_masks
+    _save_job(job_id)
+    return jsonify({"layers": layers, "source": src, "director_style": director_style,
+                    "auto_masked": list(auto_masks.keys())})
 
 
 @app.route("/api/visual/image/<job_id>/view")
@@ -3283,11 +3608,43 @@ def generate_visual_clip(job_id: str):
                 if p and os.path.exists(p):
                     layer_masks_resolved[k] = p
             user_layers = data.get("motion_layers")
+            # Persist whatever the render call brought along so the editor
+            # survives refresh even if the user never hit the dedicated save.
+            with jobs_lock:
+                jobs[job_id]["motion_layers"] = user_layers if isinstance(user_layers, list) else []
+                jobs[job_id]["motion_director_style"] = director_style
+                jobs[job_id]["motion_intensity"] = intensity
+                jobs[job_id]["motion_loop_sec"] = loop_sec
+                jobs[job_id]["motion_prompt"] = motion_prompt
+            _save_job(job_id)
             if isinstance(user_layers, list) and user_layers:
                 # Editor-composed layers → render EXACTLY this (what-you-see-is-what-
                 # renders). Bypass presets / director / bring-to-life toggles / intensity.
+                # Per-layer "enabled" flag: a muted layer stays in the editor (so
+                # the user can flip it back on later) but is dropped from the render.
+                # Filtering shifts indices though — also re-map per-layer mask keys
+                # so each surviving layer keeps its painted region.
                 from motion_compositor import _validate_layers as _vl
-                layers, src = _vl(user_layers), "editor"
+                old_to_new: dict[int, int] = {}
+                active_user_layers = []
+                for old_idx, l in enumerate(user_layers):
+                    if not isinstance(l, dict):
+                        continue
+                    if l.get("enabled", True) is False:
+                        continue
+                    old_to_new[old_idx] = len(active_user_layers)
+                    active_user_layers.append(l)
+                if layer_masks_resolved:
+                    remapped: dict = {}
+                    for k, p in layer_masks_resolved.items():
+                        try:
+                            old_i = int(k)
+                        except (TypeError, ValueError):
+                            continue
+                        if old_i in old_to_new:
+                            remapped[str(old_to_new[old_i])] = p
+                    layer_masks_resolved = remapped
+                layers, src = _vl(active_user_layers), "editor"
             elif motion_style != "auto":
                 layers, src = motion_style_preset(motion_style), f"style:{motion_style}"
             else:

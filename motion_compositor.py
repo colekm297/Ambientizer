@@ -96,8 +96,8 @@ class MotionCompositor:
         ADDITIVE to the global brush mask — apply nebula over the sky, shimmer over
         the water, twinkle over the lights, all in one render. Only applies to
         maskable effect layers (nebula, shimmer, twinkle, color_glow, god_rays,
-        aurora, particles); whole-frame layers (breathing_zoom, parallax, fog,
-        light, vignette_pulse) ignore per-layer masks."""
+        aurora, particles, cloud_drift); whole-frame layers (breathing_zoom,
+        parallax, fog, light, vignette_pulse) ignore per-layer masks."""
         layers = layers if layers is not None else self.default_layers()
         if not output_path:
             output_path = str(Path(image_path).with_suffix("")) + "_motionloop.mp4"
@@ -142,6 +142,12 @@ class MotionCompositor:
                 m = self._load_brush_mask(p, W, H)
                 if m is not None:
                     per_layer_masks[idx] = m
+                    # Diagnostic — surface mask coverage so the user can see
+                    # when a mask is too small or in the wrong region for the
+                    # effect to actually fire.
+                    coverage = float(m.mean())
+                    ltype = layers[idx].get("type") if idx < len(layers) else "?"
+                    status(f"layer {idx} ({ltype}) region mask coverage = {coverage*100:.1f}%")
             if per_layer_masks:
                 status(f"loaded per-layer masks for {len(per_layer_masks)} effect(s)")
 
@@ -209,6 +215,8 @@ class MotionCompositor:
         glow_mask = self._make_glow(W, H) if glow_cfg else None
         twinkle_cfg = _find(layers, "twinkle")
         twinkle_state = self._make_twinkle(W, H, twinkle_cfg) if twinkle_cfg else None
+        cloud_cfg = _find(layers, "cloud_drift")
+        cloud_state = self._make_cloud_drift(W, H, cloud_cfg) if cloud_cfg else None
 
         # Nebula: auto-masked by CONTENT (colored, mid-bright gas), not semantic
         # segmentation — ADE20K "sky" doesn't fire on stylized space art.
@@ -229,6 +237,8 @@ class MotionCompositor:
         rays_user_mask = mask_for(rays_idx)
         glow_idx = layer_idx("color_glow")
         glow_user_mask = mask_for(glow_idx)
+        cloud_idx = layer_idx("cloud_drift")
+        cloud_user_mask = mask_for(cloud_idx)
         # Particles can have multiple layers, so resolve each field's mask by occurrence.
         particle_indices: list[Optional[int]] = []
         seen_particles = 0
@@ -247,6 +257,21 @@ class MotionCompositor:
             water_mask = self._load_region_mask(water_p, W, H)
             status("water mask ready" if water_mask is not None
                    else "no water found — shimmer skipped")
+
+        # Cloud drift confines to the sky by DEFAULT (clouds belong in the sky).
+        # A user-painted per-layer mask overrides the auto sky mask; setting
+        # region to "(whole frame)" opts out of masking entirely.
+        cloud_sky_mask = None
+        cloud_region = cloud_cfg.get("region", "sky") if cloud_cfg else None
+        if cloud_state is not None and cloud_user_mask is None and cloud_region == "sky":
+            status("segmenting scene (sky) for cloud drift...")
+            sky_p, _ = self._ensure_seg_masks(image_path)
+            cloud_sky_mask = self._load_region_mask(sky_p, W, H)
+            if cloud_sky_mask is None:
+                if cloud_state["mode"] == "warp":
+                    status("no sky found — cloud WARP skipped (paint a sky mask to animate the real clouds)")
+                else:
+                    status("no sky found — cloud overlay drifts over whole frame")
 
         proc = self._open_ffmpeg(output_path, W, H, fps, crf)
         try:
@@ -271,6 +296,22 @@ class MotionCompositor:
 
                 if nebula_mask is not None:
                     self._apply_region_warp(frame, nebula_mask, t, nebula_cfg.get("amount", 0.5))
+
+                if cloud_state is not None:
+                    cmask = cloud_user_mask if cloud_user_mask is not None else cloud_sky_mask
+                    if cloud_state["mode"] == "warp":
+                        # Animate the REAL clouds: displace the masked sky pixels.
+                        # Needs a region — without one, warping the whole frame
+                        # would melt the scene, so we no-op (status logged above).
+                        if cmask is not None:
+                            self._apply_cloud_warp(frame, cmask, t,
+                                                   cloud_state["amount"], cloud_state["speed"])
+                    else:
+                        # Overlay: paint NEW drifting clouds (screen-blend).
+                        pre = frame.copy() if cmask is not None else None
+                        self._apply_cloud_drift(frame, cloud_state, t)
+                        if cmask is not None:
+                            self._blend_with_mask(frame, pre, cmask)
 
                 for fi, field in enumerate(particle_fields):
                     pmask = particle_masks[fi] if fi < len(particle_masks) else None
@@ -519,24 +560,50 @@ class MotionCompositor:
     def _make_twinkle(self, W, H, cfg) -> dict:
         """Per-pixel phase field so bright spots twinkle OUT of sync (a city of
         lights, a starfield), not all at once. Integer cycle count keeps it
-        seamless across the loop."""
-        # VERY low-frequency phase, heavily blurred → whole bright REGIONS pulse
-        # together (a soft breathing), instead of fine per-pixel modulation that
-        # made a busy "maze" flicker over detailed surfaces like a painted city.
+        seamless across the loop.
+
+        Two visual modes, controlled by cfg["sparkle"] (0..1):
+          - sparkle=0 (default): slow, heavily-blurred REGION breathing — soft
+            pulses over whole bright areas. Calm, ambient.
+          - sparkle=1: fine-grained PER-PIXEL scintillation at a higher rate,
+            with very little spatial blur. This is what most people picture
+            when they read "Twinkle lights" — sharp little flicker on each
+            light source, like a starfield or city lights at night.
+
+        The old version capped amount at 0.45 AND scaled it by 0.6, which meant
+        the layer's "Strength" slider was nearly a no-op above ~0.3. Removed.
+        """
         from scipy.ndimage import gaussian_filter
+        # Default 0.6 (mid-sparkle) so AI-generated twinkle layers — which don't
+        # set sparkle explicitly — are actually visible. Pure "breathe" (0.0) is
+        # so subtle it reads as "twinkle doesn't work." Users who want the old
+        # ultra-soft pulse can dial sparkle down to 0 in the layer editor.
+        sparkle = max(0.0, min(1.0, float(cfg.get("sparkle", 0.6))))
+        # Sparkle mode wants per-pixel randomness (fine grain). Breathe mode
+        # wants very-low-frequency phase (region pulse). Interpolate between.
         rng = np.random.default_rng(7)
-        low = rng.random((max(2, H // 30), max(2, W // 30))).astype(np.float32)
+        grain_y = max(2, int(round(H * (0.04 + 0.50 * sparkle))))
+        grain_x = max(2, int(round(W * (0.04 + 0.50 * sparkle))))
+        low = rng.random((grain_y, grain_x)).astype(np.float32)
         phase = np.asarray(
             Image.fromarray((low * 255).astype(np.uint8)).resize((W, H), Image.BILINEAR),
             dtype=np.float32,
         ) / 255.0
-        phase = gaussian_filter(phase, sigma=max(W, H) / 60.0)
+        phase = gaussian_filter(phase, sigma=max(W, H) * (0.018 * (1.0 - sparkle) + 0.001))
+        # Spatial blur of the brightness mask: heavy in breathe mode, almost
+        # none in sparkle mode (so individual lights pop).
+        blur_sigma = max(W, H) * (0.005 * (1.0 - sparkle) + 0.0005)
+        # Cycles per loop: 3 in breathe (slow regional pulse), 8 in sparkle
+        # (rapid scintillation). Stays integer so the seam is clean.
+        cycles = int(round(3 + 5 * sparkle))
+        amount = float(cfg.get("amount", 0.5))
         return {
             "phase": phase,
-            "amount": min(0.45, float(cfg.get("amount", 0.4)) * 0.6),  # gentle swing
-            "thresh": float(cfg.get("threshold", 120.0)),
-            "cycles": 3,  # integer → seamless loop
-            "blur": max(1.0, max(W, H) / 200.0),
+            "amount": amount,
+            "thresh": float(cfg.get("threshold", 80.0)),
+            "cycles": cycles,
+            "blur": blur_sigma,
+            "sparkle": sparkle,
         }
 
     def _nebula_mask(self, W, H, base_pil) -> np.ndarray:
@@ -564,6 +631,17 @@ class MotionCompositor:
         mask = np.clip((lum - st["thresh"]) / denom, 0.0, 1.0)
         # Soften the mask so bright REGIONS breathe smoothly (no per-pixel sparkle/maze).
         mask = gaussian_filter(mask, sigma=st.get("blur", 4.0))
+        # Diagnostic — emit once at t=0 so the user sees how much of the frame
+        # has bright-enough pixels to twinkle on. If coverage is ~0 the scene
+        # has nothing for twinkle to bite, and the user should lower thresh
+        # (or pick a brighter scene / lower the brightness threshold).
+        if t == 0.0 and not st.get("_logged_cov"):
+            cov = float((mask > 0.05).mean())
+            print(f"  [motion] twinkle bright-pixel coverage = {cov*100:.1f}% "
+                  f"(thresh={st['thresh']:.0f}, amount={st['amount']:.2f}, "
+                  f"sparkle={st.get('sparkle', 0.6):.2f}, cycles={st['cycles']})",
+                  flush=True)
+            st["_logged_cov"] = True
         osc = np.sin(TWO_PI * (st["cycles"] * t + st["phase"]))  # [-1,1], seamless
         factor = 1.0 + st["amount"] * mask * osc
         frame *= factor[:, :, None]
@@ -791,6 +869,83 @@ class MotionCompositor:
                 + (curtain * 0.5)[:, :, None] * np.array([0.6, 0.3, 1.0], dtype=np.float32))
         frame += (255.0 - frame) * glow          # screen blend
 
+    # ── premium: cloud drift (soft cloud bank gliding across the sky) ──────
+    def _make_cloud_drift(self, W, H, cfg) -> dict:
+        """Big, soft, blobby cloud texture that scrolls horizontally and tiles
+        seamlessly (period == W, like fog, but lower-frequency + higher contrast
+        so it reads as distinct cloud masses with open sky between, not uniform
+        mist). `speed` = integer cloud-widths traversed per loop (keeps the wrap
+        seamless). Screen-blended toward a soft tint, so it brightens the sky
+        where the clouds are dense and leaves the gaps untouched."""
+        cfg = cfg or {}
+        rng = np.random.default_rng(19)
+        # Coarse base grid → large soft masses (fog uses W//8; clouds are bigger).
+        gy = max(4, H // 24)
+        gx = max(4, W // 24)
+        base = rng.random((gy, gx)).astype(np.float32)
+        base = np.asarray(
+            Image.fromarray((base * 255).astype(np.uint8)).resize((W, H), Image.BICUBIC),
+            dtype=np.float32) / 255.0
+        base = gaussian_filter(base, sigma=max(W, H) / 60.0, mode="wrap")
+        base -= base.min()
+        base /= max(base.max(), 1e-5)
+        # Contrast curve carves clear cloud blobs with open-sky gaps between.
+        base = np.clip((base - 0.45) / 0.55, 0.0, 1.0) ** 1.4
+        # Force exact horizontal tileability (same edge-blend trick as fog).
+        rolled = np.roll(base, W // 2, axis=1)
+        ramp = np.abs(np.linspace(-1.0, 1.0, W, dtype=np.float32))[None, :]
+        tile = base * (1.0 - ramp) + rolled * ramp
+        tile -= tile.min()
+        tile /= max(tile.max(), 1e-5)
+        tex = np.concatenate([tile, tile], axis=1)  # width 2W, period W → seamless
+        tint = _CLOUD_TINTS.get(str(cfg.get("tint", "white")).lower(), _CLOUD_TINTS["white"])
+        mode = str(cfg.get("mode", "warp")).lower()
+        if mode not in ("warp", "overlay"):
+            mode = "warp"
+        return dict(
+            tex=tex, W=W, mode=mode,
+            amount=float(cfg.get("amount", 0.35)),
+            speed=max(1, int(round(float(cfg.get("speed", 1))))),
+            tint=np.array(tint, dtype=np.float32),
+        )
+
+    def _apply_cloud_warp(self, frame, mask, t, amount, speed):
+        """Animate the ACTUAL clouds in a region by displacing those pixels with a
+        strongly-horizontal, low-frequency flow (big soft cloud masses glide
+        together). Seamless: the displacement is sinusoidal in t so it returns to
+        zero at the loop point — a continuous one-way scroll can't loop without
+        an overlay, so this is a gentle horizontal sway that reads as drift.
+
+        Confined to `mask` (the segmented sky or a painted region) so only the
+        clouds move and the horizon/foreground stays pinned."""
+        from scipy.ndimage import map_coordinates
+        H, W, _ = frame.shape
+        yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
+        amp = amount * 45.0                     # clouds glide more than nebula gas
+        cyc = max(1, int(round(speed)))         # integer cycles per loop → seamless
+        ph = TWO_PI * t * cyc
+        scale = max(160.0, W / 4.5)             # low spatial freq → big masses move together
+        dx = amp * np.sin(TWO_PI * yy / (scale * 1.6) + ph)
+        dy = amp * 0.10 * np.cos(TWO_PI * xx / scale + ph)   # mostly horizontal
+        sx = np.clip(xx + dx, 0, W - 1)
+        sy = np.clip(yy + dy, 0, H - 1)
+        m = mask[:, :, None]
+        for c in range(3):
+            warped = map_coordinates(frame[:, :, c], [sy, sx], order=1, mode="reflect")
+            frame[:, :, c] = frame[:, :, c] * (1.0 - m[:, :, 0]) + warped * m[:, :, 0]
+
+    def _apply_cloud_drift(self, frame, st, t):
+        W = st["W"]
+        # off returns to 0 (mod W) at t=1 for any integer speed → seamless wrap.
+        off = int((t * st["speed"] * W) % W)
+        strip = st["tex"][:, off:off + W]
+        if strip.shape[1] < W:  # wrap across the tile seam (continuous by construction)
+            strip = np.concatenate([strip, st["tex"][:, :W - strip.shape[1]]], axis=1)
+        # Gentle opacity breathing so the bank isn't a dead-flat overlay.
+        breathe = 0.85 + 0.15 * (0.5 - 0.5 * math.cos(TWO_PI * t))
+        veil = strip[:, :, None] * (st["amount"] * breathe)
+        frame += (st["tint"][None, None, :] - frame) * veil   # screen-ish blend toward tint
+
     # ── ffmpeg ──────────────────────────────────────────────────────────────
     def _open_ffmpeg(self, output_path, W, H, fps, crf):
         cmd = [
@@ -913,6 +1068,13 @@ def preset_for_scene(scene_text: str) -> list[dict]:
     if any(w in text for w in ("water", "ocean", "sea", "lake", "river", "waves", "reflection")) \
             and "shimmer" not in types:
         layers.append({"type": "shimmer", "amount": 0.5, "region": "water"})
+    # Drifting clouds when the scene has a real (non-space) sky.
+    if any(w in text for w in ("cloud", "clouds", "overcast", "sky", "skies", "sunset", "sunrise",
+                               "horizon", "vista", "mountain", "valley", "plains")) \
+            and "space" not in text and "cosmic" not in text and "nebula" not in text \
+            and "cloud_drift" not in types:
+        layers.append({"type": "cloud_drift", "amount": 0.35, "speed": 1, "mode": "warp",
+                       "region": "sky", "tint": "white"})
     return layers
 
 
@@ -930,8 +1092,9 @@ _LAYER_SPEC = {
     "aurora":         {"amount": (0.0, 1.0)},
     "parallax":       {"amount": (0.0, 1.0)},
     "color_glow":     {"amount": (0.0, 0.6)},
-    "twinkle":        {"amount": (0.0, 1.0), "threshold": (60.0, 240.0)},
+    "twinkle":        {"amount": (0.0, 1.0), "threshold": (60.0, 240.0), "sparkle": (0.0, 1.0)},
     "nebula":         {"amount": (0.0, 1.0)},  # masked slow gas drift (region: sky)
+    "cloud_drift":    {"amount": (0.0, 0.8), "speed": (1.0, 4.0)},  # sky-masked drifting cloud bank
 }
 
 # Named colors for the color_glow layer, in BGR (the frame buffer is BGR).
@@ -941,6 +1104,13 @@ _GLOW_COLORS = {
     "teal": (180, 190, 40), "cyan": (220, 200, 40), "blue": (235, 70, 40),
     "indigo": (200, 60, 70), "purple": (210, 50, 180), "magenta": (190, 40, 220),
     "white": (235, 235, 235), "warm": (60, 150, 240),
+}
+
+# Soft tint the cloud bank screen-blends toward (clouds add light). Kept
+# near-neutral on purpose so they read as clouds, not a color wash.
+_CLOUD_TINTS = {
+    "white": (245, 245, 245), "warm": (250, 240, 222), "grey": (205, 210, 218),
+    "gold": (252, 236, 200), "dusk": (236, 220, 240),
 }
 
 DIRECTOR_SYSTEM_SUBTLE = """You are the motion director for a "living still": ONE image brought \
@@ -956,15 +1126,17 @@ HARD RULES (follow exactly):
 1. Use only 2-4 layers. Fewer is better. Do NOT pile effects on "to be safe".
 2. At most ONE pixel-MOVING/warping effect total (camera OR parallax OR nebula OR shimmer) — \
 never several together, or the image turns to mush.
-3. PARALLAX only on real PHOTOGRAPHIC scenes with genuine depth (a photo of a room, a landscape). \
-NEVER on illustrated / painted / stylized / CGI / space / sci-fi art — those have no real depth \
-and parallax MELTS them. For that art, use breathing_zoom for the camera.
-4. breathing_zoom is the primary motion almost every time. Keep amount low; use pan for a glide.
+3. CAMERA CHOICE: if the image is a real PHOTOGRAPH with genuine depth (a photo of a room, \
+a landscape, a real interior), PREFER parallax — it gives true 2.5D depth. For illustrated / \
+painted / stylized / CGI / space / sci-fi art, use breathing_zoom instead (parallax MELTS those — \
+they have no real depth). When unsure, use breathing_zoom (the safe default).
+4. Always include exactly ONE camera layer (parallax OR breathing_zoom). Keep amounts low.
 
 Palette (reply ONLY {"layers":[...]}):
-- {"type":"breathing_zoom","amount":0.04-0.10,"orbit":0.2-0.5,"pan":0.0-0.8}  // the camera; pan = lateral glide. Primary motion.
-- {"type":"parallax","amount":0.4-0.6}  // PHOTOS with real depth ONLY (rule 3). Replaces breathing_zoom.
+- {"type":"parallax","amount":0.4-0.6}  // PREFERRED camera for real PHOTOS with depth (rule 3).
+- {"type":"breathing_zoom","amount":0.04-0.10,"orbit":0.2-0.5,"pan":0.0-0.8}  // camera for stylized/painted/CGI/space art (and the safe fallback); pan = lateral glide.
 - {"type":"nebula","amount":0.3-0.55}  // slow drift of colored gas/clouds (auto-masked to those areas). Nebulae, cosmic gas, clouds.
+- {"type":"cloud_drift","amount":0.2-0.4,"speed":1,"mode":"warp","region":"sky","tint":"white|warm|grey|gold|dusk"}  // animates the REAL clouds in the sky (mode "warp", auto-masked to sky). Use on daytime/sunset/overcast skies, vistas, landscapes with visible clouds. Use "overlay" mode only to ADD clouds to a clear/empty sky. NOT space (use nebula there).
 - {"type":"shimmer","amount":0.3-0.5,"region":"water"}  // ripple ONLY water (oceans/lakes/rivers).
 - {"type":"twinkle","amount":0.15-0.35}  // gently flickers the image's OWN bright lights/stars. Keep SUBTLE. Night cities, starfields.
 - {"type":"color_glow","amount":0.12-0.28,"color":"amber|gold|red|orange|blue|cyan|teal|green|purple|magenta|white|warm"}  // soft colored light breathing from edges. Use only if the scene has a strong color cast (golden city→amber; red alert→red).
@@ -995,17 +1167,19 @@ HARD RULES:
 1. Use 3-5 layers — typically a camera move PLUS at least one content-masked warp on top.
 2. Allow up to TWO motion sources to stack as long as one is camera (full-frame) and the other(s) \
 are region-confined (nebula on sky, shimmer on water, aurora). Never stack two FULL-FRAME warps.
-3. PARALLAX only on photographic scenes with real depth (rule from subtle mode still applies).
+3. CAMERA CHOICE: PREFER parallax for real photographic scenes with depth; use breathing_zoom \
+for stylized/painted/CGI/space art (parallax melts those). Exactly one camera layer.
 4. Camera amounts can sit at the HIGH end of their range (breathing_zoom amount 0.08-0.14, orbit \
-0.4-0.7, pan 0.4-0.9). Region warps (nebula 0.5-0.8, shimmer 0.5-0.7) can also be on the higher \
-side — these are masked so they don't risk mushing the whole frame.
+0.4-0.7, pan 0.4-0.9; parallax 0.5-0.75). Region warps (nebula 0.5-0.8, shimmer 0.5-0.7) can also be \
+on the higher side — these are masked so they don't risk mushing the whole frame.
 5. Add at least one decorative layer (twinkle, color_glow, particles, light, vignette_pulse) so \
 the motion has multiple textures, not just a single mechanical move.
 
 Palette (reply ONLY {"layers":[...]}):
-- {"type":"breathing_zoom","amount":0.08-0.14,"orbit":0.4-0.7,"pan":0.4-0.9}  // camera, more assertive
-- {"type":"parallax","amount":0.5-0.75}  // photo with depth ONLY
+- {"type":"parallax","amount":0.5-0.75}  // PREFERRED camera for real photos with depth
+- {"type":"breathing_zoom","amount":0.08-0.14,"orbit":0.4-0.7,"pan":0.4-0.9}  // camera for stylized/space art (and fallback), more assertive
 - {"type":"nebula","amount":0.5-0.8}  // region-masked sky/gas drift
+- {"type":"cloud_drift","amount":0.3-0.55,"speed":1-2,"mode":"warp","region":"sky","tint":"white|warm|grey|gold|dusk"}  // animates the REAL clouds (warp, auto-masked to sky). Skies/landscapes, NOT space. "overlay" only to add clouds to an empty sky.
 - {"type":"shimmer","amount":0.5-0.7,"region":"water"}  // water only
 - {"type":"twinkle","amount":0.25-0.5}  // image's own bright lights
 - {"type":"color_glow","amount":0.18-0.35,"color":"..."}  // edge color breathing
@@ -1035,7 +1209,8 @@ HARD RULES:
 1. Use 4-6 layers. Stack textures so the eye always has something to track.
 2. Allow camera + TWO content-masked warps (e.g. camera + nebula on the sky + shimmer on the water). \
 Still no two FULL-FRAME warps simultaneously, but region-confined warps stack freely on top of camera.
-3. PARALLAX only on photographic scenes with real depth.
+3. CAMERA CHOICE: PREFER parallax (amount 0.65-0.85) for real photographic scenes with depth; use \
+breathing_zoom for stylized/painted/CGI/space art (parallax melts those). Exactly one camera layer.
 4. Camera moves should be ASSERTIVE: breathing_zoom amount 0.12-0.18, orbit 0.5-0.9, pan 0.6-1.0. \
 The user wants to feel the camera breathing, not guess at it.
 5. Region warps on the upper end (nebula 0.7-1.0, shimmer 0.6-0.9, aurora 0.7-1.0).
@@ -1045,9 +1220,10 @@ frame has multiple kinds of motion energy.
 zoom and call it done.
 
 Palette (reply ONLY {"layers":[...]}, expanded ranges for dynamic style):
-- {"type":"breathing_zoom","amount":0.12-0.18,"orbit":0.5-0.9,"pan":0.6-1.0}
-- {"type":"parallax","amount":0.65-0.85}  // photo with depth ONLY
+- {"type":"parallax","amount":0.65-0.85}  // PREFERRED camera for real photos with depth
+- {"type":"breathing_zoom","amount":0.12-0.18,"orbit":0.5-0.9,"pan":0.6-1.0}  // camera for stylized/space art (and fallback)
 - {"type":"nebula","amount":0.7-1.0}
+- {"type":"cloud_drift","amount":0.45-0.7,"speed":2-3,"mode":"warp","region":"sky","tint":"white|warm|grey|gold|dusk"}  // animates the REAL clouds, assertive (warp, auto-masked to sky). Skies/landscapes, NOT space. "overlay" only to add clouds to an empty sky.
 - {"type":"shimmer","amount":0.6-0.9,"region":"water"}
 - {"type":"twinkle","amount":0.4-0.7}
 - {"type":"color_glow","amount":0.25-0.45,"color":"..."}
@@ -1113,10 +1289,15 @@ def _validate_layers(layers: list) -> list[dict]:
         if t == "color_glow":
             color = str(l.get("color", "red")).lower().strip()
             clean["color"] = color if color in _GLOW_COLORS else "red"
-        if t in ("shimmer", "nebula") and "region" in l:
+        if t in ("shimmer", "nebula", "cloud_drift") and "region" in l:
             region = str(l.get("region", "")).lower().strip()
             if region in ("sky", "water"):
                 clean["region"] = region
+        if t == "cloud_drift":
+            tint = str(l.get("tint", "white")).lower().strip()
+            clean["tint"] = tint if tint in _CLOUD_TINTS else "white"
+            mode = str(l.get("mode", "warp")).lower().strip()
+            clean["mode"] = mode if mode in ("warp", "overlay") else "warp"
         for param, (lo, hi) in spec.items():
             if param in l:
                 try:

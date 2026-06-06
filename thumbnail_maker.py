@@ -111,7 +111,14 @@ def _base_image(image_path: str) -> Image.Image:
 
 def _scrim(img, position, strength=150):
     """Darken ONLY the edge where the text sits, fading to fully clear elsewhere so
-    the image stays vivid. upper→darken top, lower→darken bottom, center→soft band."""
+    the image stays vivid. upper→darken top, lower→darken bottom, center→soft band.
+
+    `strength` is the peak opacity (0–255). 0 disables the scrim entirely so the
+    underlying image shows through unchanged behind the text.
+    """
+    strength = max(0, min(255, int(strength)))
+    if strength == 0:
+        return img
     g = Image.new("L", (1, TH), 0)
     for i in range(TH):
         f = i / TH
@@ -145,11 +152,24 @@ def _draw_spaced(draw, xy, text, font, fill, tr=0):
 
 def render_thumbnail(image_path: str, out_path: str, hook: str, subtitle: str = "",
                      style: str = DEFAULT_STYLE, accent: str = "#d6b46e",
-                     align: str = "", position: str = "lower") -> str:
-    """Render a 1280x720 branded thumbnail. `style` must be a key in STYLES."""
+                     align: str = "", position: str = "lower",
+                     title_scale: float = 1.0, sub_scale: float = 1.0,
+                     scrim_opacity: float = 1.0) -> str:
+    """Render a 1280x720 branded thumbnail. `style` must be a key in STYLES.
+
+    title_scale / sub_scale multiply each style's default title_size / sub_size.
+    scrim_opacity multiplies the dark band behind the text (0 = no darkening,
+    1 = current default, up to 1.5 for heavy contrast on bright images).
+    """
     sd = STYLES.get(style, STYLES[DEFAULT_STYLE])
     align = align or sd["align"]
     accent_rgb = _hex(accent)
+
+    # Clamp scales so the user can't accidentally render unreadable or
+    # off-canvas thumbnails. UI exposes 0.5–1.5 as the safe range.
+    title_scale = max(0.5, min(2.0, float(title_scale or 1.0)))
+    sub_scale = max(0.5, min(2.0, float(sub_scale or 1.0)))
+    scrim_opacity = max(0.0, min(1.5, float(scrim_opacity if scrim_opacity is not None else 1.0)))
 
     hook = (hook or "").strip()
     if sd["case"] == "upper":
@@ -163,7 +183,8 @@ def render_thumbnail(image_path: str, out_path: str, hook: str, subtitle: str = 
     img = _base_image(image_path)
 
     # Darken only the edge where the text sits (keeps the image vivid).
-    img = _scrim(img, position)
+    # Default peak strength is 150/255; user can scale up to ~225 or down to 0.
+    img = _scrim(img, position, strength=int(150 * scrim_opacity))
     if position == "upper":
         title_y = int(TH * 0.09)
     elif position == "center":
@@ -171,8 +192,10 @@ def render_thumbnail(image_path: str, out_path: str, hook: str, subtitle: str = 
     else:  # lower
         title_y = int(TH * 0.66)
 
-    title_font = _font(sd["title"], sd["title_size"])
-    sub_font = _font(sd["sub"], sd["sub_size"])
+    title_size_px = max(28, int(round(sd["title_size"] * title_scale)))
+    sub_size_px = max(14, int(round(sd["sub_size"] * sub_scale)))
+    title_font = _font(sd["title"], title_size_px)
+    sub_font = _font(sd["sub"], sub_size_px)
     margin = 64
 
     draw = ImageDraw.Draw(img)
@@ -196,14 +219,14 @@ def render_thumbnail(image_path: str, out_path: str, hook: str, subtitle: str = 
 
     _draw_spaced(draw, (tx, title_y), hook, title_font, (245, 245, 248), sd["tracking"])
 
-    # Accent rule + subtitle.
-    sub_y = title_y + sd["title_size"] + 22
+    # Accent rule + subtitle. Spacing tracks the *rendered* title height so the
+    # subtitle still sits cleanly below the hook when the user scales the title.
+    sub_y = title_y + title_size_px + 22
     if sd["treatment"] == "line":
         lx2 = tx + min(tw, int(TW * 0.42))
         draw.line([(tx, sub_y - 6), (lx2, sub_y - 6)], fill=accent_rgb, width=2)
         sub_y += 8
     elif sd["treatment"] == "engrave":
-        # small centered accent tick above the title
         draw.rectangle([(TW // 2 - 60, title_y - 22), (TW // 2 + 60, title_y - 18)], fill=accent_rgb)
 
     if subtitle:
@@ -312,5 +335,8 @@ def make_thumbnail(image_path: str, out_path: str, title: str = "", mood: str = 
                      hook=design.get("hook", title), subtitle=design.get("subtitle", ""),
                      style=design.get("style", DEFAULT_STYLE),
                      accent=design.get("accent", "#d6b46e"),
-                     align=design.get("align", ""), position=design.get("position", "lower"))
+                     align=design.get("align", ""), position=design.get("position", "lower"),
+                     title_scale=design.get("title_scale", 1.0),
+                     sub_scale=design.get("sub_scale", 1.0),
+                     scrim_opacity=design.get("scrim_opacity", 1.0))
     return design
