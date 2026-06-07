@@ -40,7 +40,9 @@ the full track duration.
 from __future__ import annotations
 
 import math
+import os
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Optional
 
@@ -83,6 +85,7 @@ class MotionCompositor:
         on_status=None,
         brush_mask_path: Optional[str] = None,
         layer_masks: Optional[dict] = None,
+        draft_scale: float = 1.0,
     ) -> str:
         """Render a seamless motion loop. Returns the output path.
 
@@ -103,6 +106,9 @@ class MotionCompositor:
             output_path = str(Path(image_path).with_suffix("")) + "_motionloop.mp4"
 
         W, H = size
+        if draft_scale < 1.0:
+            W = max(2, int(W * draft_scale) & ~1)
+            H = max(2, int(H * draft_scale) & ~1)
         n_frames = max(1, int(round(loop_sec * fps)))
 
         def status(msg):
@@ -273,9 +279,34 @@ class MotionCompositor:
                 else:
                     status("no sky found — cloud overlay drifts over whole frame")
 
+        # Pre-compute shared coordinate grid and spatial trig for warp effects.
+        # map_coordinates is the bottleneck; the grid + sin/cos arrays are constant
+        # across frames — no need to recompute them 384 times.
+        _yy, _xx = np.mgrid[0:H, 0:W].astype(np.float32)
+        nebula_trig = None
+        if nebula_mask is not None and nebula_cfg:
+            _ns = max(80.0, W / 9.0)
+            nebula_trig = dict(
+                yy=_yy, xx=_xx,
+                sin_yy=np.sin(2 * np.pi * _yy / _ns),
+                cos_yy=np.cos(2 * np.pi * _yy / _ns),
+                sin_xx=np.sin(2 * np.pi * _xx / _ns),
+                cos_xx=np.cos(2 * np.pi * _xx / _ns),
+            )
+        cloud_trig = None
+        if cloud_state is not None and cloud_state.get("mode") == "warp":
+            _cs = max(160.0, W / 4.5)
+            cloud_trig = dict(
+                yy=_yy, xx=_xx,
+                sin_yy=np.sin(2 * np.pi * _yy / (_cs * 1.6)),
+                cos_yy=np.cos(2 * np.pi * _yy / (_cs * 1.6)),
+                sin_xx=np.sin(2 * np.pi * _xx / _cs),
+                cos_xx=np.cos(2 * np.pi * _xx / _cs),
+            )
+
         proc = self._open_ffmpeg(output_path, W, H, fps, crf)
         try:
-            for i in range(n_frames):
+            def _render_one_frame(i: int) -> bytes:
                 t = i / n_frames  # normalized [0,1); t=0 == t=1 → seamless
                 if parallax_state is not None:
                     frame = self._parallax_frame(parallax_state, t)
@@ -295,7 +326,7 @@ class MotionCompositor:
                         frame = sh                        # whole-frame shimmer (no region)
 
                 if nebula_mask is not None:
-                    self._apply_region_warp(frame, nebula_mask, t, nebula_cfg.get("amount", 0.5))
+                    self._apply_region_warp(frame, nebula_mask, t, nebula_cfg.get("amount", 0.5), trig=nebula_trig)
 
                 if cloud_state is not None:
                     cmask = cloud_user_mask if cloud_user_mask is not None else cloud_sky_mask
@@ -305,7 +336,8 @@ class MotionCompositor:
                         # would melt the scene, so we no-op (status logged above).
                         if cmask is not None:
                             self._apply_cloud_warp(frame, cmask, t,
-                                                   cloud_state["amount"], cloud_state["speed"])
+                                                   cloud_state["amount"], cloud_state["speed"],
+                                                   trig=cloud_trig)
                     else:
                         # Overlay: paint NEW drifting clouds (screen-blend).
                         pre = frame.copy() if cmask is not None else None
@@ -358,10 +390,16 @@ class MotionCompositor:
                     frame = static_base * (1.0 - brush_m3) + frame * brush_m3
 
                 np.clip(frame, 0, 255, out=frame)
-                proc.stdin.write(frame.astype(np.uint8).tobytes())
+                return frame.astype(np.uint8).tobytes()
 
-                if on_status and i % max(1, n_frames // 40) == 0:
-                    status(f"frame {i + 1}/{n_frames}")
+            # Frames are independent — generate in parallel, write to ffmpeg in order.
+            n_workers = min(os.cpu_count() or 4, 8)
+            status(f"using {n_workers} parallel workers")
+            with ThreadPoolExecutor(max_workers=n_workers) as executor:
+                for i, data in enumerate(executor.map(_render_one_frame, range(n_frames))):
+                    proc.stdin.write(data)
+                    if on_status and i % max(1, n_frames // 40) == 0:
+                        status(f"frame {i + 1}/{n_frames}")
         finally:
             proc.stdin.close()
             ret = proc.wait()
@@ -763,19 +801,26 @@ class MotionCompositor:
         m = gaussian_filter(m, sigma=max(4.0, W / 240.0))
         return np.clip(m, 0.0, 1.0)
 
-    def _apply_region_warp(self, frame, mask, t, amount):
+    def _apply_region_warp(self, frame, mask, t, amount, trig=None):
         """Slow flowing displacement confined to a region (nebula/gas drifting in
         the sky). Sinusoidal field with integer cycles → seamless loop."""
         from scipy.ndimage import map_coordinates
         H, W, _ = frame.shape
-        yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
         # Gain calibrated so a MID slider value (~0.5) is a clearly visible drift,
         # not an 8px wobble. ~0.5 → ~14px, 1.0 → ~28px peak displacement on 1080p.
         amp = amount * 28.0
         ph = TWO_PI * t
-        scale = max(80.0, W / 9.0)
-        dx = amp * np.sin(2 * np.pi * yy / scale + ph)
-        dy = amp * 0.55 * np.cos(2 * np.pi * xx / scale + ph)
+        if trig is not None:
+            # Use pre-computed sin/cos arrays: sin(A+ph) = sin(A)cos(ph) + cos(A)sin(ph)
+            cp, sp = math.cos(ph), math.sin(ph)
+            dx = amp * (trig["sin_yy"] * cp + trig["cos_yy"] * sp)
+            dy = amp * 0.55 * (trig["cos_xx"] * cp - trig["sin_xx"] * sp)
+            xx, yy = trig["xx"], trig["yy"]
+        else:
+            yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
+            scale = max(80.0, W / 9.0)
+            dx = amp * np.sin(2 * np.pi * yy / scale + ph)
+            dy = amp * 0.55 * np.cos(2 * np.pi * xx / scale + ph)
         sx = np.clip(xx + dx, 0, W - 1)
         sy = np.clip(yy + dy, 0, H - 1)
         m = mask[:, :, None]
@@ -909,7 +954,7 @@ class MotionCompositor:
             tint=np.array(tint, dtype=np.float32),
         )
 
-    def _apply_cloud_warp(self, frame, mask, t, amount, speed):
+    def _apply_cloud_warp(self, frame, mask, t, amount, speed, trig=None):
         """Animate the ACTUAL clouds in a region by displacing those pixels with a
         strongly-horizontal, low-frequency flow (big soft cloud masses glide
         together). Seamless: the displacement is sinusoidal in t so it returns to
@@ -920,13 +965,19 @@ class MotionCompositor:
         clouds move and the horizon/foreground stays pinned."""
         from scipy.ndimage import map_coordinates
         H, W, _ = frame.shape
-        yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
         amp = amount * 45.0                     # clouds glide more than nebula gas
         cyc = max(1, int(round(speed)))         # integer cycles per loop → seamless
         ph = TWO_PI * t * cyc
-        scale = max(160.0, W / 4.5)             # low spatial freq → big masses move together
-        dx = amp * np.sin(TWO_PI * yy / (scale * 1.6) + ph)
-        dy = amp * 0.10 * np.cos(TWO_PI * xx / scale + ph)   # mostly horizontal
+        if trig is not None:
+            cp, sp = math.cos(ph), math.sin(ph)
+            dx = amp * (trig["sin_yy"] * cp + trig["cos_yy"] * sp)
+            dy = amp * 0.10 * (trig["cos_xx"] * cp - trig["sin_xx"] * sp)
+            xx, yy = trig["xx"], trig["yy"]
+        else:
+            yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
+            scale = max(160.0, W / 4.5)
+            dx = amp * np.sin(TWO_PI * yy / (scale * 1.6) + ph)
+            dy = amp * 0.10 * np.cos(TWO_PI * xx / scale + ph)
         sx = np.clip(xx + dx, 0, W - 1)
         sy = np.clip(yy + dy, 0, H - 1)
         m = mask[:, :, None]
@@ -1044,38 +1095,42 @@ _PRESET_KEYWORDS = {
 
 
 def preset_for_scene(scene_text: str) -> list[dict]:
-    """Pick a motion preset from a free-text scene description via keyword match.
-    Use this as the offline fallback; Claude can return a preset name or a custom
-    layer list for richer matching."""
-    text = (scene_text or "").lower()
-    best, best_hits = "calm", 0
-    for name, words in _PRESET_KEYWORDS.items():
-        hits = sum(1 for w in words if w in text)
-        if hits > best_hits:
-            best, best_hits = name, hits
-    layers = [dict(l) for l in SCENE_PRESETS[best]]
+    """Offline fallback: keyword-match to pick 2 layers (movement on, parallax off).
 
-    # Honor a colored-glow cue offline: a color word + a light/glow/alert cue.
-    if any(c in text for c in ("light", "glow", "alert", "neon", "lit", "lamp", "console")):
-        for cname in _GLOW_COLORS:
-            if cname in text:
-                layers.append({"type": "color_glow", "amount": 0.28, "color": cname})
-                break
-    # Region-aware cues (segmented at render time).
-    types = {l["type"] for l in layers}
-    if any(w in text for w in ("nebula", "gas cloud", "cosmic cloud")) and "nebula" not in types:
-        layers.append({"type": "nebula", "amount": 0.5, "region": "sky"})
-    if any(w in text for w in ("water", "ocean", "sea", "lake", "river", "waves", "reflection")) \
-            and "shimmer" not in types:
-        layers.append({"type": "shimmer", "amount": 0.5, "region": "water"})
-    # Drifting clouds when the scene has a real (non-space) sky.
-    if any(w in text for w in ("cloud", "clouds", "overcast", "sky", "skies", "sunset", "sunrise",
-                               "horizon", "vista", "mountain", "valley", "plains")) \
-            and "space" not in text and "cosmic" not in text and "nebula" not in text \
-            and "cloud_drift" not in types:
-        layers.append({"type": "cloud_drift", "amount": 0.35, "speed": 1, "mode": "warp",
-                       "region": "sky", "tint": "white"})
-    return layers
+    Mirrors the structure the director system prompts produce:
+    [image_movement (enabled), parallax (disabled)]
+    """
+    text = (scene_text or "").lower()
+
+    # --- 1. IMAGE MOVEMENT: pick ONE based on scene keywords ---
+    is_space = any(w in text for w in ("space", "nebula", "cosmic", "galaxy", "star field",
+                                       "sci-fi", "scifi", "sci fi"))
+    has_water = any(w in text for w in ("water", "ocean", "sea", "lake", "river", "waves",
+                                        "reflection", "waterfall", "reef"))
+    has_sky = any(w in text for w in ("cloud", "clouds", "overcast", "sky", "skies", "sunset",
+                                      "sunrise", "horizon", "vista", "mountain", "valley",
+                                      "plains", "dune", "desert", "forest", "mist"))
+    has_city_lights = any(w in text for w in ("city", "cityscape", "neon", "night", "lights",
+                                              "fireflies", "candle", "stars"))
+
+    if is_space:
+        movement = {"type": "nebula", "amount": 0.45}
+    elif has_water:
+        movement = {"type": "shimmer", "amount": 0.45, "region": "water"}
+    elif has_sky:
+        movement = {"type": "cloud_drift", "amount": 0.3, "speed": 1, "mode": "warp",
+                    "region": "sky", "tint": "white"}
+    elif has_city_lights:
+        movement = {"type": "twinkle", "amount": 0.22}
+    else:
+        # Safe default: gentle cloud overlay adds atmosphere without needing real clouds.
+        movement = {"type": "cloud_drift", "amount": 0.25, "speed": 1, "mode": "overlay",
+                    "region": "sky", "tint": "white"}
+
+    # --- 2. PARALLAX: always off by default ---
+    parallax = {"type": "parallax", "amount": 0.45, "enabled": False}
+
+    return [movement, parallax]
 
 
 # Validation bounds for each layer param — the director's output is clamped to
@@ -1114,132 +1169,89 @@ _CLOUD_TINTS = {
 }
 
 DIRECTOR_SYSTEM_SUBTLE = """You are the motion director for a "living still": ONE image brought \
-subtly to life as a calm, hours-long ambient backdrop — think premium living wallpaper, \
-NOT an effects demo. The renderer loops it seamlessly; you only choose layers + intensities.
+subtly to life as a calm, ambient backdrop. The renderer loops it seamlessly.
 
-THE GOAL: the image must still look like ITSELF — clean and natural. Effects ENHANCE; they \
-must NEVER warp, melt, smear, or distort the actual content. If a choice could look glitchy, \
-don't make it. RESTRAINT is the whole skill — a great result is usually a gentle camera move \
-plus ONE or TWO quiet touches.
+OUTPUT STRUCTURE — always EXACTLY 2 layers, in this order:
 
-HARD RULES (follow exactly):
-1. Use only 2-4 layers. Fewer is better. Do NOT pile effects on "to be safe".
-2. At most ONE pixel-MOVING/warping effect total (camera OR parallax OR nebula OR shimmer) — \
-never several together, or the image turns to mush.
-3. CAMERA CHOICE: if the image is a real PHOTOGRAPH with genuine depth (a photo of a room, \
-a landscape, a real interior), PREFER parallax — it gives true 2.5D depth. For illustrated / \
-painted / stylized / CGI / space / sci-fi art, use breathing_zoom instead (parallax MELTS those — \
-they have no real depth). When unsure, use breathing_zoom (the safe default).
-4. Always include exactly ONE camera layer (parallax OR breathing_zoom). Keep amounts low.
+1. IMAGE MOVEMENT (enabled: true) — ONE layer that animates a natural element in the scene.
+   Pick the best match:
+   - sky/clouds/overcast → cloud_drift (warp mode, auto-masked to sky). NOT for space.
+   - ocean/lake/river/water → shimmer (auto-masked to water).
+   - nebula/space gas/cosmic → nebula (auto-masked to sky area).
+   - night city/starfield/candles/fireflies → twinkle.
+   If no element clearly fits, use cloud_drift "overlay" mode to add subtle atmosphere.
 
-Palette (reply ONLY {"layers":[...]}):
-- {"type":"parallax","amount":0.4-0.6}  // PREFERRED camera for real PHOTOS with depth (rule 3).
-- {"type":"breathing_zoom","amount":0.04-0.10,"orbit":0.2-0.5,"pan":0.0-0.8}  // camera for stylized/painted/CGI/space art (and the safe fallback); pan = lateral glide.
-- {"type":"nebula","amount":0.3-0.55}  // slow drift of colored gas/clouds (auto-masked to those areas). Nebulae, cosmic gas, clouds.
-- {"type":"cloud_drift","amount":0.2-0.4,"speed":1,"mode":"warp","region":"sky","tint":"white|warm|grey|gold|dusk"}  // animates the REAL clouds in the sky (mode "warp", auto-masked to sky). Use on daytime/sunset/overcast skies, vistas, landscapes with visible clouds. Use "overlay" mode only to ADD clouds to a clear/empty sky. NOT space (use nebula there).
-- {"type":"shimmer","amount":0.3-0.5,"region":"water"}  // ripple ONLY water (oceans/lakes/rivers).
-- {"type":"twinkle","amount":0.15-0.35}  // gently flickers the image's OWN bright lights/stars. Keep SUBTLE. Night cities, starfields.
-- {"type":"color_glow","amount":0.12-0.28,"color":"amber|gold|red|orange|blue|cyan|teal|green|purple|magenta|white|warm"}  // soft colored light breathing from edges. Use only if the scene has a strong color cast (golden city→amber; red alert→red).
-- {"type":"god_rays","amount":0.3-0.6,"count":5-9}  // literal sun shafts ONLY (sun through trees/windows/clouds). NOT space.
-- {"type":"aurora","amount":0.4-0.7}  // colored sky curtains; auroras / polar skies only.
-- {"type":"particles","kind":"snow|rain|embers|dust|fireflies|bokeh","count":40-250,"amount":0.3-0.6}  // NEW moving specks on top. Only if the scene would truly have them (snowfall, rain, embers). Do NOT add fake stars to an image that already shows stars.
-- {"type":"fog","amount":0.12-0.22}  // drifting mist. NEVER in space (reads as clouds in a vacuum).
-- {"type":"light","amount":0.05-0.12}  // very subtle global brightness breathing. Safe.
-- {"type":"vignette_pulse","amount":0.10-0.16}  // subtle edge darkening. Safe.
+2. PARALLAX (enabled: false) — always {"type":"parallax","amount":0.45,"enabled":false}.
+   This stays OFF by default; the user enables it if they want depth.
 
-EXAMPLES (note how FEW layers):
-- Space city with a nebula: breathing_zoom (gentle pan) + nebula + faint twinkle [+ soft color_glow if strongly tinted]. 3-4 layers. NO parallax, NO fog, NO god rays.
-- Cozy rainy window: breathing_zoom + rain particles + fog + light.
-- Ocean at sunset: breathing_zoom + shimmer(region water) + warm light.
+NO other layers. Do not add overlays, fog, particles, god_rays, light, vignette_pulse, \
+color_glow, breathing_zoom, or aurora. Exactly 2 layers.
 
-HONOR the scene text: include what it asks for ("red glow" → color_glow red); omit what it says \
-no to ("no clouds" → no fog/nebula). Output ONLY the JSON, no prose."""
+SUBTLE style amounts for the movement layer:
+- cloud_drift: amount 0.2-0.35, speed 1, mode "warp", region "sky", tint "white|warm|grey|gold|dusk"
+- shimmer: amount 0.3-0.5, region "water"
+- nebula: amount 0.3-0.5
+- twinkle: amount 0.15-0.3
+
+HONOR the scene text. Reply ONLY with the JSON — no prose.
+
+Example for a sunset landscape with clouds:
+{"layers":[
+  {"type":"cloud_drift","amount":0.28,"speed":1,"mode":"warp","region":"sky","tint":"warm"},
+  {"type":"parallax","amount":0.45,"enabled":false}
+]}"""
 
 
 DIRECTOR_SYSTEM_BALANCED = """You are the motion director for a "living still": ONE image brought \
 to life as an ambient backdrop. The renderer loops it seamlessly.
 
-THE GOAL: motion that READS clearly as motion — not a slideshow — while still preserving the \
-image's identity. The user has chosen a BALANCED style: they want to actually see the scene \
-breathe, not stare at it wondering if anything's happening.
+OUTPUT STRUCTURE — always EXACTLY 2 layers, in this order:
 
-HARD RULES:
-1. Use 3-5 layers — typically a camera move PLUS at least one content-masked warp on top.
-2. Allow up to TWO motion sources to stack as long as one is camera (full-frame) and the other(s) \
-are region-confined (nebula on sky, shimmer on water, aurora). Never stack two FULL-FRAME warps.
-3. CAMERA CHOICE: PREFER parallax for real photographic scenes with depth; use breathing_zoom \
-for stylized/painted/CGI/space art (parallax melts those). Exactly one camera layer.
-4. Camera amounts can sit at the HIGH end of their range (breathing_zoom amount 0.08-0.14, orbit \
-0.4-0.7, pan 0.4-0.9; parallax 0.5-0.75). Region warps (nebula 0.5-0.8, shimmer 0.5-0.7) can also be \
-on the higher side — these are masked so they don't risk mushing the whole frame.
-5. Add at least one decorative layer (twinkle, color_glow, particles, light, vignette_pulse) so \
-the motion has multiple textures, not just a single mechanical move.
+1. IMAGE MOVEMENT (enabled: true) — ONE layer on the scene's most interesting natural element.
+   - sky/clouds → cloud_drift (warp, sky region). NOT space.
+   - water → shimmer (water region).
+   - nebula/space gas → nebula.
+   - night city/stars/candles → twinkle.
+   If no element clearly fits, cloud_drift "overlay" mode.
 
-Palette (reply ONLY {"layers":[...]}):
-- {"type":"parallax","amount":0.5-0.75}  // PREFERRED camera for real photos with depth
-- {"type":"breathing_zoom","amount":0.08-0.14,"orbit":0.4-0.7,"pan":0.4-0.9}  // camera for stylized/space art (and fallback), more assertive
-- {"type":"nebula","amount":0.5-0.8}  // region-masked sky/gas drift
-- {"type":"cloud_drift","amount":0.3-0.55,"speed":1-2,"mode":"warp","region":"sky","tint":"white|warm|grey|gold|dusk"}  // animates the REAL clouds (warp, auto-masked to sky). Skies/landscapes, NOT space. "overlay" only to add clouds to an empty sky.
-- {"type":"shimmer","amount":0.5-0.7,"region":"water"}  // water only
-- {"type":"twinkle","amount":0.25-0.5}  // image's own bright lights
-- {"type":"color_glow","amount":0.18-0.35,"color":"..."}  // edge color breathing
-- {"type":"god_rays","amount":0.4-0.7,"count":6-10}  // literal sun shafts only
-- {"type":"aurora","amount":0.5-0.85}  // polar sky curtains
-- {"type":"particles","kind":"snow|rain|embers|dust|fireflies|bokeh","count":80-300,"amount":0.4-0.7}
-- {"type":"fog","amount":0.15-0.3}
-- {"type":"light","amount":0.08-0.15}
-- {"type":"vignette_pulse","amount":0.12-0.18}
+2. PARALLAX (enabled: false) — always {"type":"parallax","amount":0.55,"enabled":false}.
 
-EXAMPLES:
-- Space city: breathing_zoom (high pan) + nebula + twinkle + color_glow. 4 layers.
-- Ocean sunset: breathing_zoom + shimmer(water) + warm color_glow + light. 4 layers.
-- Rainy window: breathing_zoom + rain particles + fog + light + vignette_pulse. 5 layers.
+NO other layers. Do not add overlays, fog, particles, god_rays, light, vignette_pulse, \
+color_glow, breathing_zoom, or aurora. Exactly 2 layers.
 
-HONOR the scene text. Output ONLY the JSON, no prose."""
+BALANCED style amounts (more assertive than subtle):
+- cloud_drift: amount 0.3-0.5, speed 1-2, mode "warp", region "sky", tint "white|warm|grey|gold|dusk"
+- shimmer: amount 0.45-0.65, region "water"
+- nebula: amount 0.45-0.7
+- twinkle: amount 0.25-0.45
+
+HONOR the scene text. Reply ONLY with the JSON — no prose."""
 
 
-DIRECTOR_SYSTEM_DYNAMIC = """You are the motion director for a "living still" — but this user \
-has explicitly asked for DYNAMIC motion. Treat the image like a 16-second cinematic shot, not a \
-wallpaper. Make the scene feel actively alive.
+DIRECTOR_SYSTEM_DYNAMIC = """You are the motion director for a "living still" — dynamic style. \
+Motion should be immediately visible and assertive.
 
-THE GOAL: VISIBLE, layered motion. The user should immediately recognize this as a living video, \
-not an animated still. Multiple textures of motion moving at different rates.
+OUTPUT STRUCTURE — always EXACTLY 2 layers, in this order:
 
-HARD RULES:
-1. Use 4-6 layers. Stack textures so the eye always has something to track.
-2. Allow camera + TWO content-masked warps (e.g. camera + nebula on the sky + shimmer on the water). \
-Still no two FULL-FRAME warps simultaneously, but region-confined warps stack freely on top of camera.
-3. CAMERA CHOICE: PREFER parallax (amount 0.65-0.85) for real photographic scenes with depth; use \
-breathing_zoom for stylized/painted/CGI/space art (parallax melts those). Exactly one camera layer.
-4. Camera moves should be ASSERTIVE: breathing_zoom amount 0.12-0.18, orbit 0.5-0.9, pan 0.6-1.0. \
-The user wants to feel the camera breathing, not guess at it.
-5. Region warps on the upper end (nebula 0.7-1.0, shimmer 0.6-0.9, aurora 0.7-1.0).
-6. ALWAYS include at least two decorative layers (e.g. twinkle + particles + color_glow) so the \
-frame has multiple kinds of motion energy.
-7. If the scene has any "active" surface (water, sky, gas, lights) you MUST animate it — don't just \
-zoom and call it done.
+1. IMAGE MOVEMENT (enabled: true) — ONE assertive layer on the scene's most active element.
+   - sky/clouds → cloud_drift (warp, high speed). NOT space.
+   - water → shimmer (high amount).
+   - nebula/space gas → nebula (high amount).
+   - night city/stars/candles → twinkle (high amount).
+   If no element clearly fits, cloud_drift "overlay" mode.
 
-Palette (reply ONLY {"layers":[...]}, expanded ranges for dynamic style):
-- {"type":"parallax","amount":0.65-0.85}  // PREFERRED camera for real photos with depth
-- {"type":"breathing_zoom","amount":0.12-0.18,"orbit":0.5-0.9,"pan":0.6-1.0}  // camera for stylized/space art (and fallback)
-- {"type":"nebula","amount":0.7-1.0}
-- {"type":"cloud_drift","amount":0.45-0.7,"speed":2-3,"mode":"warp","region":"sky","tint":"white|warm|grey|gold|dusk"}  // animates the REAL clouds, assertive (warp, auto-masked to sky). Skies/landscapes, NOT space. "overlay" only to add clouds to an empty sky.
-- {"type":"shimmer","amount":0.6-0.9,"region":"water"}
-- {"type":"twinkle","amount":0.4-0.7}
-- {"type":"color_glow","amount":0.25-0.45,"color":"..."}
-- {"type":"god_rays","amount":0.5-0.85,"count":7-12}
-- {"type":"aurora","amount":0.7-1.0}
-- {"type":"particles","kind":"...","count":150-400,"amount":0.5-0.9}
-- {"type":"fog","amount":0.2-0.4}
-- {"type":"light","amount":0.1-0.18}
-- {"type":"vignette_pulse","amount":0.14-0.22}
+2. PARALLAX (enabled: false) — always {"type":"parallax","amount":0.65,"enabled":false}.
 
-EXAMPLES (notice 5-6 layers each):
-- Space nebula: breathing_zoom (high pan) + nebula + twinkle + color_glow + particles(dust). 5 layers.
-- Ocean sunset: breathing_zoom + shimmer(water) + warm color_glow + particles(bokeh) + light. 5 layers.
-- Misty forest: breathing_zoom + fog + particles(fireflies) + god_rays + light + vignette_pulse. 6 layers.
+NO other layers. Do not add overlays, fog, particles, god_rays, light, vignette_pulse, \
+color_glow, breathing_zoom, or aurora. Exactly 2 layers.
 
-HONOR the scene text. Output ONLY the JSON, no prose."""
+DYNAMIC style amounts (assertive):
+- cloud_drift: amount 0.45-0.65, speed 2-3, mode "warp", region "sky", tint "white|warm|grey|gold|dusk"
+- shimmer: amount 0.6-0.85, region "water"
+- nebula: amount 0.65-0.9
+- twinkle: amount 0.4-0.65
+
+HONOR the scene text. Reply ONLY with the JSON — no prose."""
 
 
 # Back-compat alias so any older import keeps working.
@@ -1306,6 +1318,9 @@ def _validate_layers(layers: list) -> list[dict]:
                     continue
                 v = max(lo, min(hi, v))
                 clean[param] = int(round(v)) if param == "count" else v
+        # Preserve enabled flag if present (false = layer suggested but muted).
+        if "enabled" in l and l["enabled"] is False:
+            clean["enabled"] = False
         out.append(clean)
     return out
 
@@ -1376,13 +1391,52 @@ def scale_motion(layers: list[dict], factor: float) -> list[dict]:
     return out
 
 
+_IMAGE_MOVEMENT_TYPES = {"cloud_drift", "shimmer", "nebula", "twinkle", "aurora"}
+
+
+def _enforce_auto_plan(layers: list[dict], director_style: str = "subtle") -> list[dict]:
+    """Enforce the 2-layer auto-plan structure: ONE image movement (on) + parallax (off).
+
+    Called after director output is validated. Strips any extras the director hallucinated,
+    and guarantees a parallax layer is always present (disabled).
+    """
+    parallax_amounts = {"subtle": 0.45, "balanced": 0.55, "dynamic": 0.65}
+    parallax_amount = parallax_amounts.get((director_style or "subtle").lower(), 0.45)
+
+    # Find the first image-movement layer (enabled or not).
+    movement = next(
+        (l for l in layers if l.get("type") in _IMAGE_MOVEMENT_TYPES and l.get("enabled") is not False),
+        None,
+    )
+    if movement is None:
+        # Fallback: take any image-movement layer even if disabled.
+        movement = next((l for l in layers if l.get("type") in _IMAGE_MOVEMENT_TYPES), None)
+
+    # Ensure parallax layer with enabled=False.
+    existing_parallax = next((l for l in layers if l.get("type") == "parallax"), None)
+    if existing_parallax:
+        parallax = dict(existing_parallax)
+        parallax["enabled"] = False
+    else:
+        parallax = {"type": "parallax", "amount": parallax_amount, "enabled": False}
+
+    result = []
+    if movement:
+        m = dict(movement)
+        m.pop("enabled", None)  # movement layer is on by default
+        result.append(m)
+    result.append(parallax)
+    return result
+
+
 def choose_layers(scene_text: str, anthropic_key: Optional[str] = None,
                   model: str = "claude-sonnet-4-6",
                   director_style: str = "subtle") -> tuple[list[dict], str]:
     """Compose motion layers for a scene. Returns (layers, source).
 
-    director_style picks among "subtle" (default, premium-wallpaper restraint),
-    "balanced" (3-5 layers, visible motion), and "dynamic" (4-6 layers, assertive).
+    director_style picks among "subtle", "balanced", and "dynamic" — controls the
+    intensity of the single image-movement layer. Always returns 2 layers:
+    [image_movement (on), parallax (off)].
     """
     if anthropic_key:
         try:
@@ -1395,7 +1449,7 @@ def choose_layers(scene_text: str, anthropic_key: Optional[str] = None,
                 messages=[{"role": "user", "content": f"Scene: {scene_text}"}],
             )
             data = _json.loads(_strip_fences(resp.content[0].text))
-            layers = _validate_layers(data.get("layers", []))
+            layers = _enforce_auto_plan(_validate_layers(data.get("layers", [])), director_style)
             if layers:
                 return layers, f"claude:custom:{director_style}"
         except Exception as e:
@@ -1443,7 +1497,7 @@ def choose_layers_from_image(image_path: str, scene_text: str = "",
                 ]}],
             )
             data = _json.loads(_strip_fences(resp.content[0].text))
-            layers = _validate_layers(data.get("layers", []))
+            layers = _enforce_auto_plan(_validate_layers(data.get("layers", [])), director_style)
             if layers:
                 return layers, f"claude:vision:{director_style}"
         except Exception as e:
