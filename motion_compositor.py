@@ -1179,8 +1179,10 @@ def preset_for_scene(scene_text: str) -> list[dict]:
     elif has_city_lights:
         movement = {"type": "twinkle", "amount": 0.12}
     else:
-        # Safe default: gentle cloud overlay adds atmosphere without needing real clouds.
-        movement = {"type": "cloud_drift", "amount": 0.15, "speed": 1, "mode": "overlay",
+        # Safe default: animate the REAL clouds in the sky (region warp masked to the
+        # content sky-mask), NOT a synthetic overlay. "Living still" means bringing the
+        # actual photo to life — the real clouds billow rather than fake ones rushing past.
+        movement = {"type": "cloud_drift", "amount": 0.5, "speed": 0.04, "mode": "slide",
                     "region": "sky", "tint": "white"}
 
     # --- 2. PARALLAX: always off by default ---
