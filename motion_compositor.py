@@ -222,7 +222,10 @@ class MotionCompositor:
         twinkle_cfg = _find(layers, "twinkle")
         twinkle_state = self._make_twinkle(W, H, twinkle_cfg) if twinkle_cfg else None
         cloud_cfg = _find(layers, "cloud_drift")
-        cloud_state = self._make_cloud_drift(W, H, cloud_cfg) if cloud_cfg else None
+        cloud_base = None
+        if cloud_cfg and str(cloud_cfg.get("mode", "slide")).lower() != "overlay":
+            cloud_base = self._camera_frame(base_pil, W, H, zmax, orbit, 0.0, pan)
+        cloud_state = self._make_cloud_drift(W, H, cloud_cfg, cloud_base) if cloud_cfg else None
 
         # Nebula: auto-masked by CONTENT (colored, mid-bright gas), not semantic
         # segmentation — ADE20K "sky" doesn't fire on stylized space art.
@@ -330,14 +333,10 @@ class MotionCompositor:
 
                 if cloud_state is not None:
                     cmask = cloud_user_mask if cloud_user_mask is not None else cloud_sky_mask
-                    if cloud_state["mode"] == "warp":
-                        # Animate the REAL clouds: displace the masked sky pixels.
-                        # Needs a region — without one, warping the whole frame
-                        # would melt the scene, so we no-op (status logged above).
-                        if cmask is not None:
-                            self._apply_cloud_warp(frame, cmask, t,
-                                                   cloud_state["amount"], cloud_state["speed"],
-                                                   trig=cloud_trig)
+                    if cloud_state["mode"] == "slide":
+                        # Slide the REAL clouds horizontally using the pre-built image tile.
+                        if cmask is not None and cloud_state.get("img_tile") is not None:
+                            self._apply_cloud_slide(frame, cloud_state, cmask, t)
                     else:
                         # Overlay: paint NEW drifting clouds (screen-blend).
                         pre = frame.copy() if cmask is not None else None
@@ -915,7 +914,7 @@ class MotionCompositor:
         frame += (255.0 - frame) * glow          # screen blend
 
     # ── premium: cloud drift (soft cloud bank gliding across the sky) ──────
-    def _make_cloud_drift(self, W, H, cfg) -> dict:
+    def _make_cloud_drift(self, W, H, cfg, base_img=None) -> dict:
         """Big, soft, blobby cloud texture that scrolls horizontally and tiles
         seamlessly (period == W, like fog, but lower-frequency + higher contrast
         so it reads as distinct cloud masses with open sky between, not uniform
@@ -944,46 +943,86 @@ class MotionCompositor:
         tile /= max(tile.max(), 1e-5)
         tex = np.concatenate([tile, tile], axis=1)  # width 2W, period W → seamless
         tint = _CLOUD_TINTS.get(str(cfg.get("tint", "white")).lower(), _CLOUD_TINTS["white"])
-        mode = str(cfg.get("mode", "warp")).lower()
-        if mode not in ("warp", "overlay"):
-            mode = "warp"
+        mode = str(cfg.get("mode", "slide")).lower()
+        if mode not in ("slide", "warp", "overlay"):
+            mode = "slide"
+        if mode == "warp":
+            mode = "slide"  # warp is deprecated alias for slide
+        # For slide mode: build a 2W-wide tile of the actual image so we can
+        # extract a scrolling strip without ever rolling other-effect pixels.
+        img_tile = None
+        if mode == "slide" and base_img is not None:
+            img = base_img[:H, :W].astype(np.float32)
+            img_tile = np.concatenate([img, img], axis=1)  # 2W wide, seamless at seam
         return dict(
             tex=tex, W=W, mode=mode,
             amount=float(cfg.get("amount", 0.35)),
-            speed=max(1, int(round(float(cfg.get("speed", 1))))),
+            speed=max(0.02, float(cfg.get("speed", 0.08))),
             tint=np.array(tint, dtype=np.float32),
+            img_tile=img_tile,
         )
 
-    def _apply_cloud_warp(self, frame, mask, t, amount, speed, trig=None):
-        """Animate the ACTUAL clouds in a region by displacing those pixels with a
-        strongly-horizontal, low-frequency flow (big soft cloud masses glide
-        together). Seamless: the displacement is sinusoidal in t so it returns to
-        zero at the loop point — a continuous one-way scroll can't loop without
-        an overlay, so this is a gentle horizontal sway that reads as drift.
+    def _apply_cloud_slide(self, frame, cloud_state, mask, t):
+        """Slide actual sky pixels left in a seamless loop.
 
-        Confined to `mask` (the segmented sky or a painted region) so only the
-        clouds move and the horizon/foreground stays pinned."""
-        from scipy.ndimage import map_coordinates
+        On first call, builds a "clean sky plate" — the base image with foreground
+        areas (mask==0) filled by heavily-blurred sky, so scrolling never drags
+        pillar/building pixels into the sky region. The plate is cached in
+        cloud_state for subsequent frames.
+
+        Within the mask the sky is FULLY replaced by the scrolled plate (no ghost
+        blend). `amount` controls the feather width at mask edges so the transition
+        is soft rather than a hard cutout.
+        """
         H, W, _ = frame.shape
-        amp = amount * 45.0                     # clouds glide more than nebula gas
-        cyc = max(1, int(round(speed)))         # integer cycles per loop → seamless
-        ph = TWO_PI * t * cyc
-        if trig is not None:
-            cp, sp = math.cos(ph), math.sin(ph)
-            dx = amp * (trig["sin_yy"] * cp + trig["cos_yy"] * sp)
-            dy = amp * 0.10 * (trig["cos_xx"] * cp - trig["sin_xx"] * sp)
-            xx, yy = trig["xx"], trig["yy"]
-        else:
-            yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
-            scale = max(160.0, W / 4.5)
-            dx = amp * np.sin(TWO_PI * yy / (scale * 1.6) + ph)
-            dy = amp * 0.10 * np.cos(TWO_PI * xx / scale + ph)
-        sx = np.clip(xx + dx, 0, W - 1)
-        sy = np.clip(yy + dy, 0, H - 1)
-        m = mask[:, :, None]
-        for c in range(3):
-            warped = map_coordinates(frame[:, :, c], [sy, sx], order=1, mode="reflect")
-            frame[:, :, c] = frame[:, :, c] * (1.0 - m[:, :, 0]) + warped * m[:, :, 0]
+        speed = cloud_state["speed"]
+        amount = cloud_state["amount"]
+        offset = int((t * speed * W)) % W
+        if offset == 0 and t < 1e-6:
+            return
+
+        # ── Lazy-build static colour wash + tileable cloud detail ─────────
+        # A non-uniform sky (warm sunset on one side, cool on the other) is NOT
+        # horizontally periodic, so scrolling the raw pixels and wrapping shows a
+        # hard COLOUR seam where the bright edge meets the dark edge. Fix: split the
+        # sky into a STATIC low-frequency colour wash (never moves) + the high-
+        # frequency cloud detail (carries ~no colour gradient), and slide only the
+        # detail over the frozen wash. Colour never wraps → no seam; real clouds
+        # still drift across the fixed sky.
+        if cloud_state.get("_sky_low") is None:
+            img_tile = cloud_state.get("img_tile")
+            if img_tile is None:
+                return
+            base = img_tile[:H, :W]  # first copy = original image
+            m2d = mask  # H×W float [0,1]
+            # Sky-only plate: fill foreground holes with blurred sky.
+            blur_r = max(W, H) // 6
+            blurred = gaussian_filter(base, sigma=(blur_r, blur_r, 0), mode="wrap")
+            fg = (1.0 - m2d)[:, :, None]
+            sky_only = base * m2d[:, :, None] + blurred * fg
+            # Static colour wash = sky with all cloud structure blurred out.
+            low_sigma = max(W, H) / 6.0
+            low = gaussian_filter(sky_only, sigma=(low_sigma, low_sigma, 0), mode="nearest")
+            detail = sky_only - low  # cloud structure only, ~zero colour gradient
+            # Make the detail horizontally tileable (safe now — no colour to smear):
+            # blend with its half-roll so the left edge matches the right edge.
+            rolled = np.roll(detail, W // 2, axis=1)
+            ramp = np.abs(np.linspace(-1.0, 1.0, W, dtype=np.float32))[None, :, None]
+            detail = detail * (1.0 - ramp) + rolled * ramp
+            cloud_state["_sky_low"] = low
+            cloud_state["_detail_tile"] = np.concatenate([detail, detail], axis=1)  # 2W
+
+        # Frozen colour wash + scrolling cloud detail = clouds drift, sky colour fixed.
+        low = cloud_state["_sky_low"]
+        detail_tile = cloud_state["_detail_tile"]
+        strip = np.clip(low + detail_tile[:H, offset:offset + W], 0.0, 255.0)
+
+        # Feathered mask: amount controls feather softness at edges.
+        # Core of the mask (>0.5) gets full replacement; edges fade smoothly.
+        # amount 0.15 → generous feather; amount 1.0 → hard cutout.
+        feather = max(0.02, 1.0 - amount)  # lower amount = wider feather
+        m = np.clip(mask / (feather + 1e-6), 0.0, 1.0)[:, :, None]
+        frame[:] = frame * (1.0 - m) + strip * m
 
     def _apply_cloud_drift(self, frame, st, t):
         W = st["W"]
@@ -1114,17 +1153,17 @@ def preset_for_scene(scene_text: str) -> list[dict]:
                                               "fireflies", "candle", "stars"))
 
     if is_space:
-        movement = {"type": "nebula", "amount": 0.45}
+        movement = {"type": "nebula", "amount": 0.2}
     elif has_water:
-        movement = {"type": "shimmer", "amount": 0.45, "region": "water"}
+        movement = {"type": "shimmer", "amount": 0.2, "region": "water"}
     elif has_sky:
-        movement = {"type": "cloud_drift", "amount": 0.3, "speed": 1, "mode": "warp",
+        movement = {"type": "cloud_drift", "amount": 0.5, "speed": 0.04, "mode": "slide",
                     "region": "sky", "tint": "white"}
     elif has_city_lights:
-        movement = {"type": "twinkle", "amount": 0.22}
+        movement = {"type": "twinkle", "amount": 0.12}
     else:
         # Safe default: gentle cloud overlay adds atmosphere without needing real clouds.
-        movement = {"type": "cloud_drift", "amount": 0.25, "speed": 1, "mode": "overlay",
+        movement = {"type": "cloud_drift", "amount": 0.15, "speed": 1, "mode": "overlay",
                     "region": "sky", "tint": "white"}
 
     # --- 2. PARALLAX: always off by default ---
@@ -1149,7 +1188,7 @@ _LAYER_SPEC = {
     "color_glow":     {"amount": (0.0, 0.6)},
     "twinkle":        {"amount": (0.0, 1.0), "threshold": (60.0, 240.0), "sparkle": (0.0, 1.0)},
     "nebula":         {"amount": (0.0, 1.0)},  # masked slow gas drift (region: sky)
-    "cloud_drift":    {"amount": (0.0, 0.8), "speed": (1.0, 4.0)},  # sky-masked drifting cloud bank
+    "cloud_drift":    {"amount": (0.0, 1.0), "speed": (0.1, 2.0)},  # sky-masked drifting cloud bank
 }
 
 # Named colors for the color_glow layer, in BGR (the frame buffer is BGR).
@@ -1175,30 +1214,31 @@ OUTPUT STRUCTURE — always EXACTLY 2 layers, in this order:
 
 1. IMAGE MOVEMENT (enabled: true) — ONE layer that animates a natural element in the scene.
    Pick the best match:
-   - sky/clouds/overcast → cloud_drift (warp mode, auto-masked to sky). NOT for space.
+   - sky/clouds/overcast → cloud_drift (slide mode, auto-masked to sky). NOT for space.
    - ocean/lake/river/water → shimmer (auto-masked to water).
    - nebula/space gas/cosmic → nebula (auto-masked to sky area).
    - night city/starfield/candles/fireflies → twinkle.
    If no element clearly fits, use cloud_drift "overlay" mode to add subtle atmosphere.
 
-2. PARALLAX (enabled: false) — always {"type":"parallax","amount":0.45,"enabled":false}.
+2. PARALLAX (enabled: false) — always {"type":"parallax","amount":0.3,"enabled":false}.
    This stays OFF by default; the user enables it if they want depth.
 
 NO other layers. Do not add overlays, fog, particles, god_rays, light, vignette_pulse, \
 color_glow, breathing_zoom, or aurora. Exactly 2 layers.
 
 SUBTLE style amounts for the movement layer:
-- cloud_drift: amount 0.2-0.35, speed 1, mode "warp", region "sky", tint "white|warm|grey|gold|dusk"
-- shimmer: amount 0.3-0.5, region "water"
-- nebula: amount 0.3-0.5
-- twinkle: amount 0.15-0.3
+- cloud_drift: amount 0.4-0.6, speed 0.03-0.05, mode "slide", region "sky", tint "white|warm|grey|gold|dusk"
+  (amount = mask feather softness — 0.5 is natural soft edges. speed = fraction of width per loop — 0.04 is gentle drift)
+- shimmer: amount 0.15-0.25, region "water"
+- nebula: amount 0.15-0.25
+- twinkle: amount 0.08-0.15
 
 HONOR the scene text. Reply ONLY with the JSON — no prose.
 
 Example for a sunset landscape with clouds:
 {"layers":[
-  {"type":"cloud_drift","amount":0.28,"speed":1,"mode":"warp","region":"sky","tint":"warm"},
-  {"type":"parallax","amount":0.45,"enabled":false}
+  {"type":"cloud_drift","amount":0.5,"speed":0.04,"mode":"slide","region":"sky","tint":"warm"},
+  {"type":"parallax","amount":0.3,"enabled":false}
 ]}"""
 
 
@@ -1208,22 +1248,22 @@ to life as an ambient backdrop. The renderer loops it seamlessly.
 OUTPUT STRUCTURE — always EXACTLY 2 layers, in this order:
 
 1. IMAGE MOVEMENT (enabled: true) — ONE layer on the scene's most interesting natural element.
-   - sky/clouds → cloud_drift (warp, sky region). NOT space.
+   - sky/clouds → cloud_drift (slide, sky region). NOT space.
    - water → shimmer (water region).
    - nebula/space gas → nebula.
    - night city/stars/candles → twinkle.
    If no element clearly fits, cloud_drift "overlay" mode.
 
-2. PARALLAX (enabled: false) — always {"type":"parallax","amount":0.55,"enabled":false}.
+2. PARALLAX (enabled: false) — always {"type":"parallax","amount":0.4,"enabled":false}.
 
 NO other layers. Do not add overlays, fog, particles, god_rays, light, vignette_pulse, \
 color_glow, breathing_zoom, or aurora. Exactly 2 layers.
 
 BALANCED style amounts (more assertive than subtle):
-- cloud_drift: amount 0.3-0.5, speed 1-2, mode "warp", region "sky", tint "white|warm|grey|gold|dusk"
-- shimmer: amount 0.45-0.65, region "water"
-- nebula: amount 0.45-0.7
-- twinkle: amount 0.25-0.45
+- cloud_drift: amount 0.5-0.7, speed 0.04-0.08, mode "slide", region "sky", tint "white|warm|grey|gold|dusk"
+- shimmer: amount 0.25-0.4, region "water"
+- nebula: amount 0.25-0.4
+- twinkle: amount 0.12-0.22
 
 HONOR the scene text. Reply ONLY with the JSON — no prose."""
 
@@ -1234,22 +1274,22 @@ Motion should be immediately visible and assertive.
 OUTPUT STRUCTURE — always EXACTLY 2 layers, in this order:
 
 1. IMAGE MOVEMENT (enabled: true) — ONE assertive layer on the scene's most active element.
-   - sky/clouds → cloud_drift (warp, high speed). NOT space.
+   - sky/clouds → cloud_drift (slide, high speed). NOT space.
    - water → shimmer (high amount).
    - nebula/space gas → nebula (high amount).
    - night city/stars/candles → twinkle (high amount).
    If no element clearly fits, cloud_drift "overlay" mode.
 
-2. PARALLAX (enabled: false) — always {"type":"parallax","amount":0.65,"enabled":false}.
+2. PARALLAX (enabled: false) — always {"type":"parallax","amount":0.5,"enabled":false}.
 
 NO other layers. Do not add overlays, fog, particles, god_rays, light, vignette_pulse, \
 color_glow, breathing_zoom, or aurora. Exactly 2 layers.
 
-DYNAMIC style amounts (assertive):
-- cloud_drift: amount 0.45-0.65, speed 2-3, mode "warp", region "sky", tint "white|warm|grey|gold|dusk"
-- shimmer: amount 0.6-0.85, region "water"
-- nebula: amount 0.65-0.9
-- twinkle: amount 0.4-0.65
+DYNAMIC style amounts (more movement than balanced, still not excessive):
+- cloud_drift: amount 0.6-0.8, speed 0.08-0.15, mode "slide", region "sky", tint "white|warm|grey|gold|dusk"
+- shimmer: amount 0.35-0.55, region "water"
+- nebula: amount 0.35-0.55
+- twinkle: amount 0.2-0.35
 
 HONOR the scene text. Reply ONLY with the JSON — no prose."""
 
@@ -1308,8 +1348,8 @@ def _validate_layers(layers: list) -> list[dict]:
         if t == "cloud_drift":
             tint = str(l.get("tint", "white")).lower().strip()
             clean["tint"] = tint if tint in _CLOUD_TINTS else "white"
-            mode = str(l.get("mode", "warp")).lower().strip()
-            clean["mode"] = mode if mode in ("warp", "overlay") else "warp"
+            mode = str(l.get("mode", "slide")).lower().strip()
+            clean["mode"] = mode if mode in ("slide", "warp", "overlay") else "slide"
         for param, (lo, hi) in spec.items():
             if param in l:
                 try:
