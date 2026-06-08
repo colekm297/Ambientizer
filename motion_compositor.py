@@ -277,10 +277,11 @@ class MotionCompositor:
             sky_p, _ = self._ensure_seg_masks(image_path)
             cloud_sky_mask = self._load_region_mask(sky_p, W, H)
             if cloud_sky_mask is None:
-                if cloud_state["mode"] == "warp":
-                    status("no sky found — cloud WARP skipped (paint a sky mask to animate the real clouds)")
-                else:
-                    status("no sky found — cloud overlay drifts over whole frame")
+                # Semantic sky segmentation found nothing — fall back to a CONTENT
+                # sky mask (bright, upper-frame), same spirit as the nebula mask.
+                # The flow-warp is forgiving, so an approximate mask is plenty.
+                cloud_sky_mask = self._sky_mask(W, H, base_pil)
+                status("no semantic sky — using content sky mask for cloud drift")
 
         # Pre-compute shared coordinate grid and spatial trig for warp effects.
         # map_coordinates is the bottleneck; the grid + sin/cos arrays are constant
@@ -297,7 +298,7 @@ class MotionCompositor:
                 cos_xx=np.cos(2 * np.pi * _xx / _ns),
             )
         cloud_trig = None
-        if cloud_state is not None and cloud_state.get("mode") == "warp":
+        if cloud_state is not None and cloud_state.get("mode") != "overlay":
             _cs = max(160.0, W / 4.5)
             cloud_trig = dict(
                 yy=_yy, xx=_xx,
@@ -333,16 +334,18 @@ class MotionCompositor:
 
                 if cloud_state is not None:
                     cmask = cloud_user_mask if cloud_user_mask is not None else cloud_sky_mask
-                    if cloud_state["mode"] == "slide":
-                        # Slide the REAL clouds horizontally using the pre-built image tile.
-                        if cmask is not None and cloud_state.get("img_tile") is not None:
-                            self._apply_cloud_slide(frame, cloud_state, cmask, t)
-                    else:
-                        # Overlay: paint NEW drifting clouds (screen-blend).
+                    if cloud_state["mode"] == "overlay":
+                        # Overlay: paint NEW synthetic drifting clouds (screen-blend).
                         pre = frame.copy() if cmask is not None else None
                         self._apply_cloud_drift(frame, cloud_state, t)
                         if cmask is not None:
                             self._blend_with_mask(frame, pre, cmask)
+                    elif cmask is not None:
+                        # Real clouds: gentle seamless flow-warp over the sky region —
+                        # the SAME technique as nebula. No slide, no edge-wrap, so no
+                        # colour seam, and it's forgiving of an imperfect mask.
+                        self._apply_region_warp(frame, cmask, t,
+                                                cloud_state.get("amount", 0.5), trig=cloud_trig)
 
                 for fi, field in enumerate(particle_fields):
                     pmask = particle_masks[fi] if fi < len(particle_masks) else None
@@ -658,6 +661,20 @@ class MotionCompositor:
         m = gaussian_filter(m, sigma=max(W, H) / 150.0)
         mx2 = float(m.max())
         return np.clip(m / mx2, 0.0, 1.0) if mx2 > 1e-6 else m
+
+    def _sky_mask(self, W, H, base_pil) -> np.ndarray:
+        """Auto-mask the SKY by CONTENT: bright pixels weighted toward the top of
+        the frame. A fallback for when semantic 'sky' segmentation returns nothing —
+        good enough because the flow-warp is forgiving of soft, approximate edges."""
+        from scipy.ndimage import gaussian_filter
+        arr = np.asarray(base_pil.resize((W, H), Image.BILINEAR), dtype=np.float32)
+        lum = arr.mean(axis=2)
+        bright = np.clip((lum - 60.0) / 130.0, 0.0, 1.0)            # dark ground/cliff → 0
+        top = np.linspace(1.0, 0.0, H, dtype=np.float32)[:, None]   # 1 at top → 0 at bottom
+        m = bright * (0.35 + 0.65 * np.clip(top * 1.3, 0.0, 1.0))   # top-weighted, soft
+        m = gaussian_filter(m, sigma=max(W, H) / 70.0)
+        mx = float(m.max())
+        return np.clip(m / mx, 0.0, 1.0) if mx > 1e-6 else m
 
     def _apply_twinkle(self, frame, st, t):
         # Bright-region mask straight off the CURRENT frame, so it tracks the
