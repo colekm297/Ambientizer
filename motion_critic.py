@@ -31,33 +31,36 @@ except Exception:
 
 FALLBACK_MODELS = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-3.5-flash"]
 
-RUBRIC = """You are a strict QA judge for AMBIENT "living still" loops — a single
-photo brought subtly to life (drifting clouds, shimmering water, twinkling lights,
-gentle parallax) and tiled to play for an hour on YouTube. The motion must be
-SEAMLESS (the last frame flows into the first with no visible jump/reset),
-NATURAL (gentle, smooth — not shaky, not warping/melting), CLEAN (no tearing,
-ghosting, smearing, or a hard colour seam sweeping across), and APPROPRIATE
-(clouds drift, water shimmers — not fog on a spaceship; motion present, not dead-still).
+RUBRIC = """You are a discerning QUALITY critic for AMBIENT "living still" loops — a
+single photo brought subtly to life (the real clouds billowing, water shimmering,
+lights twinkling, gentle parallax) and tiled to play for an hour on YouTube.
 
-Watch the whole clip, paying attention to the loop point and to any region that
-moves. Then return ONLY a JSON object, no prose, with this exact shape:
+Do NOT just decide whether it's "passable" — assess HOW GOOD it is as a finished
+piece, and how to make it better. Hold a high bar: a loop that's technically fine
+but flat/lifeless is a 5-6, not a pass. A 10 is something you'd be proud to publish.
 
+Rate each dimension 0-10:
+- aliveness:    does the still genuinely come alive and feel compelling, or is it barely moving / dead?
+- naturalness:  is the motion gentle, believable, tasteful — not crude, overdone, mechanical, or melting?
+- scene_fit:    does it animate the RIGHT elements the RIGHT way? The REAL clouds in the
+                photo should drift/billow — NOT a fake cloud overlay rushing past, NOT
+                fog on a spaceship. Water shimmers, lights twinkle, etc.
+- polish:       free of tearing, ghosting, smearing, warping artifacts, popping?
+
+Return ONLY a JSON object, no prose:
 {
-  "good_enough": true|false,          // would you publish this as-is?
-  "overall_score": 0-10,              // 10 = flawless, publishable
-  "loop_seamless": true|false,
-  "motion_natural": true|false,
-  "artifact_free": true|false,
-  "motion_appropriate": true|false,
-  "issues": [
-    {"severity": "blocker|major|minor", "what": "...", "where": "e.g. left edge / sky / the loop point"}
-  ],
-  "suggestions": ["concrete, engine-level fix, e.g. 'reduce warp amplitude near edges', 'the loop point shows a jump — the wrap blend is off'"],
-  "summary": "one sentence"
+  "quality_score": 0-10,                 // overall quality as a finished ambient piece
+  "tier": "exceptional|strong|decent|flat|broken",
+  "dimensions": {"aliveness": 0-10, "naturalness": 0-10, "scene_fit": 0-10, "polish": 0-10},
+  "what_works": ["..."],
+  "what_would_elevate_it": ["concrete, engine-level improvements — even if it's already good, what would push it to a 10?"],
+  "summary": "one or two sentences"
 }
 
-Be specific and actionable in issues/suggestions — your output drives code changes
-to the motion engine. If the clip is essentially static, say so (motion_appropriate=false)."""
+Be a critic pushing for excellence, not a lenient gatekeeper. Your output drives
+code changes to the motion engine, so make 'what_would_elevate_it' specific and
+actionable. Do NOT judge loop seamlessness — a separate exact pixel check handles
+that; focus on the QUALITY and craft of the motion itself."""
 
 
 def _client() -> genai.Client:
@@ -75,8 +78,37 @@ def _client() -> genai.Client:
     return genai.Client(api_key=key)
 
 
+def measure_loop_objective(video_path: str) -> dict:
+    """Exact, Gemini-independent measurements: loop seamlessness (frame-0 vs last
+    frame) and motion magnitude (frame-0 vs mid frame). These are the objective
+    gates — Gemini's eye for seams proved unreliable (false-passes AND false-fails),
+    so the math decides seamlessness, not the model."""
+    import subprocess, tempfile
+    import numpy as np
+    from PIL import Image
+    FF = "/opt/homebrew/bin/ffmpeg"
+    def frame_at(spec_args, out):
+        subprocess.run([FF, "-y", *spec_args, "-update", "1", out],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return np.asarray(Image.open(out).convert("RGB"), dtype=np.float32)
+    with tempfile.TemporaryDirectory() as d:
+        import os as _os
+        f0 = frame_at(["-i", video_path, "-vf", "select=eq(n\\,0)", "-vframes", "1"], _os.path.join(d, "a.png"))
+        fl = frame_at(["-sseof", "-0.06", "-i", video_path], _os.path.join(d, "z.png"))
+        fm = frame_at(["-ss", "00:00:04", "-i", video_path, "-vframes", "1"], _os.path.join(d, "m.png"))
+    seam = float(np.abs(f0 - fl).mean())
+    motion = float(np.abs(f0 - fm).mean())
+    return {
+        "seam_diff": round(seam, 2),
+        "loop_seamless": seam < 6.0,          # measured threshold; hard jumps are 20-100+
+        "motion_magnitude": round(motion, 2),
+        "has_motion": motion > 0.8,           # below this it's basically static
+    }
+
+
 def critique_loop(video_path: str, source_image: Optional[str] = None) -> dict:
-    """Send a rendered loop mp4 to Gemini and return the structured verdict dict."""
+    """Objective gates (seam + motion, exact) + Gemini quality review (subjective)."""
+    objective = measure_loop_objective(video_path)
     client = _client()
     with open(video_path, "rb") as f:
         video_bytes = f.read()
@@ -100,7 +132,17 @@ def critique_loop(video_path: str, source_image: Optional[str] = None) -> dict:
                 # tolerate ```json fences
                 if text.startswith("```"):
                     text = text.split("```", 2)[1].lstrip("json").strip("` \n")
-                return json.loads(text)
+                quality = json.loads(text)
+                qs = float(quality.get("quality_score", 0))
+                # Combined verdict: math gates the objective stuff, Gemini grades quality.
+                ship_ready = (objective["loop_seamless"] and objective["has_motion"]
+                              and qs >= 8.0)
+                return {
+                    "ship_ready": ship_ready,        # passes objective gates AND high quality
+                    "quality_score": qs,
+                    "objective": objective,          # seam + motion, exact (trust these)
+                    "quality": quality,              # Gemini's graded review (subjective)
+                }
             except json.JSONDecodeError as e:
                 last_error = f"non-JSON from {model}: {text[:200]}"
             except Exception as e:
