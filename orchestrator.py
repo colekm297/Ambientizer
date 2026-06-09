@@ -21,7 +21,7 @@ from typing import Optional, Callable
 
 from dotenv import load_dotenv
 
-from schemas import SoundscapeConfig, GenerationMode, LayerType
+from schemas import SoundscapeConfig, GenerationMode, LayerType, LayerConfig, EffectsChain
 from theme_interpreter import ThemeInterpreter, DiscoveryConversation
 from audio_engine import AudioEngine, SampleLibrary
 from sample_generator import ElevenLabsSampleGenerator
@@ -116,6 +116,10 @@ class SoundscapeOrchestrator:
         if not layers_to_generate:
             return
 
+        # Clear any warnings from a prior generation so we only surface this run's.
+        if self.generator:
+            self.generator.warnings = []
+
         # Pre-flight: estimate total cost for ALL layers and check once upfront
         # so we don't burn real credits on early layers only to fail on later ones.
         if self.generator:
@@ -145,6 +149,43 @@ class SoundscapeOrchestrator:
             )
             if path:
                 layer.generated_audio_path = path
+
+        # Surface quality warnings (ToS rewrite, composition-plan fallback, lossy
+        # MP3) so the UI shows what silently changed instead of burying it in logs.
+        warnings = list(getattr(self.generator, "warnings", []) or [])
+        if warnings:
+            for w in warnings:
+                self._status("quality_warning", f"   ⚠ {w}", {"warning": w})
+            self._status("quality_warning",
+                         f"   ⚠ {len(warnings)} quality warning(s) — see above.",
+                         {"warnings": warnings})
+
+    def _passthrough_config(self, prompt: str, duration_sec: float) -> SoundscapeConfig:
+        """Build a minimal config that sends the user's prompt to ElevenLabs VERBATIM
+        — no LLM interpretation, no arrangement authoring, no rewriting. One musical
+        layer carrying the raw prompt; downstream key-detection/harmonize/loop still
+        apply (those are not part of the interpreter)."""
+        title = (prompt.strip().split("\n")[0][:48] or "Raw soundscape").strip()
+        layer = LayerConfig(
+            name="Raw prompt",
+            layer_type=LayerType.MUSICAL,
+            sample_tags=[],
+            volume_db=-3.0,
+            pan=0.0,
+            loop=True,
+            fade_in_sec=4.0,
+            fade_out_sec=0.0,
+            elevenlabs_prompt=prompt,              # ← verbatim, untouched
+            effects=EffectsChain(reverb_amount=0.3, reverb_room_size=0.5),
+        )
+        return SoundscapeConfig(
+            title=title,
+            description=prompt,
+            mood="", setting="", time_of_day="",
+            layers=[layer],
+            duration_sec=duration_sec,
+            root_key="",                            # no forced key
+        )
 
     def generate(
         self,
@@ -208,7 +249,14 @@ class SoundscapeOrchestrator:
 
         # Step 1: Interpret the prompt
         self._status("interpreting", "Step 1: Interpreting prompt...")
-        if planner_mode == "reference_direct":
+        if planner_mode == "raw":
+            # RAW passthrough: NO interpretation. The typed prompt is sent to
+            # ElevenLabs verbatim as a single musical layer. Lets you A/B exactly
+            # what the model does with your words vs. the interpreted version.
+            self._status("interpreting",
+                         "   RAW MODE — prompt sent verbatim, theme interpreter bypassed")
+            config = self._passthrough_config(prompt, duration_sec)
+        elif planner_mode == "reference_direct":
             if not reference_analysis:
                 raise ValueError("Reference Direct planner requires a successful reference analysis")
             config = self.interpreter.config_from_reference_direct(

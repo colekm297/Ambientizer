@@ -1663,6 +1663,30 @@ textarea::placeholder, input::placeholder {
     word-break: break-all;
 }
 
+/* ── Quality warnings (ToS rewrite, plan fallback, lossy MP3) ── */
+.quality-warnings {
+    margin-top: 8px;
+    padding: 10px 12px;
+    background: rgba(240, 173, 78, 0.12);
+    border: 1px solid rgba(240, 173, 78, 0.5);
+    border-left: 3px solid #f0ad4e;
+    border-radius: 8px;
+    font-size: 0.82rem;
+    line-height: 1.5;
+}
+.quality-warnings .qw-title {
+    font-weight: 600;
+    color: #f0ad4e;
+    margin-bottom: 6px;
+}
+.quality-warnings .qw-item {
+    color: var(--text-secondary, #cfd6e4);
+    padding: 3px 0;
+}
+.quality-warnings .qw-item + .qw-item {
+    border-top: 1px solid rgba(240, 173, 78, 0.18);
+}
+
 /* ── Player ────────────────────────────────────── */
 
 .player-info {
@@ -4162,3 +4186,17 @@ body { padding-bottom: 120px; }   /* clear the fixed bar */
 .brush-canvas-wrap { position:relative; display:inline-block; max-width:100%; line-height:0; border-radius:8px; overflow:hidden; }
 .brush-canvas-wrap img { display:block; max-width:100%; height:auto; }
 .brush-canvas-wrap canvas { position:absolute; top:0; left:0; width:100%; height:100%; opacity:0.5; cursor:crosshair; touch-action:none; }
+
+/* Raw (no interpretation) toggle in the prompt tools */
+.raw-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: #9aa4b2;
+  cursor: pointer;
+  user-select: none;
+  margin-left: 8px;
+}
+.raw-mode-toggle input { accent-color: #a855f7; cursor: pointer; }
+.raw-mode-toggle:hover { color: #cbd5e1; }
