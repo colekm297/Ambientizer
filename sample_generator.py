@@ -26,7 +26,9 @@ ADDITIVE_MUSIC_SEC = 90.0   # loop cell length for layers added on top of a mix
 STEM_SAMPLE_SEC = 120       # clip length sent to stem API (ambient is static throughout)
 HARD_MAX_MUSIC_SEC = 600.0
 HARD_MAX_SFX_SEC = 8.0
-DAILY_CREDIT_LIMIT = int(os.environ.get("DAILY_CREDIT_LIMIT", "100000"))
+# Daily self-imposed credit cap. 0 (or negative) = DISABLED (no limit). Set the
+# DAILY_CREDIT_LIMIT env var to a positive number to re-enable the guardrail.
+DAILY_CREDIT_LIMIT = int(os.environ.get("DAILY_CREDIT_LIMIT", "0"))
 
 
 class QuotaExhaustedError(Exception):
@@ -105,6 +107,8 @@ class ElevenLabsSampleGenerator:
         print(f"      ↩ Refund ~{credits:.0f} cr ({label}) | Day total: ~{spend['credits']:.0f} / {DAILY_CREDIT_LIMIT:,}")
 
     def _check_spend_limit(self, estimated_credits: float):
+        if DAILY_CREDIT_LIMIT <= 0:
+            return  # guardrail disabled
         spend = self._get_daily_spend()
         if spend["credits"] + estimated_credits > DAILY_CREDIT_LIMIT:
             raise SpendingLimitError(
