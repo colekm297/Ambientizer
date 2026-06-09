@@ -51,6 +51,15 @@ class ElevenLabsSampleGenerator:
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self._spend_log_path = self.cache_dir / "_daily_spend.json"
+        # Quality warnings collected during a generation (e.g. ToS rewrite,
+        # composition-plan fallback, lossy MP3 fallback). The orchestrator reads
+        # and clears this so the UI can surface what silently changed.
+        self.warnings: list[str] = []
+
+    def _warn(self, message: str) -> None:
+        """Record a user-facing quality warning AND print it to the log."""
+        self.warnings.append(message)
+        print(f"      ⚠ {message}", flush=True)
 
     def _call_with_retry(self, func, *args, max_retries=3, base_delay=2.0, **kwargs):
         """Call an ElevenLabs API function with exponential backoff on transient errors."""
@@ -275,6 +284,8 @@ class ElevenLabsSampleGenerator:
 
     def _save_mp3_to_wav(self, audio_bytes: bytes, wav_path: str, cache_key: str) -> AudioSegment:
         """Decode MP3 bytes to WAV via pydub (lossy fallback)."""
+        self._warn("Lossless PCM was unavailable from ElevenLabs — used 192kbps MP3 instead "
+                   "(slightly lower audio fidelity). Usually transient; re-rolling often gets PCM.")
         mp3_path = str(self.cache_dir / f"{cache_key}.mp3")
         with open(mp3_path, "wb") as f:
             f.write(audio_bytes)
@@ -325,7 +336,24 @@ class ElevenLabsSampleGenerator:
 
         return ""
 
-    def _generate_music(self, name: str, prompt: str, duration: float, wav_path: str, cache_key: str) -> str:
+    @staticmethod
+    def _extract_prompt_suggestion(exc: Exception) -> str:
+        """If ElevenLabs rejected the prompt for Terms-of-Service reasons
+        (status 'bad_prompt' — usually IP/artist references like composer
+        names), the error body includes their own sanitized rewrite in
+        data.prompt_suggestion. Pull it out so we can retry with it instead
+        of destroying the layer with an 8s SFX fallback."""
+        body = getattr(exc, "body", None)
+        if isinstance(body, dict):
+            detail = body.get("detail")
+            if isinstance(detail, dict) and detail.get("status") == "bad_prompt":
+                suggestion = (detail.get("data") or {}).get("prompt_suggestion")
+                if isinstance(suggestion, str) and suggestion.strip():
+                    return suggestion.strip()
+        return ""
+
+    def _generate_music(self, name: str, prompt: str, duration: float, wav_path: str, cache_key: str,
+                        _sanitized_retry: bool = False) -> str:
         """Generate via Music v1 API (tonal/harmonic/melodic content)."""
         duration_ms = int(min(duration, HARD_MAX_MUSIC_SEC) * 1000)
         duration_ms = max(3000, min(int(HARD_MAX_MUSIC_SEC * 1000), duration_ms))
@@ -357,11 +385,23 @@ class ElevenLabsSampleGenerator:
             except QuotaExhaustedError:
                 raise
             except Exception as e:
+                # ToS rejection ("bad_prompt", e.g. composer/IP names): retry ONCE
+                # with ElevenLabs' own sanitized rewrite. Check this BEFORE the PCM
+                # fallback — a rejected prompt fails identically on every format.
+                suggestion = self._extract_prompt_suggestion(e)
+                if suggestion and not _sanitized_retry:
+                    self._warn("ElevenLabs rejected the prompt (Terms of Service — likely "
+                               "artist/composer/IP names). Retried with their sanitized rewrite. "
+                               "Tip: avoid real artist names (e.g. 'Hans Zimmer') and trademarked "
+                               "titles for a cleaner result.")
+                    print(f"      ↻ Sanitized rewrite: {suggestion[:120]}...", flush=True)
+                    return self._generate_music(name, suggestion, duration, wav_path, cache_key,
+                                                _sanitized_retry=True)
                 if fmt == "pcm_44100":
                     print(f"      ↓ PCM not available ({e}), trying MP3...")
                     continue
-                print(f"      ⚠ ElevenLabs Music error for '{name}': {e}")
-                print(f"        Falling back to SFX API...")
+                self._warn(f"Music generation failed for '{name}' — fell back to a short SFX "
+                           f"texture (NOT a full musical track). Error: {str(e)[:160]}")
                 return self._generate_sfx(name, prompt, min(duration, HARD_MAX_SFX_SEC), wav_path, cache_key)
 
         return ""
@@ -505,11 +545,9 @@ class ElevenLabsSampleGenerator:
                 if fmt == "pcm_44100":
                     print(f"      ↓ Composition plan PCM failed ({e}), trying MP3...")
                     continue
-                print("      " + "!" * 60, flush=True)
-                print(f"      ⚠⚠⚠ COMPOSITION PLAN FAILED for '{name}' — falling back to FLAT", flush=True)
-                print(f"      ⚠⚠⚠ Error: {e}", flush=True)
-                print(f"      ⚠⚠⚠ The track will NOT have the evolving arrangement. Investigate this.", flush=True)
-                print("      " + "!" * 60, flush=True)
+                self._warn(f"Composition plan was REJECTED for '{name}' — fell back to a flat text "
+                           f"prompt, so the track does NOT have the evolving arrangement you designed. "
+                           f"Error: {str(e)[:160]}")
                 return self._generate_music(name, prompt, duration, wav_path, cache_key)
 
         return ""

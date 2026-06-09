@@ -65,6 +65,58 @@ load_dotenv()
 app = Flask(__name__)
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0  # Never cache static files during dev.
 
+# ── Optional password gate ────────────────────────────────────────────────────
+# When AMBIENTIZER_PASSWORD is set (e.g. while exposed through a public
+# Cloudflare tunnel), EVERY route requires a signed session cookie obtained by
+# POSTing the password to /login. Unset = no gate (normal local/Tailscale use).
+import hmac as _hmac
+import secrets as _secrets
+
+ACCESS_PASSWORD = os.environ.get("AMBIENTIZER_PASSWORD", "")
+app.secret_key = os.environ.get("FLASK_SECRET_KEY") or _secrets.token_hex(32)
+
+_LOGIN_PAGE = """<!doctype html><html><head><title>Ambientizer</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>body{background:#0d0f14;color:#cfd6e4;font-family:-apple-system,sans-serif;
+display:flex;align-items:center;justify-content:center;height:100vh;margin:0}
+form{background:#161a22;padding:2rem;border-radius:12px;text-align:center}
+input{padding:.6rem .8rem;border-radius:8px;border:1px solid #2a3040;background:#0d0f14;
+color:#cfd6e4;font-size:1rem;margin-bottom:.8rem;width:220px}
+button{padding:.6rem 1.4rem;border-radius:8px;border:none;background:#4a7dff;color:#fff;
+font-size:1rem;cursor:pointer}p.err{color:#ff7a7a;font-size:.85rem}</style></head>
+<body><form method="post" action="/login"><h2>Ambientizer</h2>
+{ERR}<input type="password" name="password" placeholder="Password" autofocus>
+<br><button type="submit">Enter</button></form></body></html>"""
+
+
+@app.before_request
+def _password_gate():
+    if not ACCESS_PASSWORD:
+        return None
+    from flask import session as _session
+    if request.path == "/login":
+        return None
+    if _session.get("authed"):
+        return None
+    return _LOGIN_PAGE.replace("{ERR}", ""), 401
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    from flask import session as _session, redirect
+    if not ACCESS_PASSWORD:
+        return redirect("/")
+    if request.method == "POST":
+        supplied = request.form.get("password", "")
+        if _hmac.compare_digest(supplied, ACCESS_PASSWORD):
+            _session["authed"] = True
+            _session.permanent = True
+            return redirect("/")
+        time.sleep(1.0)  # slow brute force
+        return _LOGIN_PAGE.replace("{ERR}", '<p class="err">Wrong password</p>'), 401
+    return _LOGIN_PAGE.replace("{ERR}", "")
+
+
 jobs: dict[str, dict] = {}
 jobs_lock = threading.Lock()
 
@@ -278,6 +330,7 @@ def _save_job(job_id: str):
         "status": job["status"],
         "stage": job["stage"],
         "progress_message": job.get("progress_message", ""),
+        "warnings": job.get("warnings", []),
         "audio_path": job.get("audio_path"),
         "output_path": job.get("output_path"),
         "raw_output_path": job.get("raw_output_path"),
@@ -373,6 +426,7 @@ def _load_saved_jobs():
                 "status": data.get("status", "complete"),
                 "stage": data.get("stage", "complete"),
                 "progress_message": data.get("progress_message", ""),
+                "warnings": data.get("warnings", []),
                 "logs": [],
                 "config": config,
                 "audio_path": data.get("audio_path"),
@@ -575,6 +629,11 @@ def run_generation(
             job["stage"] = stage
             job["progress_message"] = message
             job["logs"].append({"time": datetime.now().isoformat(), "message": message})
+
+            # Persist quality warnings (ToS rewrite, plan fallback, lossy MP3) so
+            # the UI can show what silently changed even after generation finishes.
+            if stage == "quality_warning" and data.get("warning"):
+                job.setdefault("warnings", []).append(data["warning"])
 
             if stage == "complete" and "output_path" in data:
                 job["output_path"] = data["output_path"]
@@ -1295,6 +1354,7 @@ def api_status(job_id: str):
         "stage": job["stage"],
         "progress_message": job["progress_message"],
         "logs": job["logs"][-50:],
+        "warnings": job.get("warnings", []),
         "output_path": job["output_path"],
         "raw_output_path": job["raw_output_path"],
         "feedback_history": job["feedback_history"],
@@ -3587,6 +3647,7 @@ def generate_visual_clip(job_id: str):
             motion_style = (data.get("motion_style") or "auto").lower()
             intensity = max(0.3, min(2.5, float(data.get("motion_intensity", 1.0))))
             loop_sec = max(8, min(40, float(data.get("motion_loop_sec", 16))))
+            draft_scale = max(0.25, min(1.0, float(data.get("motion_draft_scale", 1.0))))
             # Director style: "subtle" (today's premium-wallpaper restraint),
             # "balanced" (3-5 layers, visible motion), or "dynamic" (4-6 layers,
             # assertive cinema). Only consulted when auto-planning.
@@ -3691,6 +3752,7 @@ def generate_visual_clip(job_id: str):
                 on_status=lambda m: _long_task_update(job_id, message=m),
                 brush_mask_path=brush_mask_path,
                 layer_masks=layer_masks_resolved or None,
+                draft_scale=draft_scale,
             )
         else:
             gen = VisualGenerator(xai_api_key="", output_dir=str(PROJECT_ROOT / "output"))
@@ -5535,4 +5597,7 @@ if __name__ == "__main__":
     parser.add_argument("--port", "-p", type=int, default=5050)
     parser.add_argument("--host", default="0.0.0.0")
     cli_args = parser.parse_args()
-    app.run(debug=True, use_reloader=False, port=cli_args.port, host=cli_args.host, threaded=True)
+    # Debug (Werkzeug debugger = remote code execution) only when explicitly
+    # asked for AND the app is not password-gated for public exposure.
+    _debug = os.environ.get("AMBIENTIZER_DEBUG", "0") == "1" and not ACCESS_PASSWORD
+    app.run(debug=_debug, use_reloader=False, port=cli_args.port, host=cli_args.host, threaded=True)

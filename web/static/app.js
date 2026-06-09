@@ -981,7 +981,7 @@
           mode: currentMode,
           approach: currentApproach,
           stem_separation: (currentMode === "musical" && currentApproach === "unified") ? currentStemSeparation : "none",
-          planner_mode: plannerModeEl?.value || "claude",
+          planner_mode: (document.getElementById("raw-mode")?.checked ? "raw" : (plannerModeEl?.value || "claude")),
           music_generation_mode: musicGenerationModeEl?.value || "text",
           reference_url: (_lastRefAnalysis && _lastRefSignature === _referenceSignature()) ? referenceUrlEl.value.trim() : "",
           ref_start_sec: parseTimestamp(refStartEl.value),
@@ -1119,6 +1119,25 @@
     progressBar.classList.remove("indeterminate");
     progressBar.style.width = pct + "%";
     renderLogs(data.logs || []);
+    renderWarnings(data.warnings || []);
+  }
+
+  function renderWarnings(warnings) {
+    let box = document.getElementById("quality-warnings");
+    if (!warnings.length) {
+      if (box) box.remove();
+      return;
+    }
+    if (!box) {
+      box = document.createElement("div");
+      box.id = "quality-warnings";
+      box.className = "quality-warnings";
+      // Place it just above the log container so it's seen, not buried.
+      logContainer.parentNode.insertBefore(box, logContainer);
+    }
+    box.innerHTML =
+      `<div class="qw-title">⚠ ${warnings.length} quality warning${warnings.length > 1 ? "s" : ""}</div>` +
+      warnings.map((w) => `<div class="qw-item">${cleanMessage(w)}</div>`).join("");
   }
 
   function formatStage(stage) {
