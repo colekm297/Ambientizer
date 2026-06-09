@@ -24,8 +24,12 @@ MAX_SECTION_MS = 120_000
 _PLANNER_SYSTEM = """You are an ambient arrangement designer. Given a soundscape brief, write a \
 COMPOSITION PLAN for ElevenLabs Music: a sequence of distinct sections that EVOLVE over time, \
 for hours-long background listening. This is NOT a song — no verse/chorus, no drops, no vocals, \
-no drums, no fade-out. The piece must LOOP seamlessly, so the final section returns to the \
-density/texture of the first.
+no drums, no fade-out. The piece is LOOPED downstream (a loop finder + crossfade craft the seamless \
+wrap), so the final section does NOT need to return to the opening — keep REAL INSTRUMENTS playing at \
+body-level density through the end. NEVER end on a sparse, instrument-less "resonance / empty space / \
+distant texture / dissolve to silence" section — with no concrete instrument to play, the generator \
+synthesizes warbling, metallic, underwater-robot artifacts. EVERY section must name at least one \
+concrete sustained instrument that is actually playing.
 
 CONTRAST IS THE WHOLE POINT. The model smooths over long durations, so you must make sections \
 DECISIVELY different or the listener hears no change. For every section, be explicit about which \
@@ -41,10 +45,11 @@ Design a clear arc, e.g.:
   1. SPARSE bed — foundation + space only; other instruments explicitly absent.
   2. A lead instrument ENTERS and is prominent; bed continues.
   3. FULLEST — add a second color/harmonic widening; most elements present.
-  4. STRIP BACK to the opening sparseness so the end wraps into the start.
+  4. SETTLE — ease toward a warm sustained texture, but keep real instruments present (do NOT dissolve to silence).
 
 Use 3-4 sections (fewer, LONGER sections give each change room to be heard — avoid 5+). \
-The first and last section must match in density for a seamless loop.
+The last section must stay musically present (real instruments at body density), NOT dissolve — the \
+seamless loop is crafted downstream, so the ending does not need to match the opening.
 
 Output STRICT JSON only:
 {

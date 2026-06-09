@@ -82,13 +82,17 @@ If a LAYER PLAN or REFERENCE ANALYSIS provides elevenlabs_prompt values, use the
 Do NOT rewrite, rephrase, merge, or "improve" prompts that are already provided. Copy them exactly. \
 Only write NEW prompts when no prompt is provided for a layer. \
 When writing new prompts: be rich and specific (250-500 chars), name instruments, tempo, key, mood. \
-The music will be LOOPED — ending density must match the opening so it wraps cleanly. \
-Do NOT ask for a fade-out, final cadence, or song ending.
+The music is LOOPED downstream — a loop finder + crossfade craft the seamless wrap — so the ending does \
+NOT need to match the opening. Do NOT ask for a fade-out, final cadence, song ending, "dissolve", or \
+"thin back to silence/sparseness". Keep REAL INSTRUMENTS playing through to the end at body-level density. \
+A sparse, instrument-less ending described only as "resonance / empty space / distant texture" makes the \
+music generator synthesize warbling, metallic, underwater-robot artifacts — never do that.
 
-For musical prompts, include a simple INTERNAL ARRANGEMENT across the full music length, e.g.: \
-"0:00-1:30 core bed only; ~2:30 subtle shimmer enters for ~1 min; 3:00-4:00 slightly fuller harmonic motion; \
-final 30-60s thin back toward opening texture for seamless loop." \
-Scale the arc to the MUSIC LENGTH in the user message. 2-4 gentle events total — not a song structure.
+Describe the INTERNAL ARRANGEMENT QUALITATIVELY — NEVER with clock timestamps. The generator works from a \
+freeform prompt + a target length; it has NO way to place an event "at 2:30", so written markers like \
+"0:00-1:30", "3:00-4:00", or "final 30-60s" are ignored and just waste prompt attention. Instead say e.g. \
+"opens with the core bed; a subtle shimmer enters partway through; harmony widens through the middle; \
+settles to a warm sustained texture with the instruments still present." 2-4 gentle events — not a song.
 
 Avoid stasis language: do NOT write "never-ending", "static", "stable sustained energy", \
 "no discrete events", or "ambient wallpaper" in musical prompts.
@@ -165,19 +169,25 @@ _DISCRETE_SFX_WORDS = (
 def _arrangement_hint(duration_sec: float) -> str:
     """Short arrangement guidance scaled to requested music length."""
     mins = max(0.5, duration_sec / 60)
+    # NO clock timestamps — qualitative only. End on real instruments at body density
+    # (the loop is crafted downstream); a dissolve-to-silence ending makes the music
+    # generator emit warbling/metallic artifacts.
     if mins >= 4:
         return (
-            "Internal arc across the full length: establish core bed first; around one-third add a subtle "
-            "new element or widen harmony for ~1 min; near two-thirds allow slightly fuller motion; "
-            "final 30-60s return toward opening density for seamless loop. No verse/chorus, no drop, no fade-out."
+            "Internal arc described qualitatively (NO clock timestamps): establish the core bed; around "
+            "one-third in, add a subtle new element or widen harmony; near two-thirds allow slightly fuller "
+            "motion; then settle to a warm sustained texture with the instruments still present at the end. "
+            "No verse/chorus, no drop, no fade-out, no dissolve to silence."
         )
     if mins >= 2:
         return (
-            "Gentle internal movement across the full length: core bed, one subtle added element mid-way, "
-            "then return toward opening texture by the end for seamless loop. No verse/chorus, no fade-out."
+            "Gentle internal movement (NO clock timestamps): core bed, one subtle added element partway "
+            "through, settling to a warm sustained texture with instruments still present at the end. "
+            "No verse/chorus, no fade-out, no dissolve."
         )
     return (
-        "Mostly steady texture with one subtle internal shift mid-way, ending similar to the start for seamless loop."
+        "Mostly steady texture with one subtle internal shift partway through, instruments still present "
+        "at the end (no fade-out, no dissolve to silence)."
     )
 
 
