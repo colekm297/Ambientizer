@@ -536,6 +536,9 @@
   function newSong() {
     promptEl.value = "";
     window._enhancedPrompt = null;
+    promptEl.classList.remove("hidden");
+    if (planPreview) { planPreview.classList.add("hidden"); planPreview.innerHTML = ""; }
+    currentLayerPlan = null;
     _autogrowPrompt();
     // back to defaults
     currentMode = "ambient";
@@ -749,7 +752,7 @@
     const typeIcons = { musical: "\u{1F3B5}", base: "\u{1F30A}", mid: "\u{1F33F}", detail: "\u2728" };
 
     let totalCost = 0;
-    let html = '<div class="plan-header"><span class="plan-title">Generation Plan</span><span class="plan-subtitle">sent to ElevenLabs verbatim — edit freely</span><button id="btn-clear-plan" class="plan-clear-btn" title="Clear plan">&times;</button></div>';
+    let html = '<div class="plan-header"><span class="plan-title">Prompt</span><span class="plan-subtitle">sent to ElevenLabs verbatim — edit freely</span><button id="btn-clear-plan" class="plan-clear-btn" title="Back to your original idea">&times;</button></div>';
     html += '<div class="plan-cards">';
     layers.forEach((l, i) => {
       totalCost += l.est_credits || 0;
@@ -779,10 +782,15 @@
     </div>`;
     planPreview.innerHTML = html;
     planPreview.classList.remove("hidden");
+    // The plan card IS the prompt now — swap the plain textarea out while a
+    // plan exists so there's exactly ONE editable artifact on screen.
+    promptEl?.classList.add("hidden");
 
     planPreview.querySelector("#btn-clear-plan")?.addEventListener("click", () => {
       currentLayerPlan = null;
       planPreview.classList.add("hidden");
+      promptEl?.classList.remove("hidden");
+      _autogrowPrompt();
     });
 
     planPreview.querySelectorAll(".plan-card-remove").forEach(btn => {
@@ -864,14 +872,20 @@
         window._enhancedPrompt = data.enhanced_prompt;
         const wantsPlan = currentMode === "musical" && musicGenerationModeEl?.value === "composition_plan";
         if (wantsPlan) {
+          // Composition mode: the timeline sections are fragments, so the box
+          // carries the enhanced master text (no duplicate artifact here).
+          promptEl.value = data.enhanced_prompt;
+          _autogrowPrompt();
           if (planPreview) planPreview.classList.add("hidden");
+          promptEl.classList.remove("hidden");
           enhanceStatus.textContent = "Designing composition timeline…";
           btnEnhancePrompt.textContent = "Planning…";
           await _planCompositionSections();
           enhanceStatus.textContent = "Composition timeline ready — this is what will generate";
         } else if (data.layers && data.layers.length) {
+          // Text mode: the plan card REPLACES the textarea — one prompt artifact.
           _renderPlanPreview(data.layers);
-          enhanceStatus.textContent = "Plan ready — this is exactly what will generate";
+          enhanceStatus.textContent = "Prompt ready — this is exactly what will generate";
         } else {
           enhanceStatus.textContent = data.research_summary ? "Enhanced with web research" : "Enhanced";
         }
