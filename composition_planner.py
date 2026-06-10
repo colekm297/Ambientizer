@@ -51,6 +51,15 @@ Use 3-4 sections (fewer, LONGER sections give each change room to be heard — a
 The last section must stay musically present (real instruments at body density), NOT dissolve — the \
 seamless loop is crafted downstream, so the ending does not need to match the opening.
 
+VOCAL-ADJACENT LANGUAGE — HARD BAN. Composition plans cannot use force_instrumental, so any \
+voice-suggesting words make the model synthesize garbled, robotic vocal artifacts mid-track. \
+NEVER write: "breathy", "breath", "voice"/"vocal-like", "wordless", "choir", "sigh"/"sighing", \
+"whisper", "hum"/"humming", "throat", "chant", "moan", "cry". Describe reed instruments by their \
+MECHANICS instead ("soft-reeded sustain", "slow legato double-reed phrases", "gentle pitch bends") — \
+never by breath or voice. Same ban on machine descriptors ("metallic resonance", "air-handler", \
+"engine hum") — they produce the same robotic artifacts. ALWAYS include "vocals", "spoken word", \
+"singing", and "robotic vocal artifacts" in negative_global_styles.
+
 Output STRICT JSON only:
 {
   "positive_global_styles": ["6-10 global descriptors true of the whole piece (key, tempo, core timbres)"],
