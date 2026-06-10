@@ -127,6 +127,21 @@
                                 <input type="checkbox" id="raw-mode"> Raw (no interpretation)
                             </label>
                         </div>
+                        <details id="mood-dials" class="mood-dials">
+                            <summary title="Steer the emotional palette and movement of the enhanced prompt. Center = auto.">Advanced · Mood</summary>
+                            <div class="mood-dial-row">
+                                <span class="mood-dial-end">Dark</span>
+                                <input type="range" id="dial-warmth" min="0" max="100" value="50" step="5">
+                                <span class="mood-dial-end">Warm</span>
+                                <span id="dial-warmth-readout" class="mood-dial-readout">Auto</span>
+                            </div>
+                            <div class="mood-dial-row">
+                                <span class="mood-dial-end">Calm</span>
+                                <input type="range" id="dial-dynamics" min="0" max="100" value="50" step="5">
+                                <span class="mood-dial-end">Dynamic</span>
+                                <span id="dial-dynamics-readout" class="mood-dial-readout">Auto</span>
+                            </div>
+                        </details>
                         <div id="saved-prompts-dropdown" class="saved-prompts-dropdown hidden">
                             <div id="saved-prompts-list" class="saved-prompts-list"></div>
                         </div>

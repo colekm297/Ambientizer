@@ -2751,6 +2751,46 @@ audio::-webkit-media-controls-panel {
 .ai-score-bar.bar-ok   { background: var(--warning); }
 .ai-score-bar.bar-bad  { background: var(--error); }
 
+.mood-dials {
+    margin-top: 8px;
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+}
+
+.mood-dials summary {
+    cursor: pointer;
+    user-select: none;
+    padding: 2px 0;
+}
+
+.mood-dials[open] summary { margin-bottom: 6px; }
+
+.mood-dial-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 4px 0;
+}
+
+.mood-dial-row input[type="range"] { flex: 1; max-width: 220px; }
+
+.mood-dial-end {
+    width: 52px;
+    font-size: 0.75rem;
+    text-align: center;
+}
+
+.mood-dial-readout {
+    font-size: 0.75rem;
+    min-width: 76px;
+    color: var(--text-secondary);
+}
+
+.mood-dial-readout.dial-active {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
 .ai-feedback-character {
     font-size: 0.9rem;
     font-style: italic;

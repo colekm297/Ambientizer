@@ -988,6 +988,49 @@ def favorite_prompt_exemplars(mode: str = "musical", max_n: int = 3) -> list:
     return out
 
 
+def mood_dials_text(dials) -> str:
+    """Translate the Create page's Advanced mood dials (warmth 0-100, dynamics
+    0-100; 50 = auto) into explicit prompt guidance. Returns "" when both dials
+    sit at auto so the system defaults stay in charge."""
+    if not isinstance(dials, dict):
+        return ""
+
+    def val(key):
+        try:
+            return max(0, min(100, int(dials.get(key, 50))))
+        except (TypeError, ValueError):
+            return 50
+
+    w, d = val("warmth"), val("dynamics")
+    bits = []
+    if w >= 80:
+        bits.append("STRONGLY WARM: golden, sunlit, hopeful, comforting. Major or Lydian "
+                    "colors, warm acoustic timbres (felt piano, nylon guitar, wooden flutes, "
+                    "soft brass). No gloom.")
+    elif w >= 60:
+        bits.append("Lean warm: gentle light and quiet optimism in the harmony and timbres.")
+    elif w <= 20:
+        bits.append("STRONGLY DARK: heavy, somber, shadowed. Minor/Phrygian colors, deep "
+                    "drones, cold or weathered timbres. No brightness for its own sake.")
+    elif w <= 40:
+        bits.append("Lean dark: melancholic, deeper and moodier than neutral.")
+    if d >= 80:
+        bits.append("HIGHLY DYNAMIC: a pronounced arc — clear rises and releases, layers "
+                    "entering and leaving, real instrumentation depth and density swings "
+                    "(while staying background-friendly).")
+    elif d >= 60:
+        bits.append("Lean dynamic: noticeable internal movement and evolving instrumentation.")
+    elif d <= 20:
+        bits.append("NEAR-STATIC: minimal drift, a steady meditative bed with only the "
+                    "subtlest internal motion.")
+    elif d <= 40:
+        bits.append("Lean calm: sparse, slow, restrained movement.")
+    if not bits:
+        return ""
+    return ("\n\nUSER MOOD DIALS (explicit user request — OVERRIDES any default "
+            "emotional-palette guidance above):\n- " + "\n- ".join(bits))
+
+
 @app.route("/api/enhance-prompt", methods=["POST"])
 def enhance_prompt():
     """
@@ -1210,6 +1253,8 @@ Output ONLY valid JSON, no markdown fences."""
     except Exception as e:
         print(f"  [enhance] few-shot exemplars unavailable (non-fatal): {e}")
 
+    dials_block = mood_dials_text(data.get("mood_dials"))
+
     @retry_with_backoff(max_retries=3, base_delay=2.0, retryable_check=is_transient_api_error)
     def _call_enhance():
         return client.messages.create(
@@ -1219,7 +1264,7 @@ Output ONLY valid JSON, no markdown fences."""
             messages=[{
                 "role": "user",
                 "content": f"""Create a {mode} soundscape from this idea:
-"{raw_prompt}"{context_block}{layer_structure}
+"{raw_prompt}"{context_block}{layer_structure}{dials_block}
 
 Be specific about instruments, key, tempo, spatial qualities, and emotional character.
 Remember: this is a SOUNDSCAPE, not a pop song. Gentle internal events and density shifts, loop-friendly ending.""",
@@ -1266,6 +1311,9 @@ def api_compose_plan():
     duration_ms = int(min(music_length_min * 60, 600) * 1000)  # ElevenLabs caps music at 600s
     root_key = data.get("root_key", "") or ""
     mood = data.get("mood", "") or ""
+    dials_block = mood_dials_text(data.get("mood_dials"))
+    if dials_block:
+        mood = (mood + " " + dials_block).strip()
 
     from composition_planner import author_composition_plan, clamp_plan_sections
     try:

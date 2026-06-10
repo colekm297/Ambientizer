@@ -271,6 +271,33 @@
   }
   window._renderCompSections = _renderCompSections;
 
+  // ── Advanced mood dials (warmth / dynamics; 50 = auto) ─────────────
+  function getMoodDials() {
+    const w = parseInt(document.getElementById("dial-warmth")?.value ?? 50, 10);
+    const d = parseInt(document.getElementById("dial-dynamics")?.value ?? 50, 10);
+    if (w === 50 && d === 50) return null;
+    return { warmth: w, dynamics: d };
+  }
+  function _wireDial(id, readoutId, lowWord, highWord) {
+    const el = document.getElementById(id);
+    const ro = document.getElementById(readoutId);
+    if (!el || !ro) return;
+    const update = () => {
+      const v = parseInt(el.value, 10);
+      if (v === 50) { ro.textContent = "Auto"; ro.classList.remove("dial-active"); }
+      else {
+        const word = v > 50 ? highWord : lowWord;
+        const pct = Math.abs(v - 50) * 2;
+        ro.textContent = `${word} ${pct}%`;
+        ro.classList.add("dial-active");
+      }
+    };
+    el.addEventListener("input", update);
+    update();
+  }
+  _wireDial("dial-warmth", "dial-warmth-readout", "Dark", "Warm");
+  _wireDial("dial-dynamics", "dial-dynamics-readout", "Calm", "Dynamic");
+
   async function _planCompositionSections() {
     const prompt = promptEl.value.trim();
     if (!prompt) { showError("Enter a prompt first."); return false; }
@@ -282,7 +309,8 @@
     try {
       const res = await fetch("/api/compose-plan", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, music_length: parseFloat(musicLengthEl.value) || 10 }),
+        body: JSON.stringify({ prompt, music_length: parseFloat(musicLengthEl.value) || 10,
+                               mood_dials: getMoodDials() }),
       });
       const data = await res.json();
       if (data.error) { showError("Plan failed: " + data.error); _renderCompSections(window._compositionPlan); return false; }
@@ -818,6 +846,7 @@
           mode: currentMode,
           approach: currentApproach,
           enhance_style: currentEnhanceStyle,
+          mood_dials: getMoodDials(),
         }),
       });
       const data = await res.json();
