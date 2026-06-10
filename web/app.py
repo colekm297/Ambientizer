@@ -974,8 +974,11 @@ def favorite_prompt_exemplars(mode: str = "musical", max_n: int = 3) -> list:
                                             "organ", "duduk", "synth", "pad", "choir", "harp")):
                 score += 1
             scored.append((score, len(p), p))
-    # Best score first; then prefer the more detailed (longer) prompt. De-dup.
-    scored.sort(key=lambda t: (t[0], t[1]), reverse=True)
+    # Best score first; then prefer prompts near the proven sweet spot (~300-500
+    # chars). Longest-wins was a mistake: it taught Enhance to write 1,000-char
+    # walls that ElevenLabs can't follow — favorites in the 300-500 range are
+    # the actual bangers.
+    scored.sort(key=lambda t: (t[0], -abs(t[1] - 400)), reverse=True)
     out, seen = [], set()
     for _, _, p in scored:
         sig = p[:60].lower()
@@ -1132,7 +1135,7 @@ OUTPUT FORMAT: Return a JSON object with:
       "role": "Main Music" or "Atmosphere" or "Texture" etc.,
       "type": "musical" or "base" or "mid" or "detail",
       "instruments": ["instrument1", "instrument2"],
-      "prompt_preview": "Detailed generation prompt (250-500 chars for musical, 50-150 for SFX)",
+      "prompt_preview": "Generation prompt (HARD LIMIT 450 chars for musical, 50-150 for SFX)",
       "est_credits": 3600
     }
   ]
@@ -1149,8 +1152,19 @@ The model reliably captures key — omitting it wastes the strongest lever you h
 - ALWAYS state TEMPO: a BPM number (e.g. "72 BPM") or, for beatless beds, an explicit time-feel \
 (e.g. "free-meter, no pulse"). The model follows BPM accurately.
 - These are INSTRUMENTAL soundscapes. Include the word "instrumental" and do NOT write lyrics, \
-vocal lines, or vocal-entry cues. (Wordless vocal PADS/textures used as an instrument are fine — \
-e.g. "wordless female vocal pad" — but never actual lyrics.)
+vocal lines, or vocal-entry cues. NO VOCAL CONTENT AT ALL — not even "wordless vocal pads" or choirs: \
+the music model's vocal synthesis reliably degrades into garbled, robotic artifacts mid-track. \
+Likewise avoid mechanical/machine descriptors ("air-handler hum", "metallic resonances", "machinery", \
+"pressurized hiss") — they invite the same robotic noises. Evoke air and space with INSTRUMENTS instead: \
+string harmonics, airy synth pads, bowed glass, soft flutes.
+- PROMPT BUDGET — HARD RULE: the model follows roughly the first 400-450 characters and dilutes after \
+that. Per prompt: ONE key, ONE tempo, 3-5 named instruments MAX, ONE sentence describing the arc, and \
+(if a known world) the world's name. Every extra clause STEALS attention from the ones that matter. \
+A tight 400-character prompt beats a lavish 900-character one every time.
+- FICTIONAL WORLDS ARE WELCOME: naming a fictional world, place, or work ("Dune", "Arrakis", \
+"Project Hail Mary", "Interstellar") is allowed, passes the API's checks, and strongly helps the model \
+evoke the right universe — include it when the user's idea references one. Only real artists, bands, \
+composers, and song/score titles are banned.
 - COPYRIGHT — HARD RULE: never name a real artist, band, or song in enhanced_prompt or prompt_preview \
 (e.g. NOT "like Hans Zimmer", NOT "Beatles-esque", NOT a real track title). The API REJECTS prompts that \
 name copyrighted material with a bad_prompt error. Describe what they DO musically instead \
@@ -1245,10 +1259,11 @@ Output ONLY valid JSON, no markdown fences."""
                                    for i, p in enumerate(exemplars))
             fewshot_block = (
                 "\n\nLEARN FROM THESE PROVEN-EXCELLENT PROMPTS — these are real prompts that produced "
-                "soundscapes the user marked as favorites. Match their LEVEL OF SPECIFICITY and STYLE: "
-                "explicit musical key, explicit tempo (BPM or time-feel), concretely named instruments, "
-                "and a clear sense of internal motion. Do NOT copy their content — write for the new idea — "
-                "but hit the same quality bar.\n\n" + examples
+                "soundscapes the user marked as favorites. Match their STYLE and DISCIPLINE: "
+                "explicit musical key, explicit tempo (BPM or time-feel), a FEW concretely named "
+                "instruments, and a clear sense of internal motion — all within the 450-character "
+                "budget. Do NOT copy their content — write for the new idea — and do NOT exceed "
+                "their length even if an example runs long.\n\n" + examples
             )
     except Exception as e:
         print(f"  [enhance] few-shot exemplars unavailable (non-fatal): {e}")
