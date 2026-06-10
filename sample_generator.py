@@ -430,6 +430,12 @@ class ElevenLabsSampleGenerator:
         except Exception as e:
             print(f"      [plan] authoring unavailable ({e}); generic plan", flush=True)
 
+        # Reaching here means neither a provided nor a Claude-authored plan
+        # materialized — we're using the generic time-chunked fallback, which is
+        # far blander than a real arrangement. Surface it instead of hiding it.
+        self._warn("Could not author a custom composition arrangement — used a generic "
+                   "time-chunked plan (much less musically evolving). Re-roll, or design "
+                   "the plan in the composition editor for full control.")
         section_ms = max(3000, min(120000, duration_ms))
         sections = []
         remaining = duration_ms
