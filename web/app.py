@@ -1113,6 +1113,15 @@ e.g. "wordless female vocal pad" — but never actual lyrics.)
 name copyrighted material with a bad_prompt error. Describe what they DO musically instead \
 (instruments, harmony, production), never who did it.
 
+EMOTIONAL PALETTE — LEAN WARM BY DEFAULT. Left to themselves, ambient prompts drift cold/dark/melancholy \
+(especially for space, desert, night, or ocean subjects). Counteract that: unless the user's idea explicitly \
+calls for darkness, menace, grief, or dread, choose the WARM reading — golden light, comfort, gentle hope, \
+quiet wonder. Concrete levers: prefer major modes and warm modal colors (Lydian, Mixolydian, Dorian with a \
+raised 6th feel) over minor-key gloom; warm timbres (nylon guitar, felt piano, wooden flutes, analog pads, \
+soft brass) over icy digital shimmer; describe light and warmth in the scene ("dawn glow", "sunlit", "ember-warm"). \
+Moody/deep pieces are still welcome when the idea calls for them — aim for roughly 6 in 10 warm/light, \
+4 in 10 dark/deep across varied ideas, not 2 in 10 warm.
+
 DESCRIBE INTERNAL MOTION QUALITATIVELY — NEVER WITH CLOCK TIMESTAMPS. \
 The music model generates from a freeform prompt + a target length; it has NO mechanism to place an event "at 2:30", \
 so written timestamps like "0:00-1:30" or "final 60s" are ignored and just waste prompt attention. \
