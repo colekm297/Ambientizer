@@ -976,11 +976,12 @@ def favorite_prompt_exemplars(mode: str = "musical", max_n: int = 3) -> list:
                                             "organ", "duduk", "synth", "pad", "choir", "harp")):
                 score += 1
             scored.append((score, len(p), p))
-    # Best score first; then prefer prompts near the proven sweet spot (~300-500
-    # chars). Longest-wins was a mistake: it taught Enhance to write 1,000-char
-    # walls that ElevenLabs can't follow — favorites in the 300-500 range are
-    # the actual bangers.
-    scored.sort(key=lambda t: (t[0], -abs(t[1] - 400)), reverse=True)
+    # Best score first; then prefer prompts near the user's PROVEN banger length
+    # (~1000 chars — measured across their favorites' main musical prompts, which
+    # run 600-1200c). Earlier I mistakenly capped this at ~400c after miscounting
+    # tiny SFX sub-layers as the norm; that starved prompts and produced
+    # monotonous output. The rich ~1000c prompts are the actual bangers.
+    scored.sort(key=lambda t: (t[0], -abs(t[1] - 1000)), reverse=True)
     out, seen = [], set()
     for _, _, p in scored:
         sig = p[:60].lower()
@@ -1153,7 +1154,7 @@ OUTPUT FORMAT: Return a JSON object with:
       "role": "Main Music" or "Atmosphere" or "Texture" etc.,
       "type": "musical" or "base" or "mid" or "detail",
       "instruments": ["instrument1", "instrument2"],
-      "prompt_preview": "Generation prompt (HARD LIMIT 450 chars for musical, 50-150 for SFX)",
+      "prompt_preview": "Rich generation prompt (aim ~700-1100 chars for musical, 50-150 for SFX)",
       "est_credits": 3600
     }
   ]
@@ -1175,10 +1176,13 @@ the music model's vocal synthesis reliably degrades into garbled, robotic artifa
 Likewise avoid mechanical/machine descriptors ("air-handler hum", "metallic resonances", "machinery", \
 "pressurized hiss") — they invite the same robotic noises. Evoke air and space with INSTRUMENTS instead: \
 string harmonics, airy synth pads, bowed glass, soft flutes.
-- PROMPT BUDGET — HARD RULE: the model follows roughly the first 400-450 characters and dilutes after \
-that. Per prompt: ONE key, ONE tempo, 3-5 named instruments MAX, ONE sentence describing the arc, and \
-(if a known world) the world's name. Every extra clause STEALS attention from the ones that matter. \
-A tight 400-character prompt beats a lavish 900-character one every time.
+- PROMPT RICHNESS — aim for roughly 700-1100 characters for the musical prompt (the proven sweet spot \
+of the user's best work; do not pad past ~1200). Always include: ONE key/mode, ONE tempo (BPM or \
+free-meter), 4-7 concretely named instruments with a little detail about what each DOES (texture, \
+register, articulation), and (if a known world) the world's name. Then describe the internal motion \
+and how the piece evolves — give it real development, not one static idea. A vivid, specific, \
+instrument-rich prompt is what produces an interesting result; a thin 400-character sketch generates \
+monotonous wallpaper. Be detailed and musical, like a composer's working brief.
 - FICTIONAL WORLDS ARE WELCOME: naming a fictional world, place, or work ("Dune", "Arrakis", \
 "Project Hail Mary", "Interstellar") is allowed, passes the API's checks, and strongly helps the model \
 evoke the right universe — include it when the user's idea references one. Only real artists, bands, \
