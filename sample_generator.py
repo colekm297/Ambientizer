@@ -510,6 +510,46 @@ class ElevenLabsSampleGenerator:
             "sections": sections,
         }
 
+    # Words that nudge the music model into synthesizing voice — which, without
+    # force_instrumental (REJECTED alongside composition_plan), degrades into
+    # garbled robotic vocal artifacts mid-track. Stripped from every plan style
+    # right before the API call, and hard negatives are always merged in.
+    _VOCALISH_WORDS = ("breathy", "breath", "sighing", "sigh", "whisper", "humming",
+                       "hum", "throat", "chant", "moan", "wordless", "choir",
+                       "vocal-like", "voice-like")
+    _FORCED_NEGATIVES = ("vocals", "spoken word", "singing", "robotic vocal artifacts")
+
+    def _sanitize_plan_vocals(self, plan: dict) -> dict:
+        """Scrub voice-suggesting adjectives from plan styles and force no-vocal
+        negatives — the composition-plan path's substitute for force_instrumental."""
+        import re as _re
+        scrubbed = 0
+
+        def clean_list(styles):
+            nonlocal scrubbed
+            out = []
+            for s in styles or []:
+                orig = s
+                for w in self._VOCALISH_WORDS:
+                    s = _re.sub(rf"\b{w}\b", "soft", s, flags=_re.IGNORECASE)
+                if s != orig:
+                    scrubbed += 1
+                out.append(s)
+            return out
+
+        plan["positive_global_styles"] = clean_list(plan.get("positive_global_styles"))
+        for sec in plan.get("sections", []):
+            sec["positive_local_styles"] = clean_list(sec.get("positive_local_styles"))
+
+        negs = [n.lower() for n in (plan.get("negative_global_styles") or [])]
+        for needed in self._FORCED_NEGATIVES:
+            if needed not in negs:
+                plan.setdefault("negative_global_styles", []).append(needed)
+        if scrubbed:
+            self._warn(f"Softened {scrubbed} voice-suggesting term(s) in the composition plan "
+                       "(e.g. 'breathy') — these cause robotic vocal artifacts mid-track.")
+        return plan
+
     def _generate_music_composition_plan(self, name: str, prompt: str, duration: float, wav_path: str, cache_key: str,
                                           provided_plan: dict = None, root_key: str = "", mood: str = "") -> str:
         """Generate via Music v1 API using a structured composition_plan."""
@@ -518,6 +558,7 @@ class ElevenLabsSampleGenerator:
         plan = self._build_ambient_composition_plan(
             prompt, duration_ms, root_key=root_key, mood=mood, provided_plan=provided_plan
         )
+        plan = self._sanitize_plan_vocals(plan)
 
         print(f"      🎼 Generating Music Plan: {name} ({duration_ms / 1000:.0f}s, {len(plan['sections'])} section(s))")
         print(f"         Prompt: {prompt[:80]}...")
