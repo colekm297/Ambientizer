@@ -114,8 +114,18 @@
                                 <button id="btn-show-saved" class="btn btn-show-saved" title="Load a saved prompt">Saved</button>
                             </div>
                         </div>
-                        <textarea id="prompt" class="prompt-main"
-                            placeholder="Describe your soundscape — e.g., Project Hail Mary deep space, cozy rainy cafe at midnight, Blade Runner rooftop..."></textarea>
+                        <div id="prompt-card" class="prompt-card">
+                            <div class="prompt-card-header">
+                                <span class="prompt-card-icon">🎵</span>
+                                <input id="song-title" class="prompt-card-title" placeholder="Untitled — Enhance &amp; Plan names it for you" maxlength="60" autocomplete="off">
+                                <span id="prompt-cost" class="prompt-card-cost"></span>
+                            </div>
+                            <div id="prompt-chips" class="prompt-card-instruments">
+                                <input id="prompt-add-inst" class="plan-add-inst" placeholder="+ instrument" size="12">
+                            </div>
+                            <textarea id="prompt" class="prompt-main"
+                                placeholder="Describe your soundscape — e.g., Project Hail Mary deep space, cozy rainy cafe at midnight, Blade Runner rooftop..."></textarea>
+                        </div>
                         <div class="prompt-tools">
                             <button id="btn-enhance-prompt" class="btn btn-enhance" title="Research your idea, rewrite it into a richer prompt — and design the composition timeline when Composition plan is selected">✦ Enhance &amp; Plan</button>
                             <div id="enhance-style-toggle" class="enhance-style-toggle" role="group" aria-label="Enhance style">
