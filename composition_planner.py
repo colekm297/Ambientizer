@@ -113,9 +113,14 @@ def author_composition_plan(
     mood: str = "",
     anthropic_key: Optional[str] = None,
     model: str = "claude-sonnet-4-6",
+    style_examples: Optional[list] = None,
 ) -> Optional[dict]:
     """Have Claude author an evolving ambient composition plan. Returns a validated
-    ElevenLabs composition_plan dict, or None (caller falls back to the generic plan)."""
+    ElevenLabs composition_plan dict, or None (caller falls back to the generic plan).
+
+    style_examples: optional list of proven-excellent prompt strings (the user's
+    favorited generations) used as few-shot guidance so the arrangement inherits
+    the specificity/instrumentation that has worked before."""
     anthropic_key = anthropic_key or os.environ.get("ANTHROPIC_API_KEY")
     if not anthropic_key:
         return None
@@ -125,8 +130,16 @@ def author_composition_plan(
         client = Anthropic(api_key=anthropic_key)
         key_bit = f"\nKEY: {root_key}" if root_key else ""
         mood_bit = f"\nMOOD: {mood}" if mood else ""
+        examples_bit = ""
+        if style_examples:
+            joined = "\n\n".join(f'- "{e}"' for e in style_examples[:3])
+            examples_bit = (
+                "\n\nPROVEN-EXCELLENT REFERENCE PROMPTS (the user favorited soundscapes built "
+                "from these — match their level of instrumentation detail and clarity, do NOT "
+                f"copy their content):\n{joined}"
+            )
         user = (
-            f"BRIEF: {prompt}{key_bit}{mood_bit}\n"
+            f"BRIEF: {prompt}{key_bit}{mood_bit}{examples_bit}\n"
             f"TOTAL LENGTH: {duration_ms / 1000:.0f} seconds.\n"
             "Write the composition plan now. Keep style lists concise so the JSON is complete."
         )

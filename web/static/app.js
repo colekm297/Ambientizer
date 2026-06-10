@@ -1000,13 +1000,33 @@
         genBody.reference_analysis = _lastRefAnalysis;
       }
       console.log("[Generate] Sending:", JSON.stringify({mode: genBody.mode, approach: genBody.approach, planner_mode: genBody.planner_mode, music_generation_mode: genBody.music_generation_mode, stem_separation: genBody.stem_separation, has_plan: !!genBody.layer_plan, use_reference: !!genBody.reference_url, has_reference_analysis: !!genBody.reference_analysis}));
-      const res = await fetch("/api/generate", {
+      let res = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(genBody),
       });
 
-      const data = await res.json();
+      let data = await res.json();
+
+      // Copyright pre-flight (raw mode): warn BEFORE any credits are spent.
+      if (res.status === 409 && data.preflight === "copyright") {
+        const proceed = window.confirm(
+          "⚠ Copyright check\n\n" + data.message +
+          "\n\nClick OK to generate anyway (auto-sanitized), or Cancel to edit the prompt."
+        );
+        if (!proceed) {
+          showError("Generation canceled — edit out: " + (data.terms || []).join(", "));
+          return;
+        }
+        genBody.force_copyright = true;
+        res = await fetch("/api/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(genBody),
+        });
+        data = await res.json();
+      }
+
       if (data.error) {
         showError(data.error);
         return;

@@ -936,6 +936,58 @@ Output ONLY the prompt text, nothing else.""",
     })
 
 
+def favorite_prompt_exemplars(mode: str = "musical", max_n: int = 3) -> list:
+    """Pull the actual elevenlabs_prompt text from FAVORITED jobs to use as
+    few-shot examples — the user's own confirmed 'bangers'. We prefer prompts
+    that exhibit the proven banger pattern (explicit key + tempo + named
+    instruments), and pick diverse ones. Returns a list of prompt strings.
+
+    This is what makes Enhance learn from what already works: as the user stars
+    more good generations, the examples improve automatically. Cheap enough to
+    read on demand (enhance is user-initiated, not a hot path)."""
+    import re
+    want_musical = (mode == "musical")
+    scored = []
+    for path in JOBS_DIR.glob("*.json"):
+        try:
+            with open(path) as f:
+                d = json.load(f)
+        except Exception:
+            continue
+        if not d.get("favorite"):
+            continue
+        cfg = d.get("config") or {}
+        for layer in cfg.get("layers", []):
+            if want_musical and layer.get("layer_type") != "musical":
+                continue
+            p = (layer.get("elevenlabs_prompt") or "").strip()
+            if len(p) < 80:
+                continue
+            # Score by banger signals: has a key, a BPM/tempo, and named instruments.
+            low = p.lower()
+            score = 0
+            if re.search(r"\b[a-g](b|#|\s|-)?\s?(major|minor|dorian|phrygian|lydian|aeolian|mixolydian)\b", low):
+                score += 2
+            if re.search(r"\b\d{2,3}\s?bpm\b", low) or "free-meter" in low or "no pulse" in low:
+                score += 2
+            if any(inst in low for inst in ("cello", "piano", "flute", "horn", "strings",
+                                            "organ", "duduk", "synth", "pad", "choir", "harp")):
+                score += 1
+            scored.append((score, len(p), p))
+    # Best score first; then prefer the more detailed (longer) prompt. De-dup.
+    scored.sort(key=lambda t: (t[0], t[1]), reverse=True)
+    out, seen = [], set()
+    for _, _, p in scored:
+        sig = p[:60].lower()
+        if sig in seen:
+            continue
+        seen.add(sig)
+        out.append(p)
+        if len(out) >= max_n:
+            break
+    return out
+
+
 @app.route("/api/enhance-prompt", methods=["POST"])
 def enhance_prompt():
     """
@@ -1129,12 +1181,32 @@ Output ONLY valid JSON, no markdown fences."""
             "discrete events, no functional cadences — modal breathing only.'"
         )
 
+    # Few-shot from the user's OWN favorited generations — show Claude the shape
+    # of prompts that have actually produced bangers, so new prompts inherit that
+    # specificity (explicit key, tempo, named instruments). Falls back silently
+    # to none if there are no favorites yet.
+    fewshot_block = ""
+    try:
+        exemplars = favorite_prompt_exemplars(mode=mode, max_n=3)
+        if exemplars:
+            examples = "\n\n".join(f'EXAMPLE {i+1} (proven excellent):\n"{p}"'
+                                   for i, p in enumerate(exemplars))
+            fewshot_block = (
+                "\n\nLEARN FROM THESE PROVEN-EXCELLENT PROMPTS — these are real prompts that produced "
+                "soundscapes the user marked as favorites. Match their LEVEL OF SPECIFICITY and STYLE: "
+                "explicit musical key, explicit tempo (BPM or time-feel), concretely named instruments, "
+                "and a clear sense of internal motion. Do NOT copy their content — write for the new idea — "
+                "but hit the same quality bar.\n\n" + examples
+            )
+    except Exception as e:
+        print(f"  [enhance] few-shot exemplars unavailable (non-fatal): {e}")
+
     @retry_with_backoff(max_retries=3, base_delay=2.0, retryable_check=is_transient_api_error)
     def _call_enhance():
         return client.messages.create(
             model="claude-opus-4-7",
             max_tokens=1200,
-            system=ENHANCE_SYSTEM + style_addendum,
+            system=ENHANCE_SYSTEM + style_addendum + fewshot_block,
             messages=[{
                 "role": "user",
                 "content": f"""Create a {mode} soundscape from this idea:
@@ -1187,14 +1259,67 @@ def api_compose_plan():
     mood = data.get("mood", "") or ""
 
     from composition_planner import author_composition_plan, clamp_plan_sections
+    try:
+        plan_examples = favorite_prompt_exemplars(mode="musical", max_n=3)
+    except Exception:
+        plan_examples = None
     plan = author_composition_plan(prompt, duration_ms, root_key=root_key, mood=mood,
-                                   anthropic_key=anthropic_key)
+                                   anthropic_key=anthropic_key, style_examples=plan_examples)
     # Clamp to ElevenLabs' 120s/section cap up front so the timeline the user
     # sees and edits is exactly what gets generated (what-you-see-is-what-generates).
     plan = clamp_plan_sections(plan)
     if not plan or not plan.get("sections"):
         return jsonify({"error": "Could not author a composition plan"}), 500
     return jsonify({"composition_plan": plan, "total_ms": duration_ms})
+
+
+# ── Copyright pre-flight ──────────────────────────────────────────────────────
+# ElevenLabs Music rejects prompts that name copyrighted MUSIC — real artists,
+# bands, composers, or song/score titles — with a bad_prompt error. In RAW mode
+# the prompt is sent verbatim, so these get rejected AFTER credits are reserved
+# and the layer degrades to an 8s SFX. We scan for them BEFORE spending anything.
+#
+# We deliberately do NOT flag fictional worlds/franchises (Dune, Arrakis, Project
+# Hail Mary) — those are trademarks, not copyrighted music, and appear to pass.
+# Only real people/bands/songs are high-confidence triggers. Edit COPYRIGHT_NAMES
+# to tune. Non-raw modes are unaffected: the interpreter rewords names itself.
+COPYRIGHT_NAMES = frozenset({
+    "hans zimmer", "john williams", "howard shore", "ennio morricone", "vangelis",
+    "ludwig goransson", "ludwig göransson", "daniel pemberton", "trent reznor",
+    "atticus ross", "johann johannsson", "jóhann jóhannsson", "max richter",
+    "olafur arnalds", "ólafur arnalds", "nils frahm", "brian eno", "aphex twin",
+    "boards of canada", "stars of the lid", "tim hecker", "grouper", "william basinski",
+    "sigur ros", "sigur rós", "thomas newman", "james horner", "clint mansell",
+    "ramin djawadi", "junkie xl", "tom holkenborg", "hildur gudnadottir",
+    "hildur guðnadóttir", "jerry goldsmith", "bernard herrmann", "philip glass",
+    "steve reich", "jon hopkins", "tycho", "bonobo", "hammock", "loscil", "biosphere",
+    "ryuichi sakamoto", "joe hisaishi", "yann tiersen", "moby", "burial", "four tet",
+})
+
+# Phrases that almost always introduce an artist/style reference, whatever name
+# follows. Catches names not in the curated list above.
+_COPYRIGHT_PHRASES = ("in the style of", "in the vein of", "-esque", "esque",
+                      "à la ", "a la ", "homage to", "tribute to")
+
+
+def scan_copyright_risks(text: str) -> list:
+    """Return a list of copyrighted-music references found in the text
+    (real artists/bands/composers/song titles). Empty list = clean."""
+    low = (text or "").lower()
+    found = []
+    for name in COPYRIGHT_NAMES:
+        if name in low:
+            found.append(name.title())
+    for phrase in _COPYRIGHT_PHRASES:
+        if phrase in low:
+            found.append(phrase.strip())
+    # De-dup, preserve order.
+    seen, out = set(), []
+    for f in found:
+        if f.lower() not in seen:
+            seen.add(f.lower())
+            out.append(f)
+    return out
 
 
 @app.route("/api/generate", methods=["POST"])
@@ -1204,6 +1329,23 @@ def api_generate():
     prompt = data.get("prompt", "").strip()
     if not prompt:
         return jsonify({"error": "prompt is required"}), 400
+
+    # RAW mode sends the prompt verbatim to ElevenLabs. Block before any spend if
+    # it names copyrighted music, unless the user has explicitly chosen to proceed.
+    is_raw = data.get("planner_mode") == "raw"
+    if is_raw and not data.get("force_copyright"):
+        risks = scan_copyright_risks(prompt)
+        if risks:
+            return jsonify({
+                "preflight": "copyright",
+                "terms": risks,
+                "message": (
+                    "Your raw prompt names copyrighted music ("
+                    + ", ".join(risks) +
+                    "). ElevenLabs will likely reject it. Remove the name(s), or "
+                    "generate anyway and we'll auto-retry with a sanitized rewrite."
+                ),
+            }), 409
 
     duration = float(data.get("duration", 5.0))
     music_length = float(data.get("music_length", 0))
