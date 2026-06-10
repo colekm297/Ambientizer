@@ -2751,6 +2751,35 @@ audio::-webkit-media-controls-panel {
 .ai-score-bar.bar-ok   { background: var(--warning); }
 .ai-score-bar.bar-bad  { background: var(--error); }
 
+.ai-feedback-character {
+    font-size: 0.9rem;
+    font-style: italic;
+    color: var(--text-secondary);
+    margin: 4px 0 8px;
+}
+
+.ai-feedback-subscores {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 10px;
+}
+
+.ai-subscore {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    padding: 3px 9px;
+    background: var(--bg-primary);
+    border-radius: 12px;
+    border: 1px solid transparent;
+}
+
+.ai-subscore b { color: var(--text-primary); }
+.ai-subscore.sub-good    { border-color: var(--success); }
+.ai-subscore.sub-ok      { border-color: var(--warning); }
+.ai-subscore.sub-bad     { border-color: var(--error); }
+.ai-subscore.sub-neutral { border-color: var(--accent, #7aa2f7); }
+
 .ai-feedback-notes {
     list-style: none;
     display: flex;

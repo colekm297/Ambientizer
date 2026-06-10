@@ -2812,6 +2812,32 @@
         aiScoreBar.style.width = (score * 10) + "%";
         aiScoreBar.className = "ai-score-bar " + (score >= 7 ? "bar-good" : score >= 4 ? "bar-ok" : "bar-bad");
         aiFeedbackNotes.innerHTML = (data.notes || []).map(n => `<li>${escapeHtml(n)}</li>`).join("");
+        const charEl = document.getElementById("ai-feedback-character");
+        if (charEl) {
+          if (data.character) {
+            charEl.textContent = `“${data.character}”`;
+            charEl.classList.remove("hidden");
+          } else {
+            charEl.classList.add("hidden");
+          }
+        }
+        const subsEl = document.getElementById("ai-feedback-subscores");
+        if (subsEl) {
+          const LABELS = {
+            dynamics: "Dynamics", instrumentation: "Instrumentation",
+            warmth: "Warmth ↔ Dark", ear_comfort: "Ear Comfort",
+            texture_realism: "Texture Realism", space: "Space",
+          };
+          const subs = data.subscores || {};
+          subsEl.innerHTML = Object.keys(LABELS)
+            .filter(k => subs[k] != null)
+            .map(k => {
+              // Warmth is an axis (measurement), not good/bad — render neutral.
+              const cls = k === "warmth" ? "sub-neutral"
+                : subs[k] >= 7 ? "sub-good" : subs[k] >= 4 ? "sub-ok" : "sub-bad";
+              return `<span class="ai-subscore ${cls}">${LABELS[k]} <b>${subs[k]}</b></span>`;
+            }).join("");
+        }
         aiFeedbackResult.classList.remove("hidden");
       }
     } catch (err) {

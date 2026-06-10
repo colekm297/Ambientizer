@@ -2136,13 +2136,25 @@ def ai_feedback(job_id: str):
         genai.configure(api_key=gemini_key)
         model = genai.GenerativeModel("gemini-2.5-flash")
 
-        MAX_FEEDBACK_SEC = 120
-        snippet = AudioSegment.from_file(audio_path)
-        if len(snippet) > MAX_FEEDBACK_SEC * 1000:
-            snippet = snippet[:MAX_FEEDBACK_SEC * 1000]
+        # Listen through (at least) the FIRST FULL LOOP — the generated source is
+        # ~10 minutes and the rendered file just repeats it, so the first loop IS
+        # the whole composition. Grading only the first 2 minutes made it
+        # impossible to judge dynamics/evolution. Sent as 128kbps stereo MP3 to
+        # stay under Gemini's inline-payload limit (10 min WAV would be ~100MB).
+        LOOP_SEC = 11 * 60
+        full = AudioSegment.from_file(audio_path)
+        snippet = full[:LOOP_SEC * 1000]
+        montage_note = ""
+        if len(full) > LOOP_SEC * 1000:
+            montage_note = (
+                "\nNOTE ON THE AUDIO: you are hearing the FIRST FULL LOOP of a "
+                "longer track (the rest is the same material repeating). Judge the "
+                "complete arc — opening, development, and how it returns for the "
+                "loop point."
+            )
         import io
         buf = io.BytesIO()
-        snippet.export(buf, format="wav")
+        snippet.export(buf, format="mp3", bitrate="128k")
         audio_data = buf.getvalue()
 
         config = job.get("config")
@@ -2151,6 +2163,7 @@ def ai_feedback(job_id: str):
 
         critique_prompt = f"""You are an expert audio producer reviewing an AI-generated {mode} soundscape.
 The intended description: "{prompt_desc}"
+This is long-form ambient music for background listening (study/work/sleep) — people may leave it on for hours.{montage_note}
 
 Listen to this audio and provide:
 
@@ -2161,17 +2174,52 @@ Listen to this audio and provide:
    - 8-9: Very good (professional quality, immersive)
    - 10: Exceptional
 
-2. **Notes**: 3-5 specific, actionable observations. Cover:
+2. **Subscores** (each 1-10) — rate how a human listener would actually experience it:
+   - "dynamics": Does the piece GO somewhere? Internal movement, rises and releases,
+     density shifts, elements entering and leaving. 1-3 = static wallpaper that never
+     changes; 8-10 = a clear arc you can feel even at low attention.
+   - "instrumentation": Depth and variety of voices. 1-3 = one or two instruments
+     droning the whole time; 8-10 = a rich, layered palette where distinct instruments
+     share the space and trade focus.
+   - "warmth": The emotional temperature AXIS — 1 = cold/dark/heavy/sorrowful,
+     10 = warm/light/comforting/hopeful. This is a MEASUREMENT, not automatically a
+     quality judgment — but if the piece reads notably darker or sadder than the
+     intended description calls for, say so in the notes and reflect it in the
+     overall score.
+   - "ear_comfort": Fatigue over hours. Harsh 2-5kHz content, piercing sustained
+     tones, abrasive textures, startling moments all lower this. 8-10 = could play
+     all day without grating.
+   - "texture_realism": Do environmental textures (rain, wind, crickets, water,
+     machinery) sound organic and alive, or artificial/looped/synthetic?
+     If there are no environmental textures, judge the naturalness of the
+     instrument timbres instead.
+   - "space": Stereo width and sense of place. Do the layers share one coherent
+     acoustic space (cohesive reverb, good depth), or sound like separate files
+     stacked together?
+
+   Weighting guidance for the overall score: dynamics and ear_comfort matter most
+   for long-form listening; a static piece caps around 6 overall no matter how
+   pretty the sound is.
+
+3. **Character**: one short phrase describing the emotional read of the piece
+   (e.g. "warm dawn optimism", "vast lonely cold", "cozy melancholy").
+
+4. **Notes**: 3-5 specific, actionable observations. Cover:
    - Does it match the intended mood/description?
+   - Whether it evolves or stagnates (cite where you hear it: opening/middle/ending)
    - Layer balance and mixing quality
    - Any harsh, unpleasant, or out-of-place sounds
    - Suggestions for improvement
 
 Respond in this exact JSON format:
-{{"score": <number 1-10>, "notes": ["note 1", "note 2", "note 3"]}}"""
+{{"score": <number 1-10>,
+  "subscores": {{"dynamics": <1-10>, "instrumentation": <1-10>, "warmth": <1-10>,
+                "ear_comfort": <1-10>, "texture_realism": <1-10>, "space": <1-10>}},
+  "character": "short phrase",
+  "notes": ["note 1", "note 2", "note 3"]}}"""
 
         response = model.generate_content(
-            [critique_prompt, {"mime_type": "audio/wav", "data": audio_data}],
+            [critique_prompt, {"mime_type": "audio/mp3", "data": audio_data}],
         )
 
         text = response.text.strip()
@@ -2184,8 +2232,21 @@ Respond in this exact JSON format:
         result = json.loads(text)
         score = max(1, min(10, int(result.get("score", 5))))
         notes = result.get("notes", [])
+        raw_subs = result.get("subscores") or {}
+        subscores = {}
+        for k in ("dynamics", "instrumentation", "warmth", "ear_comfort",
+                  "texture_realism", "space"):
+            try:
+                subscores[k] = max(1, min(10, int(raw_subs.get(k))))
+            except (TypeError, ValueError):
+                pass
 
-        return jsonify({"score": score, "notes": notes})
+        return jsonify({
+            "score": score,
+            "notes": notes,
+            "subscores": subscores,
+            "character": (result.get("character") or "").strip(),
+        })
 
     except Exception as e:
         return jsonify({"error": f"AI feedback failed: {e}"}), 500
