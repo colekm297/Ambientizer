@@ -605,7 +605,10 @@ class ElevenLabsSampleGenerator:
         if layer_type == LayerType.MUSICAL:
             if music_length_sec > 0:
                 return min(music_length_sec, HARD_MAX_MUSIC_SEC)
-            return 30.0
+            # No explicit length → generate a full 10-min source instead of a 30s
+            # clip looped 40×. Long-source = far less repetition; matches what the
+            # favorited "banger" tracks use (600s) and what the UI now defaults to.
+            return HARD_MAX_MUSIC_SEC
 
         durations = {
             LayerType.BASE: 8.0,

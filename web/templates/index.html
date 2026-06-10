@@ -67,8 +67,8 @@
                                 <option value="1">1 min</option>
                                 <option value="2">2 min</option>
                                 <option value="3">3 min</option>
-                                <option value="5" selected>5 min</option>
-                                <option value="10">10 min (max)</option>
+                                <option value="5">5 min</option>
+                                <option value="10" selected>10 min (max)</option>
                             </select>
                             <span class="form-hint">Unique audio before it seamlessly loops. Final length is set on Export.</span>
                         </div>
@@ -123,6 +123,9 @@
                                 <button type="button" class="enhance-style-btn" data-style="score" title="Capture the harmonic DNA of the score — key/mode, chord progression, tempo, characteristic instruments. No lore, no vague producer language.">Music DNA</button>
                             </div>
                             <span id="enhance-status" class="enhance-status"></span>
+                            <label class="raw-mode-toggle" title="Send your typed prompt to ElevenLabs VERBATIM — no theme interpretation, no arrangement rewriting. Use it to see exactly what the model does with your words.">
+                                <input type="checkbox" id="raw-mode"> Raw (no interpretation)
+                            </label>
                         </div>
                         <div id="saved-prompts-dropdown" class="saved-prompts-dropdown hidden">
                             <div id="saved-prompts-list" class="saved-prompts-list"></div>
