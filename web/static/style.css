@@ -3928,6 +3928,69 @@ audio::-webkit-media-controls-panel {
     overflow: hidden;
     resize: none;
 }
+
+/* The ONE prompt card: title + instrument chips + text, always present.
+   Enhance & Plan fills these same fields in place. */
+.prompt-card {
+    background: var(--surface-alt, var(--bg-secondary));
+    border: 1px solid var(--border);
+    border-radius: var(--radius, 10px);
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.prompt-card .prompt-main {
+    width: 100%;
+    background: transparent;
+    border: none;
+    outline: none;
+    padding: 0;
+    min-height: 150px;
+}
+
+.prompt-card-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.prompt-card-icon { font-size: 1.05rem; }
+
+.prompt-card-title {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text-primary);
+    font-size: 1.05rem;
+    font-weight: 600;
+}
+
+.prompt-card-title::placeholder {
+    color: var(--text-muted);
+    font-weight: 400;
+}
+
+.prompt-card-cost {
+    font-family: var(--mono, monospace);
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.prompt-card-instruments {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+}
+
+.btn-stop-enhance {
+    background: var(--error, #e5484d) !important;
+    color: #fff !important;
+}
 .prompt-tools { margin-top: 0; }
 
 /* Generate column card */

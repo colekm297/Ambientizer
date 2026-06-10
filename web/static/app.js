@@ -536,7 +536,9 @@
   function newSong() {
     promptEl.value = "";
     window._enhancedPrompt = null;
-    promptEl.classList.remove("hidden");
+    const titleEl = document.getElementById("song-title");
+    if (titleEl) titleEl.value = "";
+    document.querySelectorAll("#prompt-chips .plan-chip").forEach(c => c.remove());
     if (planPreview) { planPreview.classList.add("hidden"); planPreview.innerHTML = ""; }
     currentLayerPlan = null;
     _autogrowPrompt();
@@ -741,20 +743,116 @@
   });
   const planPreview = document.getElementById("plan-preview");
 
+  // ── The ONE prompt card ──────────────────────────────────────────────
+  // Title + instrument chips + text live in a single static card that exists
+  // from page load. Enhance & Plan fills the SAME fields in place — the box
+  // never changes shape. Extra layers (ambient multi-layer mode) render as
+  // secondary cards in #plan-preview below.
+  const songTitleEl = document.getElementById("song-title");
+  const promptChipsEl = document.getElementById("prompt-chips");
+  const promptAddInstEl = document.getElementById("prompt-add-inst");
+  const promptCostEl = document.getElementById("prompt-cost");
+  const _escHtml = s => (s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+
+  function getCardInstruments() {
+    return [...promptChipsEl.querySelectorAll(".plan-chip")].map(c => c.dataset.inst);
+  }
+
+  function _renderCardChips(instruments) {
+    promptChipsEl.querySelectorAll(".plan-chip").forEach(c => c.remove());
+    (instruments || []).forEach(inst => {
+      const chip = document.createElement("span");
+      chip.className = "plan-chip";
+      chip.dataset.inst = inst;
+      chip.innerHTML = `${_escHtml(inst)} <button class="plan-chip-x">&times;</button>`;
+      chip.querySelector(".plan-chip-x").addEventListener("click", () => {
+        chip.remove();
+        _syncCardToPlan();
+      });
+      promptChipsEl.insertBefore(chip, promptAddInstEl);
+    });
+  }
+
+  function _updateCardCost() {
+    const c = _getCreditCosts();
+    promptCostEl.textContent = currentMode === "musical"
+      ? _costLabel(c.perMusic, " · ") : _costLabel(c.perSfx * 3, " · ");
+  }
+
+  // Keep currentLayerPlan[0] mirrored to the card at all times.
+  function _syncCardToPlan() {
+    if (!currentLayerPlan || !currentLayerPlan.length) return;
+    const l = currentLayerPlan[0];
+    l.name = songTitleEl.value.trim() || l.name || "Main Music";
+    l.instruments = getCardInstruments();
+    l.prompt_preview = promptEl.value;
+  }
+
+  // Build a plan from the card even if Enhance was never pressed, so manually
+  // added title/instruments still reach generation (and the verbatim lock).
+  function _ensurePlanFromCard() {
+    if (currentLayerPlan && currentLayerPlan.length) { _syncCardToPlan(); return; }
+    const title = songTitleEl.value.trim();
+    const instruments = getCardInstruments();
+    if (!title && !instruments.length) return; // plain-text legacy path
+    const c = _getCreditCosts();
+    currentLayerPlan = [{
+      name: title || "Main Music",
+      role: "Main Music",
+      type: currentMode === "musical" ? "musical" : "base",
+      instruments,
+      prompt_preview: promptEl.value.trim(),
+      est_credits: c.perMusic,
+    }];
+  }
+
+  songTitleEl?.addEventListener("change", _syncCardToPlan);
+  promptEl?.addEventListener("change", _syncCardToPlan);
+  musicLengthEl?.addEventListener("change", _updateCardCost);
+  modeButtons.forEach(b => b.addEventListener("click", () => setTimeout(_updateCardCost, 0)));
+  promptAddInstEl?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && promptAddInstEl.value.trim()) {
+      e.preventDefault();
+      _renderCardChips([...getCardInstruments(), promptAddInstEl.value.trim()]);
+      promptAddInstEl.value = "";
+      _syncCardToPlan();
+    }
+  });
+  _updateCardCost();
+
   function _renderPlanPreview(layers) {
     if (!layers || !layers.length) {
       planPreview.classList.add("hidden");
+      planPreview.innerHTML = "";
       currentLayerPlan = null;
       return;
     }
     currentLayerPlan = layers;
-    const esc = s => (s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+
+    // Layer 0 fills the static card IN PLACE — same box, now enriched.
+    const main = layers[0];
+    songTitleEl.value = main.name || "";
+    _renderCardChips(main.instruments || []);
+    if (main.prompt_preview) promptEl.value = main.prompt_preview;
+    _autogrowPrompt();
+    _updateCardCost();
+
+    // Secondary layers (ambient / multi-layer mode) render as compact cards
+    // below; in unified mode there are none and the panel stays hidden.
+    const extras = layers.slice(1);
+    if (!extras.length) {
+      planPreview.classList.add("hidden");
+      planPreview.innerHTML = "";
+      return;
+    }
+    const esc = _escHtml;
     const typeIcons = { musical: "\u{1F3B5}", base: "\u{1F30A}", mid: "\u{1F33F}", detail: "\u2728" };
 
     let totalCost = 0;
-    let html = '<div class="plan-header"><span class="plan-title">Prompt</span><span class="plan-subtitle">sent to ElevenLabs verbatim — edit freely</span><button id="btn-clear-plan" class="plan-clear-btn" title="Back to your original idea">&times;</button></div>';
+    let html = '<div class="plan-header"><span class="plan-title">More layers</span></div>';
     html += '<div class="plan-cards">';
-    layers.forEach((l, i) => {
+    extras.forEach((l, k) => {
+      const i = k + 1; // absolute index into currentLayerPlan
       totalCost += l.est_credits || 0;
       const icon = typeIcons[l.type] || "\u{1F50A}";
       const chips = (l.instruments || []).map(inst =>
@@ -782,16 +880,6 @@
     </div>`;
     planPreview.innerHTML = html;
     planPreview.classList.remove("hidden");
-    // The plan card IS the prompt now — swap the plain textarea out while a
-    // plan exists so there's exactly ONE editable artifact on screen.
-    promptEl?.classList.add("hidden");
-
-    planPreview.querySelector("#btn-clear-plan")?.addEventListener("click", () => {
-      currentLayerPlan = null;
-      planPreview.classList.add("hidden");
-      promptEl?.classList.remove("hidden");
-      _autogrowPrompt();
-    });
 
     planPreview.querySelectorAll(".plan-card-remove").forEach(btn => {
       btn.addEventListener("click", () => {
@@ -838,12 +926,16 @@
     });
   }
 
+  let _enhanceAbort = null;
   btnEnhancePrompt.addEventListener("click", async () => {
+    // Second click while researching = stop.
+    if (_enhanceAbort) { _enhanceAbort.abort(); return; }
     const raw = promptEl.value.trim();
     if (!raw) { promptEl.focus(); return; }
 
-    btnEnhancePrompt.disabled = true;
-    btnEnhancePrompt.textContent = "Researching...";
+    _enhanceAbort = new AbortController();
+    btnEnhancePrompt.textContent = "■ Stop";
+    btnEnhancePrompt.classList.add("btn-stop-enhance");
     enhanceStatus.textContent = currentEnhanceStyle === "score"
       ? "Pulling harmonic DNA — key, chord progression, tempo, instruments..."
       : "Searching the web for context...";
@@ -853,6 +945,7 @@
       const res = await fetch("/api/enhance-prompt", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: _enhanceAbort.signal,
         body: JSON.stringify({
           prompt: raw,
           mode: currentMode,
@@ -866,26 +959,27 @@
         enhanceStatus.textContent = data.error;
         enhanceStatus.className = "enhance-status error";
       } else {
-        // ONE output artifact: the plan below is the single editable result —
-        // the prompt box keeps the user's own seed. The enhanced master text is
-        // held invisibly and sent to the backend for config/title/mastering.
+        // The enhanced master text rides along invisibly (interpreter config /
+        // title / mastering context); the card fields are the visible result.
         window._enhancedPrompt = data.enhanced_prompt;
         const wantsPlan = currentMode === "musical" && musicGenerationModeEl?.value === "composition_plan";
         if (wantsPlan) {
-          // Composition mode: the timeline sections are fragments, so the box
-          // carries the enhanced master text (no duplicate artifact here).
+          // Composition mode: the card text carries the enhanced master text;
+          // the timeline below holds the section fragments.
           promptEl.value = data.enhanced_prompt;
           _autogrowPrompt();
-          if (planPreview) planPreview.classList.add("hidden");
-          promptEl.classList.remove("hidden");
+          if (data.layers && data.layers.length) {
+            songTitleEl.value = data.layers[0].name || songTitleEl.value;
+            _renderCardChips(data.layers[0].instruments || []);
+          }
           enhanceStatus.textContent = "Designing composition timeline…";
           btnEnhancePrompt.textContent = "Planning…";
           await _planCompositionSections();
           enhanceStatus.textContent = "Composition timeline ready — this is what will generate";
         } else if (data.layers && data.layers.length) {
-          // Text mode: the plan card REPLACES the textarea — one prompt artifact.
+          // Text mode: same card, now filled in — title, instruments, prompt.
           _renderPlanPreview(data.layers);
-          enhanceStatus.textContent = "Prompt ready — this is exactly what will generate";
+          enhanceStatus.textContent = "Ready — this is exactly what will generate";
         } else {
           enhanceStatus.textContent = data.research_summary ? "Enhanced with web research" : "Enhanced";
         }
@@ -893,10 +987,17 @@
         setTimeout(() => { enhanceStatus.textContent = ""; enhanceStatus.className = "enhance-status"; }, 5000);
       }
     } catch (err) {
-      enhanceStatus.textContent = "Enhancement failed: " + err.message;
-      enhanceStatus.className = "enhance-status error";
+      if (err.name === "AbortError") {
+        enhanceStatus.textContent = "Stopped.";
+        enhanceStatus.className = "enhance-status";
+      } else {
+        enhanceStatus.textContent = "Enhancement failed: " + err.message;
+        enhanceStatus.className = "enhance-status error";
+      }
     }
+    _enhanceAbort = null;
     btnEnhancePrompt.disabled = false;
+    btnEnhancePrompt.classList.remove("btn-stop-enhance");
     btnEnhancePrompt.textContent = "✦ Enhance & Plan";
   });
 
@@ -1036,6 +1137,9 @@
           ref_end_sec: parseTimestamp(refEndEl.value),
           loopable: true,
       };
+      // Card → plan: pick up the user's title/instruments/text even when they
+      // never pressed Enhance, and any edits made after enhancing.
+      _ensurePlanFromCard();
       if (currentLayerPlan) genBody.layer_plan = currentLayerPlan;
       // Send the visible/edited composition plan so what-you-see-is-what-generates.
       if (musicGenerationModeEl?.value === "composition_plan" &&
