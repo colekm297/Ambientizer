@@ -6,6 +6,7 @@ scene description and map them to concrete audio parameters.
 """
 
 import json
+import os
 import random
 import time
 from pathlib import Path
@@ -202,6 +203,44 @@ class ThemeInterpreter:
     def _looks_like_atmosphere(layer: LayerConfig) -> bool:
         text = f"{layer.name} {layer.elevenlabs_prompt or ''}".lower()
         return any(k in text for k in _ATMOSPHERE_KEYWORDS)
+
+    @staticmethod
+    def _lock_plan_prompts(layers: list, layer_plan: list) -> list:
+        """Restore each layer's elevenlabs_prompt to the user-approved plan text
+        VERBATIM (config-only mode). Matches plan entries to layers by index when
+        counts agree, else by normalized name. Only overwrites when the plan has a
+        non-empty prompt_preview; never adds/removes layers. All other config the
+        interpreter produced (key, volume, effects, energy) is left untouched."""
+        # Only lock layers the plan declared MUSICAL — an SFX layer the interpreter
+        # converted to a pad (a safety net against choppy output) keeps its rewrite.
+        def is_musical_entry(p):
+            return (p.get("type") or "musical").lower() == "musical"
+
+        plan = layer_plan or []
+        if not any((p.get("prompt_preview") or "").strip() for p in plan):
+            return layers
+
+        def norm(s):
+            return "".join(c for c in (s or "").lower() if c.isalnum())
+
+        locked = 0
+        if len(plan) == len(layers):
+            for layer, p in zip(layers, plan):
+                preview = (p.get("prompt_preview") or "").strip()
+                if preview and is_musical_entry(p):
+                    layer.elevenlabs_prompt = preview
+                    locked += 1
+        else:
+            by_name = {norm(p.get("name")): p for p in plan}
+            for layer in layers:
+                p = by_name.get(norm(layer.name))
+                preview = (p.get("prompt_preview") or "").strip() if p else ""
+                if preview and is_musical_entry(p):
+                    layer.elevenlabs_prompt = preview
+                    locked += 1
+        if locked:
+            print(f"   🔒 Locked {locked} musical layer prompt(s) to the approved plan (verbatim)")
+        return layers
 
     @staticmethod
     def _pad_prompt(prompt: str, root_key: str = "") -> str:
@@ -561,6 +600,15 @@ BLENDING RULES:
 
         root_key = config_dict.get("root_key", "")
         layers = self._finalize_layers(layers, mode, approach, root_key)
+
+        # CONFIG-ONLY MODE: when the user enhanced & planned, their prompt_preview
+        # text is exactly what they reviewed. The interpreter is a 2nd LLM pass that
+        # can drift that text even when told to copy it. Here we deterministically
+        # RESTORE each layer's prompt to the plan verbatim — keeping all the config
+        # the interpreter produced (key, levels, effects, energy, mastering) but
+        # freezing the words. Gate: LOCK_ENHANCED_PROMPT=0 disables (revert switch).
+        if layer_plan and os.environ.get("LOCK_ENHANCED_PROMPT", "1") != "0":
+            layers = self._lock_plan_prompts(layers, layer_plan)
 
         master_fx = EffectsChain(**_only_fields(EffectsChain, config_dict.get("master_effects", {})))
         energy_data = config_dict.get("energy_curve", {})
