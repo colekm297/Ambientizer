@@ -299,7 +299,7 @@
   _wireDial("dial-dynamics", "dial-dynamics-readout", "Calm", "Dynamic");
 
   async function _planCompositionSections() {
-    const prompt = promptEl.value.trim();
+    const prompt = ((window._enhancedPrompt || promptEl.value) || "").trim();
     if (!prompt) { showError("Enter a prompt first."); return false; }
     if (compSectionsList) compSectionsList.innerHTML =
       `<div class="canvas-empty"><div class="canvas-empty-icon tl-spin">✦</div>
@@ -330,6 +330,9 @@
   }
   window._autogrowPrompt = _autogrowPrompt;
   promptEl?.addEventListener("input", _autogrowPrompt);
+  // Typing a new idea invalidates any previously-enhanced master text —
+  // otherwise Generate would silently use a stale enhancement.
+  promptEl?.addEventListener("input", () => { window._enhancedPrompt = null; });
 
   _toggleCompSections();
 
@@ -532,12 +535,13 @@
   // ── New song: wipe the Create form to a clean slate ──
   function newSong() {
     promptEl.value = "";
+    window._enhancedPrompt = null;
     _autogrowPrompt();
     // back to defaults
     currentMode = "ambient";
     modeButtons.forEach(b => b.classList.toggle("active", b.dataset.mode === "ambient"));
     if (musicGenerationModeEl) musicGenerationModeEl.value = "text";
-    if (musicLengthEl) musicLengthEl.value = "5";
+    if (musicLengthEl) musicLengthEl.value = "10";
     referenceUrlEl.value = "";
     refStartEl.value = "0:00";
     refEndEl.value = "10:00";
@@ -745,7 +749,7 @@
     const typeIcons = { musical: "\u{1F3B5}", base: "\u{1F30A}", mid: "\u{1F33F}", detail: "\u2728" };
 
     let totalCost = 0;
-    let html = '<div class="plan-header"><span class="plan-title">Layer Plan</span><button id="btn-clear-plan" class="plan-clear-btn" title="Clear plan">&times;</button></div>';
+    let html = '<div class="plan-header"><span class="plan-title">Generation Plan</span><span class="plan-subtitle">sent to ElevenLabs verbatim — edit freely</span><button id="btn-clear-plan" class="plan-clear-btn" title="Clear plan">&times;</button></div>';
     html += '<div class="plan-cards">';
     layers.forEach((l, i) => {
       totalCost += l.est_credits || 0;
@@ -854,21 +858,20 @@
         enhanceStatus.textContent = data.error;
         enhanceStatus.className = "enhance-status error";
       } else {
-        promptEl.value = data.enhanced_prompt;
-        _autogrowPrompt();
-        // Unified flow: ONE plan artifact at a time.
-        //  Composition plan → timeline (hide the layer plan)
-        //  Ambient / Text   → layer plan
+        // ONE output artifact: the plan below is the single editable result —
+        // the prompt box keeps the user's own seed. The enhanced master text is
+        // held invisibly and sent to the backend for config/title/mastering.
+        window._enhancedPrompt = data.enhanced_prompt;
         const wantsPlan = currentMode === "musical" && musicGenerationModeEl?.value === "composition_plan";
         if (wantsPlan) {
           if (planPreview) planPreview.classList.add("hidden");
           enhanceStatus.textContent = "Designing composition timeline…";
           btnEnhancePrompt.textContent = "Planning…";
           await _planCompositionSections();
-          enhanceStatus.textContent = "Enhanced + composition timeline ready";
+          enhanceStatus.textContent = "Composition timeline ready — this is what will generate";
         } else if (data.layers && data.layers.length) {
           _renderPlanPreview(data.layers);
-          enhanceStatus.textContent = "Enhanced + layer plan ready";
+          enhanceStatus.textContent = "Plan ready — this is exactly what will generate";
         } else {
           enhanceStatus.textContent = data.research_summary ? "Enhanced with web research" : "Enhanced";
         }
@@ -973,7 +976,9 @@
 
   // ── Generate ──────────────────────────────────
   generateBtn.addEventListener("click", async () => {
-    const prompt = promptEl.value.trim();
+    // Backend gets the enhanced master text (config/title/mastering context)
+    // when one exists; the plan card below carries the actual generation prompt.
+    const prompt = ((window._enhancedPrompt || promptEl.value) || "").trim();
     if (!prompt) {
       promptEl.focus();
       return;

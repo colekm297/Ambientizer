@@ -53,9 +53,9 @@ body {
 }
 
 .container {
-    max-width: 760px;
+    max-width: none;
     margin: 0 auto;
-    padding: 36px 20px 72px;
+    padding: 36px 28px 72px;
 }
 
 /* ── Header ────────────────────────────────────── */
@@ -674,6 +674,13 @@ body {
     align-items: center;
     justify-content: space-between;
     margin-bottom: 10px;
+}
+
+.plan-subtitle {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-left: 10px;
+    flex: 1;
 }
 
 .plan-title {
@@ -3893,7 +3900,7 @@ audio::-webkit-media-controls-panel {
 
 /* Three-column desktop layout: Settings | Prompt | Generate */
 @media (min-width: 1000px) {
-    .container { max-width: 1240px; }
+    .container { max-width: none; }
     .create-grid {
         grid-template-columns: 250px minmax(0, 1fr) 280px;
         gap: 28px;
