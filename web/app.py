@@ -1228,6 +1228,22 @@ Output ONLY valid JSON, no markdown fences."""
         layer_structure = "\nLAYER STRUCTURE: 2-3 continuous environmental texture layers. Steady beds only — no occasional/discrete sounds."
 
     style_addendum = ""
+    if enhance_style == "world":
+        style_addendum = (
+            "\n\nWORLD-IDIOMATIC INSTRUMENTATION (IMPORTANT):\n"
+            "Choose instruments that belong to THIS world's established sonic identity — "
+            "the palette a listener associates with it. Do NOT default to generic Western "
+            "instruments (especially felt/grand piano, acoustic guitar) when the setting has "
+            "a distinct sound world. Examples of fit: arid/desert or Dune-like → duduk, ney, "
+            "frame drum, hammered dulcimer/santur, bowed strings, low brass, throat-style "
+            "drones; deep space / hard sci-fi → analog synth pads, glass harmonica, bowed "
+            "metal, sub drones, processed choir-as-texture; pastoral/Americana → felt piano, "
+            "pedal steel, fingerpicked guitar, fiddle; oceanic/underwater → granular pads, "
+            "marimba, harp, soft mallets. Pick 5-7 instruments that ALL plausibly live in the "
+            "world so the user never has to delete one for breaking immersion. If you remove "
+            "an ill-fitting instrument, REPLACE it with a fitting one — never just drop a voice "
+            "(fewer voices = more monotonous output)."
+        )
     if enhance_style == "score":
         # The previous "score" mode produced vague producer-brief language that the
         # music model couldn't actually emulate ("Hans Zimmer-esque swells in the
