@@ -3378,48 +3378,6 @@
   const visTransportVolume = document.getElementById("vis-transport-volume");
   const visLoadingMsg = document.getElementById("vis-loading-msg");
 
-  async function initVisMixer(jobId, layers, durationSec) {
-    if (visMixer) { visMixer.destroy(); visMixer = null; }
-    visMixer = new LiveMixer();
-    window._ambientizerVisMixer = visMixer;
-    await visMixer.init(durationSec);
-    visMixer.setMasterVolume(getSavedMasterVolume());
-
-    visMixer.onTimeUpdate = (t, dur) => {
-      visTransportCurrent.textContent = formatTime(t);
-      visTransportSeek.value = Math.round((t / dur) * 1000);
-      visIconPlay.classList.toggle("hidden", visMixer.playing);
-      visIconPause.classList.toggle("hidden", !visMixer.playing);
-    };
-    visTransportTotal.textContent = formatTime(durationSec);
-
-    const layersWithAudio = layers.filter(l => l.has_audio);
-    const loadPromises = layersWithAudio.map(l => {
-      const url = `/api/audio/${jobId}/layer/${encodeURIComponent(l.name)}`;
-      return visMixer.addLayer(l.name, url, {
-        volume_db: l.volume_db,
-        pan: l.pan || 0,
-        muted: l.volume_db <= -55,
-        low_pass_hz: l.effects?.low_pass_hz || 20000,
-        reverb_amount: l.effects?.reverb_amount || 0,
-        swell_amount: l.swell_amount || 0,
-        swell_period_sec: l.swell_period_sec || 20,
-        start_sec: l.start_sec || 0,
-        end_sec: l.end_sec || 0,
-        repeat_every_sec: l.repeat_every_sec || 0,
-      }).catch(err => {
-        console.warn(`[VisMixer] Failed to load layer "${l.name}":`, err);
-      });
-    });
-    await Promise.all(loadPromises);
-    console.log(`[VisMixer] Loaded ${Object.keys(visMixer.layers).length}/${layersWithAudio.length} layers`);
-
-    visMixer.setMasterFades(5, 5);
-    visMixer.play();
-    visIconPlay.classList.add("hidden");
-    visIconPause.classList.remove("hidden");
-  }
-
   if (visBtnPlayPause) {
     visBtnPlayPause.addEventListener("click", () => {
       if (!visMixer) return;
@@ -4316,34 +4274,6 @@
       () => window._scheduleMotionAutosave?.("motion-prompt"));
   })();
 
-  async function refreshVisTrackList() {
-    try {
-      const res = await fetch("/api/history");
-      const history = await res.json();
-      const completeTracks = history.filter((j) => j.status === "complete");
-
-      const prev = visTrackSelect.value;
-      visTrackSelect.innerHTML = '<option value="">— Choose a soundscape —</option>';
-      completeTracks.forEach((j) => {
-        const opt = document.createElement("option");
-        opt.value = j.job_id;
-        let timeStr = "";
-        if (j.created_at) {
-          const d = new Date(j.created_at);
-          const diff = Date.now() - d;
-          if (diff < 3600000) timeStr = Math.floor(diff / 60000) + "m ago";
-          else if (diff < 86400000) timeStr = Math.floor(diff / 3600000) + "h ago";
-          else timeStr = d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-        }
-        opt.textContent = `${j.prompt.substring(0, 60)}${j.prompt.length > 60 ? "..." : ""} (${timeStr})`;
-        visTrackSelect.appendChild(opt);
-      });
-      if (prev) visTrackSelect.value = prev;
-    } catch (err) {
-      console.error("Failed to load tracks:", err);
-    }
-  }
-
   // Render the Visuals tab for the globally-selected track (audio plays via the global bar).
   async function loadVisualsForTrack(jobId, data) {
     if (!jobId) return;
@@ -5144,34 +5074,6 @@
     pubMetaPanel.classList.add("hidden");
     pubUploadPanel.classList.add("hidden");
   });
-
-  async function refreshPubTrackList() {
-    try {
-      const res = await fetch("/api/history");
-      const history = await res.json();
-      const withVideo = history.filter((j) => j.status === "complete" && j.visual_video_url);
-
-      const prev = pubTrackSelect.value;
-      pubTrackSelect.innerHTML = '<option value="">— Choose a track —</option>';
-      withVideo.forEach((j) => {
-        const opt = document.createElement("option");
-        opt.value = j.job_id;
-        let timeStr = "";
-        if (j.created_at) {
-          const d = new Date(j.created_at);
-          const diff = Date.now() - d;
-          if (diff < 3600000) timeStr = Math.floor(diff / 60000) + "m ago";
-          else if (diff < 86400000) timeStr = Math.floor(diff / 3600000) + "h ago";
-          else timeStr = d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-        }
-        opt.textContent = `${j.prompt.substring(0, 60)}${j.prompt.length > 60 ? "..." : ""} (${timeStr})`;
-        pubTrackSelect.appendChild(opt);
-      });
-      if (prev) pubTrackSelect.value = prev;
-    } catch (err) {
-      console.error("Failed to load tracks:", err);
-    }
-  }
 
   // Render the Publish tab for the globally-selected track.
   async function loadPublishForTrack(jobId, data) {

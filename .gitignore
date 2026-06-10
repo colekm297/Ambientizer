@@ -28,3 +28,14 @@ loop_demos/
 web/static/_thumbs/
 web/static/_tm_*.jpg
 web/static/_thumb_styles.jpg
+
+# Scratch experiments, batch artifacts, and dev test output (never commit)
+_*.log
+_batch_*.json
+_*_results.json
+_*_regrade.json
+test_output/
+test_assets/
+web/static/warp_tests/
+.cleanup_quarantine/
+yt_analytics_token.json

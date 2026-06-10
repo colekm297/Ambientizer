@@ -177,7 +177,6 @@ body {
     margin-bottom: 16px;
 }
 .settings-card .form-group:last-child { margin-bottom: 0; }
-.settings-card-head { margin-bottom: 12px; }
 .settings-card-head .field-label { margin-bottom: 0; }
 
 .btn-sm {
@@ -631,20 +630,6 @@ body {
     margin-bottom: 14px;
 }
 
-.btn-approach {
-    flex: 1;
-    background: var(--bg-secondary);
-    color: var(--text-secondary);
-    border: 1px solid var(--border);
-    padding: 6px 14px;
-    font-size: 0.82rem;
-    border-radius: 8px;
-    cursor: pointer;
-    transition: all 0.2s;
-    font-family: inherit;
-    font-weight: 600;
-}
-
 .btn-approach.active {
     background: rgba(168, 85, 247, 0.12);
     color: #a855f7;
@@ -653,10 +638,6 @@ body {
 
 .btn-approach:hover:not(.active) {
     background: var(--bg-tertiary);
-}
-
-.stem-select-group {
-    margin-bottom: 14px;
 }
 
 /* ── Plan Preview ─────────────────────────────── */
@@ -676,27 +657,10 @@ body {
     margin-bottom: 10px;
 }
 
-.plan-subtitle {
-    font-size: 0.75rem;
-    color: var(--text-muted);
-    margin-left: 10px;
-    flex: 1;
-}
-
 .plan-title {
     font-size: 0.85rem;
     font-weight: 700;
     color: #a855f7;
-}
-
-.plan-clear-btn {
-    background: none;
-    border: none;
-    color: var(--text-muted);
-    font-size: 1.1rem;
-    cursor: pointer;
-    padding: 0 4px;
-    line-height: 1;
 }
 .plan-clear-btn:hover { color: var(--text-primary); }
 
@@ -1050,11 +1014,6 @@ body {
     cursor: not-allowed;
 }
 
-.ref-use-toggle {
-    margin-top: 8px;
-    margin-bottom: 3px;
-}
-
 .ref-analysis-panel {
     margin-top: 8px;
     padding: 10px 12px;
@@ -1138,33 +1097,7 @@ body {
 
 .ref-suggested-prompt:empty { display: none; }
 
-.ref-analysis-actions {
-    display: flex;
-    gap: 6px;
-}
-
-.btn-ref-action {
-    padding: 4px 12px;
-    font-size: 0.72rem;
-    font-weight: 600;
-    border-radius: 4px;
-    cursor: pointer;
-    transition: all 0.15s;
-}
-
-#btn-ref-use {
-    background: var(--accent);
-    border: 1px solid var(--accent);
-    color: #fff;
-}
-
 #btn-ref-use:hover { filter: brightness(1.15); }
-
-#btn-ref-merge {
-    background: transparent;
-    border: 1px solid var(--border);
-    color: var(--text-secondary);
-}
 
 #btn-ref-merge:hover {
     border-color: var(--accent);
@@ -1427,8 +1360,6 @@ textarea::placeholder, input::placeholder {
 }
 .credit-balance-info .credit-warn-text { color: #f59e0b; font-weight: 600; }
 .credit-balance-info .credit-danger-text { color: #ef4444; font-weight: 700; }
-.credit-subtle { opacity: 0.55; font-size: 0.85em; margin-left: 0.25em; }
-.credit-reset-label { font-size: 0.68rem; opacity: 0.6; }
 
 /* ── Gemini usage indicator ────────────── */
 .gemini-usage {
@@ -1440,11 +1371,6 @@ textarea::placeholder, input::placeholder {
     background: var(--bg-secondary);
     border-radius: 6px;
     font-size: 0.75rem;
-}
-
-.gemini-usage-label {
-    color: var(--text-muted);
-    font-weight: 600;
 }
 
 .gemini-usage-text {
@@ -3029,12 +2955,6 @@ audio::-webkit-media-controls-panel {
     font-style: italic;
 }
 
-#vis-audio-player {
-    width: 100%;
-    border-radius: 8px;
-    outline: none;
-}
-
 .visuals-actions {
     display: flex;
     gap: 10px;
@@ -3060,11 +2980,6 @@ audio::-webkit-media-controls-panel {
     gap: 8px;
     padding: 10px 12px;
     justify-content: flex-end;
-}
-
-.video-section {
-    border-top: 1px solid var(--border);
-    padding-top: 16px;
 }
 
 .video-section h3 {
@@ -3319,21 +3234,6 @@ audio::-webkit-media-controls-panel {
     display: flex;
     align-items: center;
     gap: 10px;
-}
-
-.history-label {
-    font-size: 0.85rem;
-    font-weight: 600;
-    color: var(--text-secondary);
-    white-space: nowrap;
-}
-
-.history-controls {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    flex: 1;
-    min-width: 0;
 }
 
 .history-select {
