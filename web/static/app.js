@@ -275,8 +275,9 @@
   function getMoodDials() {
     const w = parseInt(document.getElementById("dial-warmth")?.value ?? 50, 10);
     const d = parseInt(document.getElementById("dial-dynamics")?.value ?? 50, 10);
-    if (w === 50 && d === 50) return null;
-    return { warmth: w, dynamics: d };
+    const cr = parseInt(document.getElementById("dial-creativity")?.value ?? 50, 10);
+    if (w === 50 && d === 50 && cr === 50) return null;
+    return { warmth: w, dynamics: d, creativity: cr };
   }
   function _wireDial(id, readoutId, lowWord, highWord) {
     const el = document.getElementById(id);
@@ -297,6 +298,7 @@
   }
   _wireDial("dial-warmth", "dial-warmth-readout", "Dark", "Warm");
   _wireDial("dial-dynamics", "dial-dynamics-readout", "Calm", "Dynamic");
+  _wireDial("dial-creativity", "dial-creativity-readout", "Safe", "Wild");
 
   async function _planCompositionSections() {
     const prompt = ((window._enhancedPrompt || promptEl.value) || "").trim();
@@ -536,6 +538,7 @@
   function newSong() {
     promptEl.value = "";
     window._enhancedPrompt = null;
+    window._rawSeed = null;
     const titleEl = document.getElementById("song-title");
     if (titleEl) titleEl.value = "";
     document.querySelectorAll("#prompt-chips .plan-chip").forEach(c => c.remove());
@@ -933,6 +936,9 @@
     const raw = promptEl.value.trim();
     if (!raw) { promptEl.focus(); return; }
 
+    // Remember what the user actually typed BEFORE enhancement rewrites the box,
+    // so we can store/recall the original seed on the generated job.
+    window._rawSeed = raw;
     _enhanceAbort = new AbortController();
     btnEnhancePrompt.textContent = "■ Stop";
     btnEnhancePrompt.classList.add("btn-stop-enhance");
@@ -1141,6 +1147,9 @@
       // never pressed Enhance, and any edits made after enhancing.
       _ensurePlanFromCard();
       if (currentLayerPlan) genBody.layer_plan = currentLayerPlan;
+      // Original typed idea (pre-enhance); falls back to the current prompt if
+      // they generated straight from raw text.
+      genBody.raw_seed = window._rawSeed || prompt;
       // Send the visible/edited composition plan so what-you-see-is-what-generates.
       if (musicGenerationModeEl?.value === "composition_plan" &&
           window._compositionPlan && window._compositionPlan.sections?.length) {

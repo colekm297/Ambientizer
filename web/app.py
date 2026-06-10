@@ -374,6 +374,7 @@ def _save_job(job_id: str):
         "stem_files": job.get("stem_files"),
         "composition_plan": job.get("composition_plan"),
         "music_generation_mode": job.get("music_generation_mode"),
+        "raw_seed": job.get("raw_seed"),
         "favorite": job.get("favorite", False),
         # Distribute-tab persistence
         "shorts": job.get("shorts", []),
@@ -419,6 +420,7 @@ def _load_saved_jobs():
             jobs[job_id] = {
                 "job_id": job_id,
                 "prompt": data.get("prompt", ""),
+                "raw_seed": data.get("raw_seed"),
                 "duration": data.get("duration", 5.0),
                 "mastering": data.get("mastering", True),
                 "mode": data.get("mode", "ambient"),
@@ -1004,8 +1006,24 @@ def mood_dials_text(dials) -> str:
         except (TypeError, ValueError):
             return 50
 
-    w, d = val("warmth"), val("dynamics")
+    w, d, cr = val("warmth"), val("dynamics"), val("creativity")
     bits = []
+    if cr >= 90:
+        bits.append("MAXIMUM CREATIVITY: take big, surprising swings. Reach for unconventional "
+                    "instrument pairings, rare scales/modes (Hungarian minor, octatonic, "
+                    "microtonal bends, quarter-tone drones), prepared or detuned instruments, "
+                    "and bold structural ideas. Stay musical and listenable, but be genuinely "
+                    "inventive — avoid anything that sounds like a default ambient preset.")
+    elif cr >= 70:
+        bits.append("HIGH CREATIVITY: favor fresh, unexpected choices — uncommon instrument "
+                    "combinations, a less-obvious key/mode, a distinctive harmonic hook. "
+                    "Beautiful but surprising, not generic.")
+    elif cr <= 10:
+        bits.append("PLAY IT SAFE: stick to proven, conventional, broadly-pleasing choices — "
+                    "common keys, familiar instruments, classic ambient moves. Reliability over "
+                    "novelty.")
+    elif cr <= 30:
+        bits.append("Lean conservative: mostly safe, familiar choices with only mild variation.")
     if w >= 80:
         bits.append("STRONGLY WARM: golden, sunlit, hopeful, comforting. Major or Lydian "
                     "colors, warm acoustic timbres (felt piano, nylon guitar, wooden flutes, "
@@ -1445,6 +1463,7 @@ def api_generate():
         jobs[job_id] = {
             "job_id": job_id,
             "prompt": prompt,
+            "raw_seed": (data.get("raw_seed") or "").strip() or prompt,
             "duration": duration,
             "music_length": music_length,
             "mastering": mastering,
@@ -1561,6 +1580,7 @@ def api_status(job_id: str):
     return jsonify({
         "job_id": job["job_id"],
         "prompt": job["prompt"],
+        "raw_seed": job.get("raw_seed"),
         "duration": job.get("duration", 5),
         "mode": job.get("mode", "ambient"),
         "reference_url": job.get("reference_url", ""),
@@ -2692,6 +2712,7 @@ def api_history():
         {
             "job_id": j["job_id"],
             "prompt": j["prompt"],
+            "raw_seed": j.get("raw_seed"),
             "title": (getattr(j.get("config"), "title", "") or "").strip(),
             "status": j["status"],
             "duration": j["duration"],
