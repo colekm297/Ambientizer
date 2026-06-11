@@ -1138,8 +1138,12 @@ def enhance_prompt():
 for background listening — audio that plays for hours while people study, work, sleep, or relax.
 
 CRITICAL: You are NOT writing pop songs. No verse/chorus/bridge, no beat drops, no hooks. \
-But DO include gentle internal movement — elements entering, density shifts, harmonic breathing — \
-then returning toward the opening texture for seamless looping.
+But DO include gentle internal movement — elements entering, density shifts, harmonic breathing. \
+THE ENDING IS SACRED: the piece must stay at FULL body-level density with real instruments playing \
+through the very end. NEVER write "thins back", "returns to the opening", "fades", "dissolves", \
+"strips back", or any sparse/quiet ending — when the music model strips instruments for a sparse \
+ending it synthesizes garbled ROBOTIC VOCAL artifacts in the final minutes. The seamless loop is \
+crafted downstream by a loop-finder + crossfade; the ending does NOT need to match the opening.
 
 For MUSICAL mode + Unified approach: 1 rich musical layer containing ALL instruments and environmental atmosphere in a single generation. Do NOT add a separate atmosphere/SFX layer.
 For MUSICAL mode + Multi-Layer approach: 2-4 musical layers. Use a quiet Background Pad (type "musical") for texture — never type "base"/"mid"/"detail" (those produce choppy repetitive SFX).
@@ -1207,7 +1211,8 @@ so written timestamps like "0:00-1:30" or "final 60s" are ignored and just waste
 (Precise timed structure is handled separately by the Composition Plan feature, not here.) \
 Instead, describe the SHAPE of the movement in relative terms, e.g.: \
 "opens sparse with the core bed, gradually adds a shimmer layer and thickens the harmony toward the middle, \
-then thins back to the opening density so it loops seamlessly." \
+then keeps the full ensemble breathing and evolving at body-level density through the very end." \
+(Remember: never a thinning/sparse/fading ending — that synthesizes robotic artifacts.) \
 Avoid stasis words like "never-ending", "static", "wallpaper", "no discrete events". \
 Avoid: "verse", "chorus", "bridge", "drop", "beat", "hook", "fade-out ending". \
 Do NOT write minute/second markers (no "0:00", "~2:30", "final 45s", "3:00-4:00", etc.) anywhere in enhanced_prompt or prompt_preview.
@@ -1299,9 +1304,11 @@ Output ONLY valid JSON, no markdown fences."""
                 "\n\nLEARN FROM THESE PROVEN-EXCELLENT PROMPTS — these are real prompts that produced "
                 "soundscapes the user marked as favorites. Match their STYLE and DISCIPLINE: "
                 "explicit musical key, explicit tempo (BPM or time-feel), a FEW concretely named "
-                "instruments, and a clear sense of internal motion — all within the 450-character "
-                "budget. Do NOT copy their content — write for the new idea — and do NOT exceed "
-                "their length even if an example runs long.\n\n" + examples
+                "instruments, and a clear sense of internal motion. Do NOT copy their content — "
+                "write for the new idea. IMPORTANT EXCEPTION: many of these older examples end "
+                "with 'thins back to the opening' style closings — do NOT imitate that part; it "
+                "predates the discovery that thinning endings cause robotic artifacts. Your "
+                "ending must keep full instrumentation at body density.\n\n" + examples
             )
     except Exception as e:
         print(f"  [enhance] few-shot exemplars unavailable (non-fatal): {e}")
