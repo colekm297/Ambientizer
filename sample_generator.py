@@ -11,6 +11,7 @@ without regenerating samples.
 
 import os
 import hashlib
+import re
 import time
 import json
 import random
@@ -354,9 +355,31 @@ class ElevenLabsSampleGenerator:
                     return suggestion.strip()
         return ""
 
+    # Endings that instruct the model to strip instruments ("thins back to the
+    # opening...") make v1 synthesize garbled robotic-vocal artifacts in the
+    # final minutes — the model genuinely follows macro-structure, so a sparse
+    # ending request = an instrument-less stretch it fills with junk. Detected
+    # on EVERY outgoing text prompt (old saved prompts predate the fix).
+    _THINNING_ENDINGS = re.compile(
+        r"thin(s|ning)? (back|out|toward)|return(s|ing)? (to|toward) the open|"
+        r"back to (the )?opening|dissolv\w+|fad(e|es|ing) (out|to|away)|"
+        r"strip(s|ped|ping)? (back|down|away)|reced\w+ to (silence|stillness)",
+        re.IGNORECASE)
+    _ENDING_OVERRIDE = (" IMPORTANT OVERRIDE: ignore any earlier instruction to thin out, "
+                        "fade, or return to the opening at the end — keep the FULL ensemble "
+                        "playing at body-level density through the very end of the piece.")
+
+    def _guard_ending(self, prompt: str) -> str:
+        if self._THINNING_ENDINGS.search(prompt or ""):
+            self._warn("Prompt asked the music to thin out at the end — overrode to "
+                       "full-density ending (sparse endings cause robotic vocal artifacts).")
+            return prompt.rstrip() + self._ENDING_OVERRIDE
+        return prompt
+
     def _generate_music(self, name: str, prompt: str, duration: float, wav_path: str, cache_key: str,
                         _sanitized_retry: bool = False) -> str:
         """Generate via Music v1 API (tonal/harmonic/melodic content)."""
+        prompt = self._guard_ending(prompt)
         duration_ms = int(min(duration, HARD_MAX_MUSIC_SEC) * 1000)
         duration_ms = max(3000, min(int(HARD_MAX_MUSIC_SEC * 1000), duration_ms))
 
