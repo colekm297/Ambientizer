@@ -649,18 +649,16 @@ class ElevenLabsSampleGenerator:
             if music_length_sec > 0:
                 dur = min(music_length_sec, HARD_MAX_MUSIC_SEC)
                 if dur > SAFE_MAX_MUSIC_SEC:
-                    self._warn(
-                        f"Requested {dur/60:.0f}-min source exceeds ElevenLabs' supported "
-                        "5-min window — v1 reliably degrades into robotic vocal artifacts "
-                        "after ~5 minutes. Expect junk in the back half; 5 min is the safe max."
-                    )
+                    # User's deliberate default is 10 min — log only, don't spam
+                    # the quality-warnings banner on every job. v1 docs cap is
+                    # 5 min; past it robotic-vocal artifacts are a dice roll
+                    # (much rarer since the vocal-language scrubbing fixes).
+                    print(f"      ℹ {dur/60:.0f}-min source exceeds v1's documented 5-min "
+                          "window — if robo-artifacts appear late in the track, re-roll "
+                          "or use 5 min.", flush=True)
                 return dur
-            # No explicit length → 5-min source. ElevenLabs Music v1 degrades
-            # past ~5 min (docs now state a 5-minute max; the v2 transition era
-            # regressed long v1 generations into garbled robotic-vocal artifacts
-            # in minutes 6-10). 300s is the longest docs-supported window; the
-            # loop maker fills any track length downstream.
-            return SAFE_MAX_MUSIC_SEC
+            # No explicit length → match the UI default (10-min max source).
+            return HARD_MAX_MUSIC_SEC
 
         durations = {
             LayerType.BASE: 8.0,
