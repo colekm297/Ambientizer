@@ -276,8 +276,9 @@
     const w = parseInt(document.getElementById("dial-warmth")?.value ?? 50, 10);
     const d = parseInt(document.getElementById("dial-dynamics")?.value ?? 50, 10);
     const cr = parseInt(document.getElementById("dial-creativity")?.value ?? 50, 10);
-    if (w === 50 && d === 50 && cr === 50) return null;
-    return { warmth: w, dynamics: d, creativity: cr };
+    const it = parseInt(document.getElementById("dial-intensity")?.value ?? 50, 10);
+    if (w === 50 && d === 50 && cr === 50 && it === 50) return null;
+    return { warmth: w, dynamics: d, creativity: cr, intensity: it };
   }
   function _wireDial(id, readoutId, lowWord, highWord) {
     const el = document.getElementById(id);
@@ -299,6 +300,7 @@
   _wireDial("dial-warmth", "dial-warmth-readout", "Dark", "Warm");
   _wireDial("dial-dynamics", "dial-dynamics-readout", "Calm", "Dynamic");
   _wireDial("dial-creativity", "dial-creativity-readout", "Safe", "Wild");
+  _wireDial("dial-intensity", "dial-intensity-readout", "Gentle", "Intense");
 
   async function _planCompositionSections() {
     const prompt = ((window._enhancedPrompt || promptEl.value) || "").trim();

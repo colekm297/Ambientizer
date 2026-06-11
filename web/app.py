@@ -1007,8 +1007,22 @@ def mood_dials_text(dials) -> str:
         except (TypeError, ValueError):
             return 50
 
-    w, d, cr = val("warmth"), val("dynamics"), val("creativity")
+    w, d, cr, it = val("warmth"), val("dynamics"), val("creativity"), val("intensity")
     bits = []
+    if it >= 80:
+        bits.append("FULL INTENSITY: loud, present, in-your-face — a dense, enveloping wall of "
+                    "sound. Powerful low end (sub drones, low brass, big bowed basses), saturated "
+                    "sustained textures, forward and commanding mix, massive cinematic scale. "
+                    "Strong dramatic swells are welcome. This should feel like standing inside "
+                    "the music, not hearing it from another room.")
+    elif it >= 60:
+        bits.append("Lean intense: fuller, more present and powerful than typical ambient — "
+                    "rich low end, confident forward textures, real weight.")
+    elif it <= 20:
+        bits.append("WHISPER-QUIET: extremely gentle, distant, barely-there — soft faraway "
+                    "textures, feather-light dynamics, maximum restraint.")
+    elif it <= 40:
+        bits.append("Lean gentle: soft, restrained, unobtrusive — calm background presence.")
     if cr >= 90:
         bits.append("MAXIMUM CREATIVITY: take big, surprising swings. Reach for unconventional "
                     "instrument pairings, rare scales/modes (Hungarian minor, octatonic, "
