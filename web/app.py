@@ -1360,7 +1360,7 @@ def api_compose_plan():
     if not anthropic_key:
         return jsonify({"error": "ANTHROPIC_API_KEY not set"}), 500
 
-    music_length_min = float(data.get("music_length", 0)) or 5.0
+    music_length_min = float(data.get("music_length", 0)) or 10.0
     duration_ms = int(min(music_length_min * 60, 600) * 1000)  # ElevenLabs caps music at 600s
     root_key = data.get("root_key", "") or ""
     mood = data.get("mood", "") or ""
