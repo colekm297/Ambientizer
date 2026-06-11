@@ -549,7 +549,7 @@
     currentMode = "ambient";
     modeButtons.forEach(b => b.classList.toggle("active", b.dataset.mode === "ambient"));
     if (musicGenerationModeEl) musicGenerationModeEl.value = "text";
-    if (musicLengthEl) musicLengthEl.value = "10";
+    if (musicLengthEl) musicLengthEl.value = "5";
     referenceUrlEl.value = "";
     refStartEl.value = "0:00";
     refEndEl.value = "10:00";
