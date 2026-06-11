@@ -302,6 +302,20 @@
   _wireDial("dial-creativity", "dial-creativity-readout", "Safe", "Wild");
   _wireDial("dial-intensity", "dial-intensity-readout", "Gentle", "Intense");
 
+  // Dials only take effect through Enhance & Plan (they steer the prompt
+  // WRITER; ElevenLabs itself has no knobs). If one moves after a prompt was
+  // already enhanced, nudge the user to re-enhance or the change is silent.
+  ["dial-warmth", "dial-dynamics", "dial-creativity", "dial-intensity"].forEach(id => {
+    document.getElementById(id)?.addEventListener("change", () => {
+      if (!window._enhancedPrompt) return;
+      const st = document.getElementById("enhance-status");
+      if (st) {
+        st.textContent = "Dial changed — hit ✦ Enhance & Plan again to apply it";
+        st.className = "enhance-status active";
+      }
+    });
+  });
+
   async function _planCompositionSections() {
     const prompt = ((window._enhancedPrompt || promptEl.value) || "").trim();
     if (!prompt) { showError("Enter a prompt first."); return false; }
