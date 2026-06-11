@@ -24,7 +24,9 @@ from retry_utils import is_transient_api_error
 
 ADDITIVE_MUSIC_SEC = 90.0   # loop cell length for layers added on top of a mix
 STEM_SAMPLE_SEC = 120       # clip length sent to stem API (ambient is static throughout)
-HARD_MAX_MUSIC_SEC = 600.0
+HARD_MAX_MUSIC_SEC = 600.0   # absolute API ceiling (user can still request it)
+SAFE_MAX_MUSIC_SEC = 300.0   # docs-supported max — v1 degrades into robotic
+                             # vocal artifacts past ~5 min (v2-transition era)
 HARD_MAX_SFX_SEC = 8.0
 # Daily self-imposed credit cap. 0 (or negative) = DISABLED (no limit). Set the
 # DAILY_CREDIT_LIMIT env var to a positive number to re-enable the guardrail.
@@ -645,11 +647,20 @@ class ElevenLabsSampleGenerator:
         """
         if layer_type == LayerType.MUSICAL:
             if music_length_sec > 0:
-                return min(music_length_sec, HARD_MAX_MUSIC_SEC)
-            # No explicit length → generate a full 10-min source instead of a 30s
-            # clip looped 40×. Long-source = far less repetition; matches what the
-            # favorited "banger" tracks use (600s) and what the UI now defaults to.
-            return HARD_MAX_MUSIC_SEC
+                dur = min(music_length_sec, HARD_MAX_MUSIC_SEC)
+                if dur > SAFE_MAX_MUSIC_SEC:
+                    self._warn(
+                        f"Requested {dur/60:.0f}-min source exceeds ElevenLabs' supported "
+                        "5-min window — v1 reliably degrades into robotic vocal artifacts "
+                        "after ~5 minutes. Expect junk in the back half; 5 min is the safe max."
+                    )
+                return dur
+            # No explicit length → 5-min source. ElevenLabs Music v1 degrades
+            # past ~5 min (docs now state a 5-minute max; the v2 transition era
+            # regressed long v1 generations into garbled robotic-vocal artifacts
+            # in minutes 6-10). 300s is the longest docs-supported window; the
+            # loop maker fills any track length downstream.
+            return SAFE_MAX_MUSIC_SEC
 
         durations = {
             LayerType.BASE: 8.0,
