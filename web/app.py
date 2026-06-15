@@ -1188,6 +1188,9 @@ MODEL GUIDANCE (from ElevenLabs Music v1 official prompting docs — follow thes
 The model reliably captures key — omitting it wastes the strongest lever you have.
 - ALWAYS state TEMPO: a BPM number (e.g. "72 BPM") or, for beatless beds, an explicit time-feel \
 (e.g. "free-meter, no pulse"). The model follows BPM accurately.
+- ALWAYS use the word "soundscape" in the prompt (e.g. "Instrumental ambient soundscape in D Dorian..."). \
+This single word is the strongest cue for the textural, environmental, evolving ambient result we want — \
+"instrumental" only means "no lyrics", it does NOT convey the ambient/soundscape character. Use BOTH words.
 - These are INSTRUMENTAL soundscapes. Include the word "instrumental" and do NOT write lyrics, \
 vocal lines, or vocal-entry cues. NO VOCAL CONTENT AT ALL — not even "wordless vocal pads" or choirs: \
 the music model's vocal synthesis reliably degrades into garbled, robotic artifacts mid-track. \
