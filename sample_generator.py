@@ -51,6 +51,9 @@ class ElevenLabsSampleGenerator:
 
     def __init__(self, api_key: str, cache_dir: str = "generated_samples"):
         self.client = ElevenLabs(api_key=api_key)
+        # ElevenLabs Music model. "music_v1" (default, fully tuned) or "music_v2"
+        # (better prompt adherence + long-form). Set per-job by the orchestrator.
+        self.music_model = "music_v1"
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self._spend_log_path = self.cache_dir / "_daily_spend.json"
@@ -391,7 +394,7 @@ class ElevenLabsSampleGenerator:
                 result = self._call_with_retry(
                     self.client.music.compose,
                     prompt=prompt,
-                    model_id="music_v1",
+                    model_id=self.music_model,
                     music_length_ms=duration_ms,
                     force_instrumental=True,
                     output_format=fmt,
@@ -593,7 +596,7 @@ class ElevenLabsSampleGenerator:
                 result = self._call_with_retry(
                     self.client.music.compose,
                     composition_plan=plan,
-                    model_id="music_v1",
+                    model_id=self.music_model,
                     output_format=fmt,
                     respect_sections_durations=True,
                     # NOTE: force_instrumental is REJECTED with composition_plan

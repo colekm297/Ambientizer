@@ -499,6 +499,7 @@
       stem_separation: currentStemSeparation,
       planner_mode: plannerModeEl?.value || "claude",
       music_generation_mode: musicGenerationModeEl?.value || "text",
+      music_model: document.getElementById("music-model")?.value || "music_v1",
       music_length: musicLengthEl.value,
       reference_url: referenceUrlEl.value,
       ref_start: refStartEl.value,

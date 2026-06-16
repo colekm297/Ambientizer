@@ -616,7 +616,7 @@ def run_generation(
     layer_plan: list = None, approach: str = "unified",
     stem_separation: str = "none", reference_analysis: dict = None,
     planner_mode: str = "claude", music_generation_mode: str = "text",
-    composition_plan: dict = None,
+    composition_plan: dict = None, music_model: str = "music_v1",
 ):
     """
     Background worker: generates samples via ElevenLabs + renders a short
@@ -643,6 +643,9 @@ def run_generation(
 
     try:
         agent = create_orchestrator(mastering=mastering)
+        # Pick the ElevenLabs Music model for this job (v1 default / v2 opt-in).
+        if getattr(agent, "generator", None) and music_model in ("music_v1", "music_v2"):
+            agent.generator.music_model = music_model
         gen_mode = GenerationMode(mode) if mode in ("ambient", "musical") else GenerationMode.AMBIENT
         result = agent.generate(
             prompt=prompt,
@@ -1495,6 +1498,9 @@ def api_generate():
     stem_separation = data.get("stem_separation", "none")
     planner_mode = data.get("planner_mode", "claude")
     music_generation_mode = data.get("music_generation_mode", "text")
+    music_model = data.get("music_model", "music_v1")
+    if music_model not in ("music_v1", "music_v2"):
+        music_model = "music_v1"
     composition_plan = data.get("composition_plan")  # optional, edited in the UI
 
     print(f"  [generate] mode={mode}, approach={approach}, stem_separation={stem_separation}, "
@@ -1531,6 +1537,7 @@ def api_generate():
             "stem_files": None,
             "composition_plan": composition_plan,
             "music_generation_mode": music_generation_mode,
+            "music_model": music_model,
         }
 
     thread = threading.Thread(
@@ -1538,7 +1545,7 @@ def api_generate():
         args=(job_id, prompt, duration, mastering, mode, reference_url, loopable,
               music_length, ref_start_sec, ref_end_sec, layer_plan, approach,
               stem_separation, reference_analysis, planner_mode, music_generation_mode,
-              composition_plan),
+              composition_plan, music_model),
         daemon=True,
     )
     thread.start()
