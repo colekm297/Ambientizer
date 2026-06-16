@@ -714,6 +714,17 @@ def run_generation(
 #  Routes
 # ────────────────────────────────────────────────────────
 
+@app.route("/previews/<path:filename>")
+def serve_preview(filename):
+    """Serve files from output/_previews/ — always-on (this app is a launchd
+    service), so preview links don't depend on a flimsy throwaway server.
+    http://localhost:5050/previews/<file>"""
+    base = (PROJECT_ROOT / "output" / "_previews").resolve()
+    target = (base / filename).resolve()
+    if not str(target).startswith(str(base)) or not target.exists():
+        abort(404)
+    return send_file(str(target))
+
 @app.route("/")
 def index():
     # Cache-bust static assets using file mtimes so the browser always picks
