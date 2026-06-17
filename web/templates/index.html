@@ -579,6 +579,54 @@
                     <button id="btn-export-video" class="btn btn-accent">Export Video</button>
                 </div>
 
+                <!-- Branded channel intro (overlay over the opening seconds) -->
+                <details class="ref-block intro-block">
+                    <summary class="ref-summary">Channel intro <span class="ref-summary-tag">optional</span></summary>
+                    <div class="ref-block-body">
+                        <label class="toggle-label">
+                            <input type="checkbox" id="intro-enabled">
+                            <span class="toggle-text">Add a title intro over the opening</span>
+                        </label>
+                        <div id="intro-fields" class="intro-fields">
+                            <input type="text" id="intro-name" placeholder="Channel name (e.g. The Space of Sound)">
+                            <input type="text" id="intro-subtitle" placeholder="Subtitle / tagline (optional)">
+                            <div class="intro-row">
+                                <div class="intro-field">
+                                    <label for="intro-font">Font</label>
+                                    <select id="intro-font">
+                                        <option value="hailmary" selected>Hail Mary (sci-fi)</option>
+                                        <option value="cinzel">Cinzel (cinematic)</option>
+                                        <option value="cormorant">Cormorant (elegant)</option>
+                                        <option value="bebas">Bebas Neue (bold)</option>
+                                        <option value="oswald">Oswald (modern)</option>
+                                    </select>
+                                </div>
+                                <div class="intro-field">
+                                    <label for="intro-size">Size</label>
+                                    <select id="intro-size">
+                                        <option value="0.8">Small</option>
+                                        <option value="1.0" selected>Medium</option>
+                                        <option value="1.25">Large</option>
+                                    </select>
+                                </div>
+                                <div class="intro-field">
+                                    <label for="intro-color">Glow color</label>
+                                    <input type="color" id="intro-color" value="#b4c8ff">
+                                </div>
+                                <div class="intro-field">
+                                    <label for="intro-duration">Hold (s)</label>
+                                    <input type="number" id="intro-duration" min="4" max="20" step="1" value="10">
+                                </div>
+                            </div>
+                            <button id="btn-preview-intro" class="btn btn-secondary btn-sm" type="button" title="Render a short preview of just the intro">Preview intro</button>
+                            <span id="intro-preview-status" class="enhance-status"></span>
+                            <div id="intro-preview-wrap" class="clip-preview hidden" style="margin-top:8px">
+                                <video id="intro-preview-video" controls></video>
+                            </div>
+                        </div>
+                    </div>
+                </details>
+
                 <div id="export-progress" class="video-progress hidden">
                     <div class="video-progress-header">
                         <span id="export-progress-text" class="video-progress-text">Exporting...</span>

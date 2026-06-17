@@ -4949,7 +4949,7 @@
       startRequest: () => fetch(`/api/visual/export/${visCurrentJobId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ duration_minutes: minutes }),
+        body: JSON.stringify({ duration_minutes: minutes, intro: _getIntroPayload() }),
       }),
       onDone: (data) => {
         const exportPreview = document.getElementById("export-preview");
@@ -4967,6 +4967,59 @@
     btnExportVideo.disabled = false;
     btnExportVideo.textContent = "Export Video";
   });
+
+  // Gather the branded-intro settings into the payload the export route expects.
+  function _getIntroPayload() {
+    const enabled = document.getElementById("intro-enabled")?.checked;
+    return {
+      enabled: !!enabled,
+      name: document.getElementById("intro-name")?.value || "",
+      subtitle: document.getElementById("intro-subtitle")?.value || "",
+      font: document.getElementById("intro-font")?.value || "hailmary",
+      size_scale: parseFloat(document.getElementById("intro-size")?.value || "1.0"),
+      color: document.getElementById("intro-color")?.value || "#b4c8ff",
+      duration: parseFloat(document.getElementById("intro-duration")?.value || "10"),
+    };
+  }
+
+  // Quick intro preview — renders just the intro over the short clip so the user
+  // can dial in font/color/size before committing to a full export.
+  const btnPreviewIntro = document.getElementById("btn-preview-intro");
+  if (btnPreviewIntro) {
+    btnPreviewIntro.addEventListener("click", async () => {
+      if (!visCurrentJobId) { alert("Pick a track with a generated clip first."); return; }
+      const intro = _getIntroPayload();
+      if (!intro.name.trim()) { alert("Enter a channel name first."); return; }
+      const status = document.getElementById("intro-preview-status");
+      btnPreviewIntro.disabled = true;
+      status.textContent = "Rendering intro preview…";
+      status.className = "enhance-status active";
+      try {
+        const res = await fetch(`/api/visual/intro-preview/${visCurrentJobId}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ intro }),
+        });
+        const data = await res.json();
+        if (data.error) {
+          status.textContent = data.error;
+          status.className = "enhance-status error";
+        } else {
+          const wrap = document.getElementById("intro-preview-wrap");
+          const vid = document.getElementById("intro-preview-video");
+          vid.src = data.preview_url + "?t=" + Date.now();
+          vid.load();
+          wrap.classList.remove("hidden");
+          status.textContent = "Preview ready";
+          status.className = "enhance-status success";
+        }
+      } catch (e) {
+        status.textContent = "Preview failed — check connection";
+        status.className = "enhance-status error";
+      }
+      btnPreviewIntro.disabled = false;
+    });
+  }
 
 
   // ═══════════════════════════════════════════════════════

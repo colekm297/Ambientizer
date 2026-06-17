@@ -4239,3 +4239,11 @@ body { padding-bottom: 120px; }   /* clear the fixed bar */
 }
 .raw-mode-toggle input { accent-color: #a855f7; cursor: pointer; }
 .raw-mode-toggle:hover { color: #cbd5e1; }
+
+/* Channel intro panel (Visuals tab) */
+.intro-fields { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.intro-fields > input[type="text"] { width: 100%; }
+.intro-row { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; }
+.intro-field { display: flex; flex-direction: column; gap: 3px; font-size: 0.78rem; color: var(--text-secondary); }
+.intro-field input[type="color"] { width: 42px; height: 30px; padding: 0; border: none; background: none; }
+.intro-field input[type="number"] { width: 64px; }

@@ -4388,6 +4388,9 @@ def export_visual_video(job_id: str):
 
     data = request.get_json(force=True, silent=True) or {}
     target_minutes = float(data.get("duration_minutes", 0))
+    # Optional branded channel intro (overlay style) — see intro_compositor.py.
+    intro = data.get("intro") or {}
+    intro_enabled = bool(intro.get("enabled")) and bool((intro.get("name") or "").strip())
 
     def worker():
         if config and can_render_loop:
@@ -4487,6 +4490,31 @@ def export_visual_video(job_id: str):
         size_mb = os.path.getsize(final_path) / (1024 * 1024)
         print(f"  [export] Done: {size_mb:.0f} MB")
 
+        # Branded channel intro: overlay the channel name over the opening ~Ns.
+        # Only the head is re-encoded; the long tail is stream-copied + concat'd,
+        # so this stays cheap even on hour-long exports. Failure is non-fatal —
+        # we keep the plain export rather than losing the whole render.
+        if intro_enabled:
+            try:
+                import intro_compositor
+                _long_task_check_cancel(job_id)
+                _long_task_update(job_id, message="Adding channel intro...")
+                intro_out = final_path[:-4] + "_intro.mp4"
+                intro_compositor.add_intro_overlay(
+                    final_path, intro_out, intro["name"].strip(),
+                    subtitle=(intro.get("subtitle") or "").strip(),
+                    duration=float(intro.get("duration", 10)),
+                    font_key=(intro.get("font") or "cinzel"),
+                    color=intro.get("color"),
+                    size_scale=float(intro.get("size_scale", 1.0)),
+                )
+                os.replace(intro_out, final_path)  # keep the download path stable
+                print(f"  [export] Added channel intro (font={intro.get('font')})")
+            except LongTaskCanceled:
+                raise
+            except Exception as e:
+                print(f"  [export] Intro step failed, keeping plain export: {e}")
+
         with jobs_lock:
             jobs[job_id]["visual_video_path"] = final_path
         _save_job(job_id)
@@ -4499,6 +4527,68 @@ def export_visual_video(job_id: str):
     return _start_background_task(
         job_id, "export", "Looping clip + combining with audio...", worker
     )
+
+
+@app.route("/api/visual/intro-preview/<job_id>", methods=["POST"])
+def intro_preview(job_id: str):
+    """Render a short (~12s) preview of just the branded intro over the existing
+    clip, so the user can dial in font/color/size before a full export."""
+    with jobs_lock:
+        job = jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+
+    # Prefer the short loop clip (fast); fall back to the final video.
+    src = job.get("visual_clip_path") or job.get("visual_video_path")
+    if not src or not os.path.exists(src):
+        return jsonify({"error": "No clip yet — generate/animate a scene first."}), 400
+
+    data = request.get_json(force=True, silent=True) or {}
+    intro = data.get("intro") or {}
+    name = (intro.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "Channel name required"}), 400
+
+    try:
+        import intro_compositor
+        previews_dir = PROJECT_ROOT / "output" / "_previews"
+        previews_dir.mkdir(parents=True, exist_ok=True)
+
+        # Trim a short source so the preview renders quickly regardless of clip length.
+        tmp_src = str(previews_dir / f"_introsrc_{job_id}.mp4")
+        hold = float(intro.get("duration", 10))
+        trim_to = max(hold + 3, 12)
+        subprocess.run(
+            ["ffmpeg", "-y", "-t", str(trim_to), "-i", src, "-c", "copy", tmp_src],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60,
+        )
+        preview_path = str(previews_dir / f"intro_preview_{job_id}.mp4")
+        intro_compositor.add_intro_overlay(
+            tmp_src, preview_path, name,
+            subtitle=(intro.get("subtitle") or "").strip(),
+            duration=hold,
+            font_key=(intro.get("font") or "cinzel"),
+            color=intro.get("color"),
+            size_scale=float(intro.get("size_scale", 1.0)),
+        )
+        try:
+            os.remove(tmp_src)
+        except OSError:
+            pass
+        return jsonify({"preview_url": f"/api/visual/intro-preview/{job_id}/file"})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Preview failed: {e}"}), 500
+
+
+@app.route("/api/visual/intro-preview/<job_id>/file")
+def intro_preview_file(job_id: str):
+    """Serve the rendered intro preview clip."""
+    path = PROJECT_ROOT / "output" / "_previews" / f"intro_preview_{job_id}.mp4"
+    if not path.exists():
+        abort(404)
+    return send_file(str(path), mimetype="video/mp4")
 
 
 @app.route("/api/visual/video/<job_id>/download")
