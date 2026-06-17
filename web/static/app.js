@@ -5025,12 +5025,32 @@
     pubVideoPreview.classList.remove("hidden");
   }
 
+  // Persist edited metadata to the job so it survives reloads / track switches.
+  let _ytSaveTimer = null;
+  function _saveYtMetadata() {
+    if (!pubCurrentJobId) return;
+    fetch(`/api/youtube/metadata/${pubCurrentJobId}`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        yt_title: ytTitleEl.value,
+        yt_description: ytDescEl.value,
+        yt_tags: ytTagsEl.value,
+        yt_privacy: ytPrivacyEl.value,
+      }),
+    }).catch(() => {});
+  }
+  function _queueYtSave() { clearTimeout(_ytSaveTimer); _ytSaveTimer = setTimeout(_saveYtMetadata, 600); }
+
   ytTitleEl.addEventListener("input", () => {
     ytTitleCount.textContent = ytTitleEl.value.length;
     pubPreviewTitle.textContent = ytTitleEl.value || "—";
+    _queueYtSave();
   });
-  ytDescEl.addEventListener("input", () => { ytDescCount.textContent = ytDescEl.value.length; });
-  ytPrivacyEl.addEventListener("change", () => { pubPreviewPrivacy.textContent = ytPrivacyEl.value; });
+  ytDescEl.addEventListener("input", () => { ytDescCount.textContent = ytDescEl.value.length; _queueYtSave(); });
+  ytTagsEl?.addEventListener("input", _queueYtSave);
+  ytPrivacyEl.addEventListener("change", () => { pubPreviewPrivacy.textContent = ytPrivacyEl.value; _saveYtMetadata(); });
+  // flush immediately on blur so nothing is lost when leaving a field
+  [ytTitleEl, ytDescEl, ytTagsEl].forEach(el => el?.addEventListener("blur", _saveYtMetadata));
 
   async function checkYouTubeStatus() {
     try {

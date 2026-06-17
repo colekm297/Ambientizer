@@ -4758,6 +4758,22 @@ Output ONLY the JSON, nothing else.""",
     return jsonify(metadata)
 
 
+@app.route("/api/youtube/metadata/<job_id>", methods=["POST"])
+def youtube_save_metadata(job_id: str):
+    """Persist the user's EDITED YouTube metadata (title/description/tags/privacy)
+    so it survives reloads and track switches — previously edits were never saved."""
+    data_in = request.get_json(force=True, silent=True) or {}
+    with jobs_lock:
+        job = jobs.get(job_id)
+        if not job:
+            return jsonify({"error": "Job not found"}), 404
+        for k in ("yt_title", "yt_description", "yt_tags", "yt_privacy"):
+            if k in data_in:
+                job[k] = data_in[k]
+    _save_job(job_id)
+    return jsonify({"ok": True})
+
+
 @app.route("/upload")
 def upload_page():
     """Standalone upload progress window."""
