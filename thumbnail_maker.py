@@ -73,8 +73,14 @@ STYLES = {
         "case": "title", "tracking": 1, "sub_tracking": 3, "align": "left",
         "treatment": "line", "title_size": 100, "sub_size": 34, "system": True,
     },
+    "hailmary": {  # the actual Project Hail Mary display face — geometric, triangle A's
+        "label": "Hail Mary — sci-fi geometric",
+        "title": (f"{_PROJ}/HailMarySans.otf", 0), "sub": (f"{_PROJ}/HailMarySans.otf", 0),
+        "case": "upper", "tracking": 4, "sub_tracking": 8, "align": "center",
+        "treatment": "glow", "title_size": 118, "sub_size": 34, "system": True,
+    },
 }
-DEFAULT_STYLE = "cinzel"
+DEFAULT_STYLE = "hailmary"
 
 
 def _hex(c: str, fallback=(255, 255, 255)) -> tuple[int, int, int]:
@@ -199,6 +205,11 @@ def render_thumbnail(image_path: str, out_path: str, hook: str, subtitle: str = 
     margin = 64
 
     draw = ImageDraw.Draw(img)
+    # Shrink the title to fit the width — a long hook (e.g. "PROJECT HAIL MARY")
+    # in a wide display face would otherwise overflow and get cropped.
+    while title_size_px > 28 and _measure(draw, hook, title_font, sd["tracking"]) > TW - 2 * margin:
+        title_size_px -= 2
+        title_font = _font(sd["title"], title_size_px)
     tw = _measure(draw, hook, title_font, sd["tracking"])
     if align == "center":
         tx = (TW - tw) // 2
