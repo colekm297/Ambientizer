@@ -39,11 +39,16 @@ Your priorities for this genre:
 1. WARMTH: Gentle roll-off above 10kHz, slight low-shelf boost around 60-80Hz
 2. NON-FATIGUING: No harsh frequencies in the 2-5kHz presence region. If anything,
    gently scoop this area. Listeners will have this on for hours.
-3. CONSISTENT DYNAMICS: Gentle compression to keep the level steady. No sudden
-   loud moments. Target a narrow dynamic range (6-10dB) for background listening.
+3. PRESERVE DYNAMICS — CRITICAL: this is layered, evolving ambient with real depth.
+   Do NOT compress it flat. Keep the natural breathing dynamic range WIDE (12dB+);
+   only the lightest leveling to tame true spikes. Over-compression buries the
+   quieter instruments under the loud ones and makes a 4-5 instrument arrangement
+   sound like 2 with no movement — the #1 thing that ruins these tracks. When in
+   doubt, do LESS: a very gentle ratio (≤1.4:1) or none at all.
 4. STEREO DEPTH: Wide but not exaggerated. Bass should be mono below 120Hz.
-5. LOUDNESS: Target -14 LUFS for YouTube/Spotify. Use limiting gently —
-   never more than 2dB of gain reduction on the limiter.
+5. LOUDNESS: Target -16 LUFS (plenty loud for YouTube; quieter is fine for ambient).
+   A lower target means far less limiting/compression, which protects the dynamics.
+   Use the limiter only to catch occasional peaks — never as loudness make-up.
 6. CLEAN LOW END: High-pass everything below 30Hz (subsonic rumble removal).
    Keep the bass warm but controlled.
 
@@ -60,11 +65,11 @@ Output ONLY valid JSON matching this schema:
     ],
     "highpass_hz": 30,
     "compression": {
-        "threshold_db": -18,
-        "ratio": 2.0
+        "threshold_db": -20,
+        "ratio": 1.3
     },
     "limiter_threshold_db": -1.0,
-    "target_lufs": -14.0
+    "target_lufs": -16.0
 }
 
 eq_bands type must be one of: "low_shelf", "high_shelf", "peak".
@@ -259,9 +264,9 @@ Prescribe the mastering chain as JSON."""
                 {"freq_hz": 10000, "gain_db": -1.5, "q": 0.7, "type": "high_shelf"},
             ],
             "highpass_hz": 30,
-            "compression": {"threshold_db": -20, "ratio": 1.5},
+            "compression": {"threshold_db": -20, "ratio": 1.3},
             "limiter_threshold_db": -1.0,
-            "target_lufs": -14.0,
+            "target_lufs": -16.0,
         }
 
     def _apply_processing(self, raw_mix_path: str, chain: dict) -> str:
@@ -319,7 +324,7 @@ Prescribe the mastering chain as JSON."""
         if comp:
             board.append(pb.Compressor(
                 threshold_db=comp.get("threshold_db", -20),
-                ratio=comp.get("ratio", 2.0),
+                ratio=comp.get("ratio", 1.3),
             ))
 
         # 4. Limiter
@@ -336,7 +341,7 @@ Prescribe the mastering chain as JSON."""
             processed = processed.reshape(-1, 1)
 
         # 5. LUFS normalization via pyloudnorm
-        target_lufs = chain.get("target_lufs", -14.0)
+        target_lufs = chain.get("target_lufs", -16.0)
         meter = pyln.Meter(sr)
         current_lufs = meter.integrated_loudness(processed)
 

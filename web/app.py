@@ -1204,13 +1204,16 @@ MODEL GUIDANCE (from ElevenLabs Music v1 official prompting docs — follow thes
 The model reliably captures key — omitting it wastes the strongest lever you have.
 - ALWAYS state TEMPO: a BPM number (e.g. "72 BPM") or, for beatless beds, an explicit time-feel \
 (e.g. "free-meter, no pulse"). The model follows BPM accurately.
-- FRAME FOR A RICH, EVOLVING ARRANGEMENT — this is the single biggest lever for interesting output. \
-Lead with a vivid musical/cinematic style cue that implies a FULL arrangement (e.g. "cinematic \
-orchestral", "lush film-score ambient", "warm analog ambient with live strings and piano"). The word \
-"soundscape" is allowed but do NOT stack static cues together ("ambient + soundscape + free-meter + \
-no pulse + drone") — that combination tells the model to make flat, motionless wallpaper and is the \
-#1 cause of dull, 2-instrument output. Favor words that imply richness and motion: orchestral, \
-layered, evolving, swelling, blooming, building, emerging.
+- AIM FOR "LUSH-BUT-CALM AMBIENT" — THE SWEET SPOT. The target is a warm, immersive SOUNDSCAPE with \
+GENTLE DEPTH (≈4-5 interweaving instruments and slow movement) — NOT a sparse drone, and NOT a busy \
+orchestra. This middle ground is the whole goal. \
+  • Lead with "lush warm ambient" / "warm cinematic ambient" / "richly textured ambient soundscape". \
+  • Add depth words: "richly textured", "gently layered", "immersive", "warm and full". \
+  • CAP it so it stays calm: ALWAYS include "unhurried" and "never busy" (or "restful"/"spacious"). \
+    This cap is essential — it gives depth without tipping into an overwhelming orchestra. \
+  • AVOID BOTH EXTREMES: do NOT stack thinning cues ("sparse + drone + free-meter + no pulse" → dull \
+    2-instrument wallpaper), and do NOT push density cues ("full orchestra", "dense", "epic", "many \
+    instruments at once", "wall of sound" → too busy, unlistenable as background).
 - These are INSTRUMENTAL soundscapes. Include the word "instrumental" and do NOT write lyrics, \
 vocal lines, or vocal-entry cues. NO VOCAL CONTENT AT ALL — not even "wordless vocal pads" or choirs: \
 the music model's vocal synthesis reliably degrades into garbled, robotic artifacts mid-track. \
@@ -1218,18 +1221,18 @@ Likewise avoid mechanical/machine descriptors ("air-handler hum", "metallic reso
 "pressurized hiss") — they invite the same robotic noises. Evoke air and space with INSTRUMENTS instead: \
 string harmonics, airy synth pads, bowed glass, soft flutes.
 - WRITE ONE EMOTIVE LINE — THIS IS THE FORMAT THAT ACTUALLY WORKS. The prompt must be a SINGLE \
-flowing sentence (~200-380 chars), NOT a multi-sentence spec. Long detailed prompts make the model \
-collapse to 2-3 instruments and go static — a single emotive line gets rich, layered, dynamic output. \
-Shape: "[emotion-rich cinematic style] ambient in [key], [tempo] — [4-6 instruments in one flowing \
-phrase doing evocative things], [strong feeling words], [the world/setting + one signature sound]." \
-Example that worked: "Cinematic orchestral ambient in D minor — aching duduk and soaring strings, \
-glittering piano, and deep warm brass swelling together with overwhelming awe, longing and hope, over \
-soft desert rain." \
-- LEAN HARD ON FEELING + EMOTION WORDS — the model responds to them: aching, soaring, reverent, \
-overwhelming, awe, longing, hope, wonder, melancholy, triumphant, tender, yearning, sacred, vast. \
-Weave 2-4 of these in. They carry the dynamism and the world's character more than instrument lists do. \
+flowing sentence (~200-350 chars), NOT a multi-sentence spec. Long detailed prompts make the model \
+collapse and go static. Name 4-5 instruments weaving GENTLY together — a lead melodic voice, a couple \
+of warm mid textures, and one soft foundation — with calm feeling words and the world's character. \
+THE PROVEN SWEET SPOT — use this exact shape and density as your model: \
+"Lush warm ambient in D minor, calm and flowing — felt piano and duduk weaving gentle melodies over \
+soft strings, a warm synth pad and subtle santur shimmer, richly textured and immersive but unhurried, \
+never busy." \
+- USE CALM, WARM FEELING WORDS (the model responds to them and they carry the mood): warm, tender, \
+immersive, gentle, serene, wistful, reverent, hopeful, aching, yearning, dreamlike, spacious. Weave \
+2-4 in. Pair them with the depth/cap words ("richly textured ... but unhurried, never busy"). \
 - DO NOT: write multiple sentences, list exact notes, narrate an arc ("first X enters, then Y..."), \
-stack low drones, or pile on detail. One vivid emotive line beats everything else.
+stack low drones, push a full/dense orchestra, or pile on detail. One vivid calm-but-layered line wins.
 - FICTIONAL WORLDS ARE WELCOME: naming a fictional world, place, or work ("Dune", "Arrakis", \
 "Project Hail Mary", "Interstellar") is allowed, passes the API's checks, and strongly helps the model \
 evoke the right universe — include it when the user's idea references one. Only real artists, bands, \
