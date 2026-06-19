@@ -1188,7 +1188,7 @@ OUTPUT FORMAT: Return a JSON object with:
       "role": "Main Music" or "Atmosphere" or "Texture" etc.,
       "type": "musical" or "base" or "mid" or "detail",
       "instruments": ["instrument1", "instrument2"],
-      "prompt_preview": "Concise evocative prompt (~400-700 chars for musical, 50-150 for SFX)",
+      "prompt_preview": "ONE emotive line (~200-380 chars for musical, 50-150 for SFX)",
       "est_credits": 3600
     }
   ]
@@ -1217,18 +1217,19 @@ the music model's vocal synthesis reliably degrades into garbled, robotic artifa
 Likewise avoid mechanical/machine descriptors ("air-handler hum", "metallic resonances", "machinery", \
 "pressurized hiss") — they invite the same robotic noises. Evoke air and space with INSTRUMENTS instead: \
 string harmonics, airy synth pads, bowed glass, soft flutes.
-- CONCISE & EVOCATIVE, NOT EXHAUSTIVE — the music model follows a short evocative STYLE BRIEF far \
-better than a long micro-managed spec. Keep the prompt to ~2-4 vivid sentences (~400-700 chars). The \
-user's best-performing prompts read like: "Cinematic orchestral drone in Eb minor, 60 BPM. Deep brass \
-sustains evolving through harmonic layers, ethereal string swells, delicate piano motifs emerging from \
-silence. Analog synth textures with subtle pitch modulation." — broad strokes, rich arrangement, \
-movement verbs. \
-- DO NOT MICRO-MANAGE — no exact note names ("around D, F, G"), no per-instrument articulation \
-paragraphs, no beat-by-beat arc narration ("first the ney enters, then the horn answers, then..."). \
-That level of detail OVERWHELMS the model and it collapses to only 2-3 instruments — this is exactly \
-what makes output dull. Name 4-6 instrument FAMILIES across LOW/MID/HIGH registers with movement verbs, \
-lead with the foreground melodic voices, and keep any drone/sub-bass to ONE brief mention as quiet \
-support. A short rich evolving brief beats a 1200-character choreography every single time.
+- WRITE ONE EMOTIVE LINE — THIS IS THE FORMAT THAT ACTUALLY WORKS. The prompt must be a SINGLE \
+flowing sentence (~200-380 chars), NOT a multi-sentence spec. Long detailed prompts make the model \
+collapse to 2-3 instruments and go static — a single emotive line gets rich, layered, dynamic output. \
+Shape: "[emotion-rich cinematic style] ambient in [key], [tempo] — [4-6 instruments in one flowing \
+phrase doing evocative things], [strong feeling words], [the world/setting + one signature sound]." \
+Example that worked: "Cinematic orchestral ambient in D minor — aching duduk and soaring strings, \
+glittering piano, and deep warm brass swelling together with overwhelming awe, longing and hope, over \
+soft desert rain." \
+- LEAN HARD ON FEELING + EMOTION WORDS — the model responds to them: aching, soaring, reverent, \
+overwhelming, awe, longing, hope, wonder, melancholy, triumphant, tender, yearning, sacred, vast. \
+Weave 2-4 of these in. They carry the dynamism and the world's character more than instrument lists do. \
+- DO NOT: write multiple sentences, list exact notes, narrate an arc ("first X enters, then Y..."), \
+stack low drones, or pile on detail. One vivid emotive line beats everything else.
 - FICTIONAL WORLDS ARE WELCOME: naming a fictional world, place, or work ("Dune", "Arrakis", \
 "Project Hail Mary", "Interstellar") is allowed, passes the API's checks, and strongly helps the model \
 evoke the right universe — include it when the user's idea references one. Only real artists, bands, \
