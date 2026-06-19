@@ -374,6 +374,7 @@ def _save_job(job_id: str):
         "stem_files": job.get("stem_files"),
         "composition_plan": job.get("composition_plan"),
         "music_generation_mode": job.get("music_generation_mode"),
+        "music_model": job.get("music_model"),
         "raw_seed": job.get("raw_seed"),
         "favorite": job.get("favorite", False),
         # Distribute-tab persistence
@@ -1215,9 +1216,20 @@ string harmonics, airy synth pads, bowed glass, soft flutes.
 of the user's best work; do not pad past ~1200). Always include: ONE key/mode, ONE tempo (BPM or \
 free-meter), 4-7 concretely named instruments with a little detail about what each DOES (texture, \
 register, articulation), and (if a known world) the world's name. Then describe the internal motion \
-and how the piece evolves — give it real development, not one static idea. A vivid, specific, \
-instrument-rich prompt is what produces an interesting result; a thin 400-character sketch generates \
-monotonous wallpaper. Be detailed and musical, like a composer's working brief.
+and how the piece evolves — give it real development, not one static idea.
+- INSTRUMENT ORDER & REGISTER — CRITICAL: the music model renders the FIRST-named, most-emphasized \
+instruments most strongly and only voices a handful, so LEAD with the FOREGROUND MELODIC / MOVING \
+instruments (the lead voice, the arpeggios, the shimmer, the things that carry melody and motion) — \
+name them first and describe them most. Mention any drone / sub-bass / pad foundation BRIEFLY and \
+LATER as quiet support ("...over a soft low drone"), never as the opening subject and never "anchors \
+everything". Use only ONE low/sustained foundation element — do NOT stack sub-bass + contrabass + \
+tuba + bass-trombone + pedal (that buries everything in low-end mud and the model renders only the \
+drones). Spread the named instruments across registers (low / mid / high) and lean toward melodic and \
+plucked/struck voices that the model can actually articulate, not five sustained low drones. \
+A prompt that opens with a melody over light support produces a rich, dynamic result; a prompt that \
+opens with a wall of drones produces a dull one-dimensional drone. \
+A vivid, specific, instrument-rich prompt is what produces an interesting result; a thin 400-character \
+sketch generates monotonous wallpaper. Be detailed and musical, like a composer's working brief.
 - FICTIONAL WORLDS ARE WELCOME: naming a fictional world, place, or work ("Dune", "Arrakis", \
 "Project Hail Mary", "Interstellar") is allowed, passes the API's checks, and strongly helps the model \
 evoke the right universe — include it when the user's idea references one. Only real artists, bands, \
