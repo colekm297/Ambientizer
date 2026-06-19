@@ -53,8 +53,9 @@
                         <!-- Musical settings (revealed in Musical mode) -->
                         <div id="music-experiment-group" class="form-group hidden">
                             <label for="music-generation-mode">Music engine</label>
-                            <select id="music-generation-mode">
-                                <option value="text">Text prompt</option>
+                            <select id="music-generation-mode" title="Stitch = generate several short rich cells that evolve and crossfade into one long, full-bodied track (best for richness over 10+ min). Text = one looped cell. Composition plan = single planned generation.">
+                                <option value="stitch">Stitch (rich, evolving — recommended)</option>
+                                <option value="text">Text prompt (single cell, looped)</option>
                                 <option value="composition_plan">Composition plan</option>
                             </select>
                             <label for="music-model" style="margin-top:10px;">ElevenLabs model</label>

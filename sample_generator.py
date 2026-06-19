@@ -34,7 +34,33 @@ SAFE_MAX_MUSIC_SEC = 300.0   # docs-supported max — v1 degrades into robotic
 # thin and collapse toward a drone. The audio engine loops this cell seamlessly
 # to any output length, so output duration is unaffected.
 MUSIC_CELL_SEC = 150.0
+# Stitch mode: generate N short rich cells that EVOLVE (sparse intro → bloom →
+# settle) sharing the same key/palette, then trim each cell's natural fade-in/out
+# and crossfade the full bodies into one continuous, evolving, rich track. Beats
+# both a single long generation (thin) and a flat loop (static) — the cells stay
+# coherent because they share the base prompt, but the arc cue makes the track
+# go somewhere. Capped at MAX_STITCH_CELLS to bound credits.
+STITCH_CROSSFADE_MS = 12000
+MAX_STITCH_CELLS = 16
 HARD_MAX_SFX_SEC = 8.0
+
+
+def stitch_arc_cue(i: int, n: int) -> str:
+    """A short directive appended to the base prompt so cell `i` of `n` sits at
+    the right point of a sparse-intro → bloom → settle arc. Keeps the same
+    palette (from the base prompt) while making the track develop."""
+    if n <= 1:
+        return ""
+    if i == 0:
+        return "Open sparse and intimate — just the lead voices, with lots of open space."
+    if i == n - 1:
+        return "Settle back to the core instruments, gently resolving and fading."
+    peak = max(1, n - 2)
+    if i == peak:
+        return "The full warm ensemble blooming together at its richest, still unhurried."
+    if i < peak:
+        return "A little fuller now — warm mid textures gently layering in."
+    return "Easing back down, paring toward the core voices."
 # Daily self-imposed credit cap. 0 (or negative) = DISABLED (no limit). Set the
 # DAILY_CREDIT_LIMIT env var to a positive number to re-enable the guardrail.
 DAILY_CREDIT_LIMIT = int(os.environ.get("DAILY_CREDIT_LIMIT", "0"))
@@ -183,13 +209,20 @@ class ElevenLabsSampleGenerator:
         api_tag = "music" if is_musical else "sfx"
         seed_part = f"|seed={reroll_seed}" if reroll_seed else ""
         music_mode = getattr(layer, "music_generation_mode", "text") if is_musical else "text"
+        # Stitch mode: generate N evolving cells and crossfade them into one track.
+        n_cells = 1
+        if is_musical and music_mode == "stitch":
+            src_sec = music_length_sec or track_duration_sec or (MUSIC_CELL_SEC * 4)
+            n_cells = max(2, min(MAX_STITCH_CELLS, int(-(-src_sec // MUSIC_CELL_SEC))))
+            duration = MUSIC_CELL_SEC  # each cell is one short rich generation
+        stitch_part = f"|cells={n_cells}" if (is_musical and music_mode == "stitch") else ""
         # A provided/edited composition plan must change the cache key so edits
         # produce fresh audio instead of returning a stale cached render.
         provided_plan = getattr(layer, "composition_plan", None) if is_musical else None
         plan_part = ""
         if music_mode == "composition_plan" and provided_plan:
             plan_part = "|plan=" + hashlib.sha256(json.dumps(provided_plan, sort_keys=True).encode()).hexdigest()[:10]
-        cache_key = hashlib.sha256(f"{api_tag}|{music_mode}|{prompt}|{duration}{seed_part}{plan_part}".encode()).hexdigest()[:16]
+        cache_key = hashlib.sha256(f"{api_tag}|{music_mode}|{prompt}|{duration}{seed_part}{plan_part}{stitch_part}".encode()).hexdigest()[:16]
         wav_path = str(self.cache_dir / f"{cache_key}.wav")
 
         if os.path.exists(wav_path):
@@ -197,7 +230,8 @@ class ElevenLabsSampleGenerator:
             return wav_path
 
         cr_per_sec = 30 if is_musical else 20
-        estimated_credits = duration * cr_per_sec
+        billed_sec = (n_cells * MUSIC_CELL_SEC) if (is_musical and music_mode == "stitch") else duration
+        estimated_credits = billed_sec * cr_per_sec
         self._check_spend_limit(estimated_credits)
         self.check_real_balance(estimated_credits)
 
@@ -212,6 +246,9 @@ class ElevenLabsSampleGenerator:
                     layer.name, prompt, duration, wav_path, cache_key,
                     provided_plan=provided_plan, root_key=root_key, mood=mood,
                 )
+            elif music_mode == "stitch":
+                result = self._generate_music_stitched(
+                    layer.name, prompt, MUSIC_CELL_SEC, n_cells, wav_path, cache_key)
             else:
                 result = self._generate_music(layer.name, prompt, duration, wav_path, cache_key)
         else:
@@ -439,6 +476,66 @@ class ElevenLabsSampleGenerator:
                 return self._generate_sfx(name, prompt, min(duration, HARD_MAX_SFX_SEC), wav_path, cache_key)
 
         return ""
+
+    def _generate_music_stitched(self, name: str, base_prompt: str, cell_sec: float,
+                                  n_cells: int, wav_path: str, cache_key: str) -> str:
+        """Stitch mode: generate N short rich cells that evolve along a sparse → bloom
+        → settle arc (all sharing the base prompt's key/palette), trim each cell's
+        natural fade-in/out, then crossfade the full bodies into one continuous track.
+        Beats a single long generation (which goes thin) and a flat loop (static)."""
+        from pydub import AudioSegment
+        from pydub.silence import detect_leading_silence
+        cell_ms = max(3000, int(min(cell_sec, HARD_MAX_MUSIC_SEC) * 1000))
+        print(f"      🧵 Stitch: {n_cells} evolving {cell_ms/1000:.0f}s cells for '{name}'", flush=True)
+        bodies = []
+        for i in range(n_cells):
+            cue = stitch_arc_cue(i, n_cells)
+            cell_prompt = self._guard_ending(f"{base_prompt} {cue}".strip() if cue else base_prompt)
+            print(f"      🧵 cell {i+1}/{n_cells}: {cue or 'base palette'}", flush=True)
+            audio_bytes = None
+            try:
+                result = self._call_with_retry(
+                    self.client.music.compose,
+                    prompt=cell_prompt, model_id=self.music_model,
+                    music_length_ms=cell_ms, force_instrumental=True,
+                    output_format="mp3_44100_192",
+                )
+                audio_bytes = b"".join(result)
+            except QuotaExhaustedError:
+                raise
+            except Exception as e:
+                suggestion = self._extract_prompt_suggestion(e)
+                if suggestion:
+                    try:
+                        audio_bytes = b"".join(self._call_with_retry(
+                            self.client.music.compose, prompt=suggestion,
+                            model_id=self.music_model, music_length_ms=cell_ms,
+                            force_instrumental=True, output_format="mp3_44100_192"))
+                    except Exception as e2:
+                        print(f"      ⚠ stitch cell {i+1} failed after rewrite: {str(e2)[:120]}", flush=True)
+                else:
+                    print(f"      ⚠ stitch cell {i+1} failed: {str(e)[:120]}", flush=True)
+            if not audio_bytes:
+                continue
+            cell_path = str(self.cache_dir / f"{cache_key}_cell{i}.mp3")
+            with open(cell_path, "wb") as f:
+                f.write(audio_bytes)
+            seg = AudioSegment.from_file(cell_path)
+            # trim each cell's natural fade-in/out so the joins never dip to silence
+            lead = detect_leading_silence(seg, silence_threshold=-34.0, chunk_size=50)
+            trail = detect_leading_silence(seg.reverse(), silence_threshold=-34.0, chunk_size=50)
+            body = seg[lead:len(seg) - trail]
+            if len(body) > 4000:
+                bodies.append(body)
+        if not bodies:
+            return ""
+        combined = bodies[0]
+        for b in bodies[1:]:
+            cf = min(STITCH_CROSSFADE_MS, len(b) // 2, len(combined) // 2)
+            combined = combined.append(b, crossfade=cf)
+        combined.export(wav_path, format="wav")
+        print(f"      ✓ Stitched {len(bodies)}/{n_cells} cells → {len(combined)/1000/60:.1f} min", flush=True)
+        return wav_path
 
     def _build_ambient_composition_plan(self, prompt: str, duration_ms: int,
                                          root_key: str = "", mood: str = "",
