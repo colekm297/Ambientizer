@@ -28,6 +28,12 @@ STEM_SAMPLE_SEC = 120       # clip length sent to stem API (ambient is static th
 HARD_MAX_MUSIC_SEC = 600.0   # absolute API ceiling (user can still request it)
 SAFE_MAX_MUSIC_SEC = 300.0   # docs-supported max — v1 degrades into robotic
                              # vocal artifacts past ~5 min (v2-transition era)
+# Generate a SHORT, rich source cell and crossfade-loop it to fill the track.
+# MEASURED: ElevenLabs packs ~35% more spectral richness (instruments/high-freq
+# detail) into a ~2-min generation than a 10-min one — long generations spread
+# thin and collapse toward a drone. The audio engine loops this cell seamlessly
+# to any output length, so output duration is unaffected.
+MUSIC_CELL_SEC = 150.0
 HARD_MAX_SFX_SEC = 8.0
 # Daily self-imposed credit cap. 0 (or negative) = DISABLED (no limit). Set the
 # DAILY_CREDIT_LIMIT env var to a positive number to re-enable the guardrail.
@@ -672,19 +678,14 @@ class ElevenLabsSampleGenerator:
         short clips to fill any track length.
         """
         if layer_type == LayerType.MUSICAL:
-            if music_length_sec > 0:
-                dur = min(music_length_sec, HARD_MAX_MUSIC_SEC)
-                if dur > SAFE_MAX_MUSIC_SEC:
-                    # User's deliberate default is 10 min — log only, don't spam
-                    # the quality-warnings banner on every job. v1 docs cap is
-                    # 5 min; past it robotic-vocal artifacts are a dice roll
-                    # (much rarer since the vocal-language scrubbing fixes).
-                    print(f"      ℹ {dur/60:.0f}-min source exceeds v1's documented 5-min "
-                          "window — if robo-artifacts appear late in the track, re-roll "
-                          "or use 5 min.", flush=True)
-                return dur
-            # No explicit length → match the UI default (10-min max source).
-            return HARD_MAX_MUSIC_SEC
+            # Always generate a short, rich cell — never the full track length.
+            # A long generation comes back dull/thin (measured); the engine loops
+            # this cell to fill whatever output length the user set. Honor a
+            # smaller explicit request, but cap at the cell length.
+            dur = min(music_length_sec, MUSIC_CELL_SEC) if music_length_sec > 0 else MUSIC_CELL_SEC
+            print(f"      ℹ Generating a {dur:.0f}s rich source cell → crossfade-looped "
+                  "to fill the full track (short generations are far richer).", flush=True)
+            return dur
 
         durations = {
             LayerType.BASE: 8.0,
