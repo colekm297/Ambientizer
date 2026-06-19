@@ -68,15 +68,19 @@
                         <!-- Length -->
                         <div class="form-group">
                             <label for="music-length">Loop Length</label>
-                            <select id="music-length">
+                            <select id="music-length" title="Length of the finished track. In Stitch mode it's filled with ~2.5-min evolving cells; longer = fewer repeats in long videos.">
                                 <option value="0.5">30 sec</option>
                                 <option value="1">1 min</option>
                                 <option value="2">2 min</option>
                                 <option value="3">3 min</option>
-                                <option value="5">5 min (safest — v1 sweet spot)</option>
-                                <option value="10" selected>10 min (max)</option>
+                                <option value="5">5 min</option>
+                                <option value="10" selected>10 min</option>
+                                <option value="15">15 min (stitch)</option>
+                                <option value="20">20 min (stitch)</option>
+                                <option value="30">30 min (stitch)</option>
+                                <option value="40">40 min (stitch — max)</option>
                             </select>
-                            <span class="form-hint">Unique audio before it seamlessly loops. Final length is set on Export.</span>
+                            <span class="form-hint">Length of unique audio before it loops. Final video length is set on Export. Longer = fewer repeats.</span>
                         </div>
 <!-- Seamless loop is always enabled. (Previously a checkbox that could
                      silently get stuck OFF in localStorage and disable loop prep,
