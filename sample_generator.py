@@ -775,14 +775,14 @@ class ElevenLabsSampleGenerator:
         short clips to fill any track length.
         """
         if layer_type == LayerType.MUSICAL:
-            # Always generate a short, rich cell — never the full track length.
-            # A long generation comes back dull/thin (measured); the engine loops
-            # this cell to fill whatever output length the user set. Honor a
-            # smaller explicit request, but cap at the cell length.
-            dur = min(music_length_sec, MUSIC_CELL_SEC) if music_length_sec > 0 else MUSIC_CELL_SEC
-            print(f"      ℹ Generating a {dur:.0f}s rich source cell → crossfade-looped "
-                  "to fill the full track (short generations are far richer).", flush=True)
-            return dur
+            # Text/plan modes: generate the user's chosen Loop Length as ONE generation
+            # (capped at the API max), so "10 min loop" = 10 min of UNIQUE audio.
+            # NOTE: long single generations come back thin — Stitch mode is the rich
+            # alternative and sets its own short per-cell length in generate_layer_audio,
+            # so this cap does NOT apply to stitch.
+            if music_length_sec > 0:
+                return min(music_length_sec, HARD_MAX_MUSIC_SEC)
+            return HARD_MAX_MUSIC_SEC
 
         durations = {
             LayerType.BASE: 8.0,
