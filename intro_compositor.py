@@ -266,6 +266,54 @@ def add_intro_overlay(video: str, out: str, name: str, subtitle: str = "",
         except OSError: pass
 
 
+def add_video_fades(video: str, out: str, fade_in: float = 10.0, fade_out: float = 8.0) -> str:
+    """Add a gentle VIDEO fade-in from black (head) and fade-out to black (tail)
+    so an exported video doesn't start/end full-tilt. Stays fast: only the short
+    head + tail are re-encoded, the long middle is stream-copied, then concat'd.
+    Audio is COPIED untouched (the export already applies its audio fades)."""
+    info = probe(video)
+    fps, total = info["fps"], info["duration"]
+    fi = max(0.0, min(fade_in, total / 3))
+    fo = max(0.0, min(fade_out, total / 3))
+    if fi <= 0 and fo <= 0:
+        return video
+    can_copy = info["vcodec"] == "h264" and info["pix_fmt"] in ("yuv420p", "yuvj420p")
+    acopy = ["-c:a", "copy"] if info["has_audio"] else []
+    venc = ["-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p", "-r", f"{fps}"]
+    tmp = Path(tempfile.mkdtemp(prefix="vfade_"))
+    try:
+        segs = []
+        if fi > 0:
+            head = str(tmp / "head.mp4")
+            _run([FFMPEG, "-y", "-t", f"{fi}", "-i", video,
+                  "-vf", f"fade=t=in:st=0:d={fi}", *venc, *acopy, head])
+            segs.append(head)
+        mid = str(tmp / "mid.mp4")
+        midcmd = [FFMPEG, "-y", "-ss", f"{fi}"]
+        if fo > 0:
+            midcmd += ["-to", f"{total - fo}"]
+        midcmd += ["-i", video]
+        midcmd += (["-c", "copy"] if can_copy else [*venc, *acopy])
+        midcmd += [mid]
+        _run(midcmd)
+        segs.append(mid)
+        if fo > 0:
+            tail = str(tmp / "tail.mp4")
+            _run([FFMPEG, "-y", "-ss", f"{total - fo}", "-i", video,
+                  "-vf", f"fade=t=out:st=0:d={fo}", *venc, *acopy, tail])
+            segs.append(tail)
+        listf = tmp / "c.txt"
+        listf.write_text("".join(f"file '{s}'\n" for s in segs))
+        _run([FFMPEG, "-y", "-f", "concat", "-safe", "0", "-i", str(listf), "-c", "copy", out])
+        return out
+    finally:
+        for p in tmp.glob("*"):
+            try: p.unlink()
+            except OSError: pass
+        try: tmp.rmdir()
+        except OSError: pass
+
+
 def add_intro_card(video: str, out: str, name: str, subtitle: str = "",
                    duration: float = 7.0, xfade: float = 1.2,
                    font_key: str = DEFAULT_FONT, bg_image: str = None,
