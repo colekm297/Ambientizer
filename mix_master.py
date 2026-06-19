@@ -245,6 +245,20 @@ Prescribe the mastering chain as JSON."""
             print(f"      ⚠ Failed to parse mastering chain: {e}")
             chain = self._default_chain()
 
+        # HARD CLAMP to gentle bounds. The LLM repeatedly ignores the "preserve
+        # dynamics / -16 LUFS / ratio <=1.4" guidance and picks -14 LUFS + heavy
+        # compression, which crushes the dynamics and buries the quiet instruments.
+        # Enforce ceilings regardless of what it returns.
+        try:
+            chain["target_lufs"] = min(float(chain.get("target_lufs", -16.0)), -16.0)
+            comp = chain.get("compression") or {}
+            comp["ratio"] = min(float(comp.get("ratio", 1.3)), 1.4)
+            comp["threshold_db"] = max(float(comp.get("threshold_db", -20.0)), -20.0)
+            chain["compression"] = comp
+            chain["limiter_threshold_db"] = max(float(chain.get("limiter_threshold_db", -1.0)), -1.5)
+        except (TypeError, ValueError):
+            chain = self._default_chain()
+
         # Log the chain
         n_eq = len(chain.get("eq_bands", []))
         comp = chain.get("compression", {})
