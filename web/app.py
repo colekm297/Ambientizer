@@ -991,12 +991,12 @@ def favorite_prompt_exemplars(mode: str = "musical", max_n: int = 3) -> list:
                                             "organ", "duduk", "synth", "pad", "choir", "harp")):
                 score += 1
             scored.append((score, len(p), p))
-    # Best score first; then prefer prompts near the user's PROVEN banger length
-    # (~1000 chars — measured across their favorites' main musical prompts, which
-    # run 600-1200c). Earlier I mistakenly capped this at ~400c after miscounting
-    # tiny SFX sub-layers as the norm; that starved prompts and produced
-    # monotonous output. The rich ~1000c prompts are the actual bangers.
-    scored.sort(key=lambda t: (t[0], -abs(t[1] - 1000)), reverse=True)
+    # Best score first; then prefer CONCISE, EVOCATIVE favorites (~500 chars).
+    # The richest-SOUNDING bangers (e.g. Inception Dreamscape ~423c, Deep Space
+    # Reverie ~415c) are short evocative style briefs, NOT long specs. The long
+    # ~1200c micro-managed prompts produce DULL 2-3 instrument output because the
+    # model can't follow that much detail. Feed enhance the concise exemplars.
+    scored.sort(key=lambda t: (t[0], -abs(t[1] - 500)), reverse=True)
     out, seen = [], set()
     for _, _, p in scored:
         sig = p[:60].lower()
@@ -1168,10 +1168,11 @@ for background listening — audio that plays for hours while people study, work
 
 CRITICAL: You are NOT writing pop songs. No verse/chorus/bridge, no beat drops, no hooks. \
 But DO include gentle internal movement — elements entering, density shifts, harmonic breathing. \
-THE ENDING IS SACRED: the piece must stay at FULL body-level density with real instruments playing \
-through the very end. NEVER write "thins back", "returns to the opening", "fades", "dissolves", \
-"strips back", or any sparse/quiet ending — when the music model strips instruments for a sparse \
-ending it synthesizes garbled ROBOTIC VOCAL artifacts in the final minutes. The seamless loop is \
+THE ENDING: keep real instruments playing through the very end — do not strip down to a bare drone \
+or silence. NEVER write "thins back", "returns to the opening", "fades", "dissolves", "strips back", \
+or any sparse/quiet ending — when the music model strips instruments for a sparse ending it \
+synthesizes garbled ROBOTIC VOCAL artifacts in the final minutes. (This is about not going EMPTY at \
+the end — it is NOT a license to pile on a dense wall of instruments; keep the arrangement tasteful.) The seamless loop is \
 crafted downstream by a loop-finder + crossfade; the ending does NOT need to match the opening.
 
 For MUSICAL mode + Unified approach: 1 rich musical layer containing ALL instruments and environmental atmosphere in a single generation. Do NOT add a separate atmosphere/SFX layer.
@@ -1187,7 +1188,7 @@ OUTPUT FORMAT: Return a JSON object with:
       "role": "Main Music" or "Atmosphere" or "Texture" etc.,
       "type": "musical" or "base" or "mid" or "detail",
       "instruments": ["instrument1", "instrument2"],
-      "prompt_preview": "Rich generation prompt (aim ~700-1100 chars for musical, 50-150 for SFX)",
+      "prompt_preview": "Concise evocative prompt (~400-700 chars for musical, 50-150 for SFX)",
       "est_credits": 3600
     }
   ]
@@ -1203,33 +1204,31 @@ MODEL GUIDANCE (from ElevenLabs Music v1 official prompting docs — follow thes
 The model reliably captures key — omitting it wastes the strongest lever you have.
 - ALWAYS state TEMPO: a BPM number (e.g. "72 BPM") or, for beatless beds, an explicit time-feel \
 (e.g. "free-meter, no pulse"). The model follows BPM accurately.
-- ALWAYS use the word "soundscape" in the prompt (e.g. "Instrumental ambient soundscape in D Dorian..."). \
-This single word is the strongest cue for the textural, environmental, evolving ambient result we want — \
-"instrumental" only means "no lyrics", it does NOT convey the ambient/soundscape character. Use BOTH words.
+- FRAME FOR A RICH, EVOLVING ARRANGEMENT — this is the single biggest lever for interesting output. \
+Lead with a vivid musical/cinematic style cue that implies a FULL arrangement (e.g. "cinematic \
+orchestral", "lush film-score ambient", "warm analog ambient with live strings and piano"). The word \
+"soundscape" is allowed but do NOT stack static cues together ("ambient + soundscape + free-meter + \
+no pulse + drone") — that combination tells the model to make flat, motionless wallpaper and is the \
+#1 cause of dull, 2-instrument output. Favor words that imply richness and motion: orchestral, \
+layered, evolving, swelling, blooming, building, emerging.
 - These are INSTRUMENTAL soundscapes. Include the word "instrumental" and do NOT write lyrics, \
 vocal lines, or vocal-entry cues. NO VOCAL CONTENT AT ALL — not even "wordless vocal pads" or choirs: \
 the music model's vocal synthesis reliably degrades into garbled, robotic artifacts mid-track. \
 Likewise avoid mechanical/machine descriptors ("air-handler hum", "metallic resonances", "machinery", \
 "pressurized hiss") — they invite the same robotic noises. Evoke air and space with INSTRUMENTS instead: \
 string harmonics, airy synth pads, bowed glass, soft flutes.
-- PROMPT RICHNESS — aim for roughly 700-1100 characters for the musical prompt (the proven sweet spot \
-of the user's best work; do not pad past ~1200). Always include: ONE key/mode, ONE tempo (BPM or \
-free-meter), 4-7 concretely named instruments with a little detail about what each DOES (texture, \
-register, articulation), and (if a known world) the world's name. Then describe the internal motion \
-and how the piece evolves — give it real development, not one static idea.
-- INSTRUMENT ORDER & REGISTER — CRITICAL: the music model renders the FIRST-named, most-emphasized \
-instruments most strongly and only voices a handful, so LEAD with the FOREGROUND MELODIC / MOVING \
-instruments (the lead voice, the arpeggios, the shimmer, the things that carry melody and motion) — \
-name them first and describe them most. Mention any drone / sub-bass / pad foundation BRIEFLY and \
-LATER as quiet support ("...over a soft low drone"), never as the opening subject and never "anchors \
-everything". Use only ONE low/sustained foundation element — do NOT stack sub-bass + contrabass + \
-tuba + bass-trombone + pedal (that buries everything in low-end mud and the model renders only the \
-drones). Spread the named instruments across registers (low / mid / high) and lean toward melodic and \
-plucked/struck voices that the model can actually articulate, not five sustained low drones. \
-A prompt that opens with a melody over light support produces a rich, dynamic result; a prompt that \
-opens with a wall of drones produces a dull one-dimensional drone. \
-A vivid, specific, instrument-rich prompt is what produces an interesting result; a thin 400-character \
-sketch generates monotonous wallpaper. Be detailed and musical, like a composer's working brief.
+- CONCISE & EVOCATIVE, NOT EXHAUSTIVE — the music model follows a short evocative STYLE BRIEF far \
+better than a long micro-managed spec. Keep the prompt to ~2-4 vivid sentences (~400-700 chars). The \
+user's best-performing prompts read like: "Cinematic orchestral drone in Eb minor, 60 BPM. Deep brass \
+sustains evolving through harmonic layers, ethereal string swells, delicate piano motifs emerging from \
+silence. Analog synth textures with subtle pitch modulation." — broad strokes, rich arrangement, \
+movement verbs. \
+- DO NOT MICRO-MANAGE — no exact note names ("around D, F, G"), no per-instrument articulation \
+paragraphs, no beat-by-beat arc narration ("first the ney enters, then the horn answers, then..."). \
+That level of detail OVERWHELMS the model and it collapses to only 2-3 instruments — this is exactly \
+what makes output dull. Name 4-6 instrument FAMILIES across LOW/MID/HIGH registers with movement verbs, \
+lead with the foreground melodic voices, and keep any drone/sub-bass to ONE brief mention as quiet \
+support. A short rich evolving brief beats a 1200-character choreography every single time.
 - FICTIONAL WORLDS ARE WELCOME: naming a fictional world, place, or work ("Dune", "Arrakis", \
 "Project Hail Mary", "Interstellar") is allowed, passes the API's checks, and strongly helps the model \
 evoke the right universe — include it when the user's idea references one. Only real artists, bands, \
