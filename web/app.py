@@ -4433,8 +4433,9 @@ def export_visual_video(job_id: str):
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         final_path = str(PROJECT_ROOT / "output" / f"{safe_title}_final_{timestamp}.mp4")
 
-        fade_in_sec = 5.0
-        fade_out_sec = 5.0
+        # Gentle, slow fades so the video/audio don't start or end full-tilt.
+        fade_in_sec = float(data.get("fade_in_sec", 10.0))
+        fade_out_sec = float(data.get("fade_out_sec", 8.0))
         fade_out_start = max(0.0, target_sec - fade_out_sec)
         afade_chain = (
             f"afade=t=in:st=0:d={fade_in_sec},"
@@ -4526,6 +4527,24 @@ def export_visual_video(job_id: str):
                 raise
             except Exception as e:
                 print(f"  [export] Intro step failed, keeping plain export: {e}")
+
+        # Gentle VIDEO fade from/to black over the head + tail so it doesn't start
+        # or end full-tilt (audio fades were already applied in the export pass).
+        # Fast: only the short head+tail are re-encoded, the long middle is copied.
+        if fade_in_sec > 0 or fade_out_sec > 0:
+            try:
+                import intro_compositor
+                _long_task_check_cancel(job_id)
+                _long_task_update(job_id, message="Adding gentle fade in/out...")
+                vf_out = final_path[:-4] + "_vf.mp4"
+                intro_compositor.add_video_fades(final_path, vf_out,
+                                                 fade_in=fade_in_sec, fade_out=fade_out_sec)
+                os.replace(vf_out, final_path)
+                print(f"  [export] Added video fade ({fade_in_sec:.0f}s in / {fade_out_sec:.0f}s out)")
+            except LongTaskCanceled:
+                raise
+            except Exception as e:
+                print(f"  [export] Video fade step failed (non-fatal): {e}")
 
         with jobs_lock:
             jobs[job_id]["visual_video_path"] = final_path
