@@ -223,12 +223,24 @@ class ThemeInterpreter:
         def norm(s):
             return "".join(c for c in (s or "").lower() if c.isalnum())
 
+        def passthrough_fx(layer):
+            """ElevenLabs already delivers a finished, spatially-mixed track. Re-reverbing
+            it (smears the instruments together) and re-compressing it at render time (on
+            top of mastering) is what made app output sound thinner/duller than a direct
+            call. Strip the render-time processing so the generation passes through clean."""
+            fx = layer.effects or EffectsChain()
+            fx.reverb_amount = min(getattr(fx, "reverb_amount", 0.0) or 0.0, 0.06)
+            fx.compression_ratio = 1.0            # no render-time compression; mastering handles leveling
+            fx.low_pass_hz = None                 # never dull the high detail (santur/string shimmer)
+            layer.effects = fx
+
         locked = 0
         if len(plan) == len(layers):
             for layer, p in zip(layers, plan):
                 preview = (p.get("prompt_preview") or "").strip()
                 if preview and is_musical_entry(p):
                     layer.elevenlabs_prompt = preview
+                    passthrough_fx(layer)
                     locked += 1
         else:
             by_name = {norm(p.get("name")): p for p in plan}
@@ -237,6 +249,7 @@ class ThemeInterpreter:
                 preview = (p.get("prompt_preview") or "").strip() if p else ""
                 if preview and is_musical_entry(p):
                     layer.elevenlabs_prompt = preview
+                    passthrough_fx(layer)
                     locked += 1
         if locked:
             print(f"   🔒 Locked {locked} musical layer prompt(s) to the approved plan (verbatim)")
