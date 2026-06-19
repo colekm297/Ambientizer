@@ -1222,9 +1222,15 @@ Likewise avoid mechanical/machine descriptors ("air-handler hum", "metallic reso
 string harmonics, airy synth pads, bowed glass, soft flutes.
 - WRITE ONE EMOTIVE LINE — THIS IS THE FORMAT THAT ACTUALLY WORKS. The prompt must be a SINGLE \
 flowing sentence (~200-350 chars), NOT a multi-sentence spec. Long detailed prompts make the model \
-collapse and go static. Name 4-5 instruments weaving GENTLY together — a lead melodic voice, a couple \
-of warm mid textures, and one soft foundation — with calm feeling words and the world's character. \
-THE PROVEN SWEET SPOT — use this exact shape and density as your model: \
+collapse and go static. \
+- LEAD WITH 2-3 DISTINCT MELODIC INSTRUMENTS WEAVING TOGETHER — THIS IS THE SINGLE BIGGEST CONTROLLER \
+OF INSTRUMENT COUNT. Open with TWO interweaving melodic/plucked/struck voices (e.g. "felt piano and \
+duduk weaving", "fingerpicked guitar and flute trading phrases", "harp and marimba interlacing"), THEN \
+add 1-2 warm textures (strings, pad, santur). NEVER lead with a drone, sub-bass, or pad — a prompt \
+that opens "X over a sustained low drone" RELIABLY produces only 2 instruments. Mention any drone/low \
+foundation LAST and briefly ("...beneath a soft low drone"), if at all. Two melodic leads up front = \
+depth; one melody over a drone = thin. \
+THE PROVEN SWEET SPOT — use this exact shape, order, and density as your model: \
 "Lush warm ambient in D minor, calm and flowing — felt piano and duduk weaving gentle melodies over \
 soft strings, a warm synth pad and subtle santur shimmer, richly textured and immersive but unhurried, \
 never busy." \
