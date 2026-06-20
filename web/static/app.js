@@ -112,6 +112,17 @@
   let pendingSliderUpdates = {};
   let mixer = null;
   let usingAudioElement = false;  // true when the bar drives the <audio> element (full-mix / mobile-safe)
+  // Remote clients (Tailscale / phone / another machine) can't use the Web Audio
+  // mixer: it downloads + decodeAudioData's the FULL uncompressed WAV (100MB+ for
+  // a 10-min track) before it can play, so the play button looks dead over the
+  // network. On localhost that's instant. Over the network we stream the flat mix
+  // through the native <audio> element instead (range-request progressive playback),
+  // which is the same path that already works for unified tracks. Per-layer mixing
+  // is local-only as a result; remote just plays the combined track.
+  function isRemoteClient() {
+    const h = location.hostname;
+    return !(h === "localhost" || h === "127.0.0.1" || h === "::1" || h === "");
+  }
   let currentTrackDuration = 300;
 
   // iOS: declare a "playback" audio session at startup so ALL audio (incl. the
@@ -1695,7 +1706,7 @@
     if (data.root_key) currentRootKey = data.root_key;
     _currentStems = data.stems || null;
     const playable = (data.layers || []).filter(l => l.has_audio);
-    if (playable.length) {
+    if (playable.length && !isRemoteClient()) {
       const durationSec = (data.duration || 5) * 60;
       currentTrackDuration = durationSec;
       renderLayers(data.layers);
@@ -1750,7 +1761,9 @@
     };
     audioPlayer.onplay = () => { iconPlay.classList.add("hidden"); iconPause.classList.remove("hidden"); };
     audioPlayer.onpause = () => { iconPlay.classList.remove("hidden"); iconPause.classList.add("hidden"); };
-    audioPlayer.src = `/api/audio/${jobId}?t=${Date.now()}`;
+    // Remote (Tailscale): stream a compressed MP3 so it loads/seeks fast over the
+    // network. Local: keep the lossless WAV.
+    audioPlayer.src = `/api/audio/${jobId}?t=${Date.now()}${isRemoteClient() ? "&fmt=mp3" : ""}`;
     audioPlayer.volume = getSavedMasterVolume();
     audioPlayer.load();
     _ensureElementAudioGraph();
