@@ -2521,7 +2521,15 @@ def _serve_audio_file(path: str, job_id: str):
                     or os.path.getmtime(mp3_path) < os.path.getmtime(path)):
                 from pydub import AudioSegment
                 AudioSegment.from_file(path).export(mp3_path, format="mp3", bitrate="192k")
-            return send_file(mp3_path, mimetype="audio/mpeg", as_attachment=False, conditional=True)
+            # conditional=False → plain full 200, NOT a 206 range response. Tailscale
+            # Serve (the HTTPS proxy) mangles 206/Range responses, which breaks the
+            # <audio> element over the tailnet (duration reads 0:00, won't play —
+            # tailscale/tailscale#17916). A full 200 passes the proxy intact; the MP3
+            # is small (~8MB) so it streams/plays progressively and seeks once buffered.
+            resp = send_file(mp3_path, mimetype="audio/mpeg", as_attachment=False, conditional=False)
+            resp.headers["Accept-Ranges"] = "none"
+            resp.headers["Cache-Control"] = "no-cache"
+            return resp
         except Exception as e:
             print(f"  [api_audio] mp3 transcode failed for {job_id}: {e} — serving WAV")
     return send_file(path, mimetype="audio/wav", as_attachment=False, conditional=True)
