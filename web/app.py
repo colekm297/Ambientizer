@@ -2515,12 +2515,21 @@ def _serve_audio_file(path: str, job_id: str):
     file that plays/seeks smoothly over the network instead of a 100MB+ WAV.
     Both paths use conditional=True for HTTP range requests (progressive playback)."""
     if request.args.get("fmt") == "mp3":
-        mp3_path = str(PROJECT_ROOT / "output" / f"{job_id}_stream.mp3")
+        # loop=2 → serve the unique audio concatenated with itself, so the remote
+        # streaming player can audition the loop seam at the midpoint (mirrors the
+        # local mixer's 2x-loop preview). The seam at the middle is real continuous
+        # audio (end of copy 1 into start of copy 2), i.e. exactly how the loop sounds.
+        doubled = request.args.get("loop") == "2"
+        suffix = "_stream_x2" if doubled else "_stream"
+        mp3_path = str(PROJECT_ROOT / "output" / f"{job_id}{suffix}.mp3")
         try:
             if (not os.path.exists(mp3_path)
                     or os.path.getmtime(mp3_path) < os.path.getmtime(path)):
                 from pydub import AudioSegment
-                AudioSegment.from_file(path).export(mp3_path, format="mp3", bitrate="192k")
+                seg = AudioSegment.from_file(path)
+                if doubled:
+                    seg = seg + seg
+                seg.export(mp3_path, format="mp3", bitrate="192k")
             # conditional=False → plain full 200, NOT a 206 range response. Tailscale
             # Serve (the HTTPS proxy) mangles 206/Range responses, which breaks the
             # <audio> element over the tailnet (duration reads 0:00, won't play —

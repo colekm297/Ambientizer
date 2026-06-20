@@ -1752,6 +1752,9 @@
     if (btnLoopToggle) { btnLoopToggle.classList.add("active"); btnLoopToggle.title = "Loop: ON"; }
     audioPlayer.onloadedmetadata = () => {
       if (transportTotal) transportTotal.textContent = formatTime(audioPlayer.duration || 0);
+      // The remote stream is the unique loop served DOUBLED (?loop=2), so the loop
+      // wrap point lands at the exact midpoint — mark it like the local mixer does.
+      if (isRemoteClient()) _setSeekLoopMarker(0.5);
     };
     audioPlayer.ontimeupdate = () => {
       if (window._seekDragging && window._seekDragging()) return;
@@ -1761,9 +1764,10 @@
     };
     audioPlayer.onplay = () => { iconPlay.classList.add("hidden"); iconPause.classList.remove("hidden"); };
     audioPlayer.onpause = () => { iconPlay.classList.remove("hidden"); iconPause.classList.add("hidden"); };
-    // Remote (Tailscale): stream a compressed MP3 so it loads/seeks fast over the
-    // network. Local: keep the lossless WAV.
-    audioPlayer.src = `/api/audio/${jobId}?t=${Date.now()}${isRemoteClient() ? "&fmt=mp3" : ""}`;
+    // Remote (Tailscale): stream a compressed MP3, served DOUBLED (loop=2) so the
+    // loop seam sits at the midpoint and can be auditioned just like the local
+    // mixer. Local: keep the lossless WAV.
+    audioPlayer.src = `/api/audio/${jobId}?t=${Date.now()}${isRemoteClient() ? "&fmt=mp3&loop=2" : ""}`;
     audioPlayer.volume = getSavedMasterVolume();
     audioPlayer.load();
     _ensureElementAudioGraph();
