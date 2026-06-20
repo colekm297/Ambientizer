@@ -2509,6 +2509,24 @@ def api_reprep_loops(job_id: str):
     return jsonify({"deleted": deleted, "job_id": job_id})
 
 
+def _serve_audio_file(path: str, job_id: str):
+    """Serve an audio file, optionally transcoded to MP3 for remote streaming.
+    Remote clients (Tailscale/phone) pass ?fmt=mp3 so they stream a ~10x smaller
+    file that plays/seeks smoothly over the network instead of a 100MB+ WAV.
+    Both paths use conditional=True for HTTP range requests (progressive playback)."""
+    if request.args.get("fmt") == "mp3":
+        mp3_path = str(PROJECT_ROOT / "output" / f"{job_id}_stream.mp3")
+        try:
+            if (not os.path.exists(mp3_path)
+                    or os.path.getmtime(mp3_path) < os.path.getmtime(path)):
+                from pydub import AudioSegment
+                AudioSegment.from_file(path).export(mp3_path, format="mp3", bitrate="192k")
+            return send_file(mp3_path, mimetype="audio/mpeg", as_attachment=False, conditional=True)
+        except Exception as e:
+            print(f"  [api_audio] mp3 transcode failed for {job_id}: {e} — serving WAV")
+    return send_file(path, mimetype="audio/wav", as_attachment=False, conditional=True)
+
+
 @app.route("/api/audio/<job_id>")
 def api_audio(job_id: str):
     """Serve a flat mix (volume+pan only, no baked-in effects) matching the LiveMixer."""
@@ -2526,7 +2544,7 @@ def api_audio(job_id: str):
         )
         if not path:
             abort(404)
-        return send_file(path, mimetype="audio/wav", as_attachment=False)
+        return _serve_audio_file(path, job_id)
 
     has_layers = any(
         l.generated_audio_path and os.path.exists(l.generated_audio_path)
@@ -2540,7 +2558,7 @@ def api_audio(job_id: str):
         )
         if not path:
             abort(404)
-        return send_file(path, mimetype="audio/wav", as_attachment=False)
+        return _serve_audio_file(path, job_id)
 
     flat_path = str(PROJECT_ROOT / "output" / f"{job_id}_flat.wav")
     if not os.path.exists(flat_path):
@@ -2554,7 +2572,7 @@ def api_audio(job_id: str):
             import traceback; traceback.print_exc()
             abort(500, description=f"Failed to render flat mix: {e}")
 
-    return send_file(flat_path, mimetype="audio/wav", as_attachment=False)
+    return _serve_audio_file(flat_path, job_id)
 
 
 @app.route("/api/audio/<job_id>/download")
