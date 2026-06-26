@@ -2350,9 +2350,11 @@ Listen to this audio and provide:
    - 10: Exceptional
 
 2. **Subscores** (each 1-10) — rate how a human listener would actually experience it:
-   - "dynamics": Does the piece GO somewhere? Internal movement, rises and releases,
-     density shifts, elements entering and leaving. 1-3 = static wallpaper that never
-     changes; 8-10 = a clear arc you can feel even at low attention.
+   - "dynamics": Internal movement — gentle rises and releases, density shifts,
+     elements entering and leaving. Measure it honestly, but remember this is
+     BACKGROUND music: a low score here is fine for a calm sleep/study piece and
+     is NOT automatically a flaw. 1-3 = utterly motionless; 8-10 = a clear arc you
+     feel even at low attention.
    - "instrumentation": Depth and variety of voices. 1-3 = one or two instruments
      droning the whole time; 8-10 = a rich, layered palette where distinct instruments
      share the space and trade focus.
@@ -2372,9 +2374,17 @@ Listen to this audio and provide:
      acoustic space (cohesive reverb, good depth), or sound like separate files
      stacked together?
 
-   Weighting guidance for the overall score: dynamics and ear_comfort matter most
-   for long-form listening; a static piece caps around 6 overall no matter how
-   pretty the sound is.
+   Weighting guidance for the overall score: this is BACKGROUND music for sleep,
+   study, and focus, where calm and non-fatiguing is the GOAL, not a weakness.
+   What matters most: ear_comfort, a coherent sense of space, and whether the
+   warmth/mood actually matches the stated intent. A calm, beautiful, mostly-static
+   piece that someone would happily leave on for hours is an 8-9 — do NOT cap it at
+   6 for lack of movement. Only treat low dynamics as a real problem when the intent
+   explicitly asks for a dramatic, cinematic, or building arc. Reserve scores of 5
+   and below for genuine faults: harshness, muddiness, dissonance, audible artifacts
+   or loop seams, abrupt jumps, or a clear mood mismatch with the intent. A 9-10 is
+   earned by a piece that is both beautifully comfortable AND a strong match to its
+   intended mood; reaching it does not require dramatic dynamics.
 
 3. **Character**: one short phrase describing the emotional read of the piece
    (e.g. "warm dawn optimism", "vast lonely cold", "cozy melancholy").
