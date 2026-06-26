@@ -3285,6 +3285,14 @@ audio::-webkit-media-controls-panel {
     transform: scale(1.1);
 }
 
+/* Starred = lit-up gold */
+.btn-fav-select.is-fav {
+    color: #ffd43b;
+    border-color: rgba(255, 200, 50, 0.6);
+    background: rgba(255, 200, 50, 0.12);
+    text-shadow: 0 0 8px rgba(255, 200, 50, 0.6);
+}
+
 .btn-filter-fav {
     background: var(--bg-secondary);
     border: 1px solid var(--border);

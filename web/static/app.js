@@ -3376,6 +3376,7 @@
     if (job) {
       favToggleBtn.textContent = job.favorite ? "\u2605" : "\u2606";
       favToggleBtn.title = job.favorite ? "Unfavorite" : "Favorite";
+      favToggleBtn.classList.toggle("is-fav", !!job.favorite);
       favToggleBtn.dataset.jobId = job.job_id;
       favToggleBtn.style.display = "";
     } else {
