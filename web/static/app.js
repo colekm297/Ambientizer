@@ -130,15 +130,32 @@
   // switch. Same fix that rescued the Web Audio mixer, applied page-wide.
   try { if (navigator.audioSession) navigator.audioSession.type = "playback"; } catch (e) { /* unsupported */ }
 
-  // NOTE: deliberately NOT routing the <audio> element through Web Audio via
-  // createMediaElementSource — that produces silence on iOS Safari (WebKit bug).
-  // We play the bare element (iOS plays user-initiated media past the ringer
-  // switch) and just (re)assert the playback session.
+  // The <audio> element is routed through Web Audio ONLY to apply the 3-band EQ.
+  // On iOS Safari, createMediaElementSource produces silence (WebKit bug), so we
+  // skip the graph there and play the bare element (no EQ on iOS).
+  let _elCtx = null, _elSrc = null, _elEqLow = null, _elEqMid = null, _elEqHigh = null;
+  function _isIOS() { return /iP(hone|ad|od)/.test(navigator.userAgent); }
   function _ensureElementAudioGraph() {
     try { if (navigator.audioSession) navigator.audioSession.type = "playback"; } catch (e) {}
+    if (_elCtx || _isIOS() || !audioPlayer) return;  // iOS: bare element, no EQ
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      _elCtx = new Ctx();
+      _elSrc = _elCtx.createMediaElementSource(audioPlayer);
+      _elEqLow = _elCtx.createBiquadFilter(); _elEqLow.type = "lowshelf"; _elEqLow.frequency.value = 120;
+      _elEqMid = _elCtx.createBiquadFilter(); _elEqMid.type = "peaking"; _elEqMid.frequency.value = 1000; _elEqMid.Q.value = 0.8;
+      _elEqHigh = _elCtx.createBiquadFilter(); _elEqHigh.type = "highshelf"; _elEqHigh.frequency.value = 6000;
+      _elSrc.connect(_elEqLow); _elEqLow.connect(_elEqMid); _elEqMid.connect(_elEqHigh); _elEqHigh.connect(_elCtx.destination);
+      if (window._applyEQToActive) window._applyEQToActive();
+    } catch (e) { console.warn("[EQ] element graph failed, bare playback:", e); _elCtx = null; }
   }
-  function _resumeElementCtx() { /* no Web Audio context for the element path */ }
-  window._elCtxState = () => "bare-element";
+  function _resumeElementCtx() { if (_elCtx && _elCtx.state === "suspended") _elCtx.resume().catch(() => {}); }
+  window._setElementEQ = (b, m, h) => {
+    if (_elEqLow) _elEqLow.gain.value = b || 0;
+    if (_elEqMid) _elEqMid.gain.value = m || 0;
+    if (_elEqHigh) _elEqHigh.gain.value = h || 0;
+  };
+  window._elCtxState = () => (_elCtx ? _elCtx.state : "bare-element");
   const MASTER_VOLUME_KEY = "ambientizer_master_volume";
 
   function getSavedMasterVolume() {
@@ -1524,6 +1541,48 @@
     });
   }
 
+  // ── 3-band EQ (Bass / Mids / Highs boosters) ──
+  function _getEQ() {
+    return {
+      bass: parseFloat(localStorage.getItem("eq_bass") || "0") || 0,
+      mid: parseFloat(localStorage.getItem("eq_mid") || "0") || 0,
+      high: parseFloat(localStorage.getItem("eq_high") || "0") || 0,
+    };
+  }
+  window._applyEQToActive = function () {
+    const { bass, mid, high } = _getEQ();
+    if (mixer && mixer.setEQ) mixer.setEQ(bass, mid, high);
+    if (window._setElementEQ) window._setElementEQ(bass, mid, high);
+  };
+  const _eqBass = document.getElementById("eq-bass");
+  const _eqMid = document.getElementById("eq-mid");
+  const _eqHigh = document.getElementById("eq-high");
+  const _eqReset = document.getElementById("eq-reset");
+  function _syncEQSliders() {
+    const e = _getEQ();
+    if (_eqBass) _eqBass.value = e.bass;
+    if (_eqMid) _eqMid.value = e.mid;
+    if (_eqHigh) _eqHigh.value = e.high;
+  }
+  function _wireEQSlider(el, key) {
+    if (!el) return;
+    el.addEventListener("input", () => {
+      localStorage.setItem(key, el.value);
+      window._applyEQToActive();
+    });
+  }
+  _wireEQSlider(_eqBass, "eq_bass");
+  _wireEQSlider(_eqMid, "eq_mid");
+  _wireEQSlider(_eqHigh, "eq_high");
+  if (_eqReset) _eqReset.addEventListener("click", () => {
+    localStorage.setItem("eq_bass", "0");
+    localStorage.setItem("eq_mid", "0");
+    localStorage.setItem("eq_high", "0");
+    _syncEQSliders();
+    window._applyEQToActive();
+  });
+  _syncEQSliders();
+
   // ── Loop toggle ──
   const btnLoopToggle = document.getElementById("btn-loop-toggle");
   if (btnLoopToggle) {
@@ -1678,6 +1737,7 @@
     // of the displayed duration, then fade back in on wrap. Lets the user
     // preview what the exported file's intro/outro will actually sound like.
     mixer.setMasterFades(5, 5);
+    if (window._applyEQToActive) window._applyEQToActive();  // apply saved EQ to the fresh mixer
     if (autoplay) {
       mixer.play();
       iconPlay.classList.add("hidden");

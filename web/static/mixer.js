@@ -39,11 +39,28 @@ class LiveMixer {
     this.ctx = new (window.AudioContext || window.webkitAudioContext)();
     this.duration = durationSec;
     this.masterGain = this.ctx.createGain();
-    this.masterGain.connect(this.ctx.destination);
+    // 3-band EQ between master and output: Bass / Mids / Highs boosters.
+    this.eqLow = this.ctx.createBiquadFilter();
+    this.eqLow.type = "lowshelf"; this.eqLow.frequency.value = 120;
+    this.eqMid = this.ctx.createBiquadFilter();
+    this.eqMid.type = "peaking"; this.eqMid.frequency.value = 1000; this.eqMid.Q.value = 0.8;
+    this.eqHigh = this.ctx.createBiquadFilter();
+    this.eqHigh.type = "highshelf"; this.eqHigh.frequency.value = 6000;
+    this.masterGain.connect(this.eqLow);
+    this.eqLow.connect(this.eqMid);
+    this.eqMid.connect(this.eqHigh);
+    this.eqHigh.connect(this.ctx.destination);
     this._reverbImpulse = this._buildReverbIR(2.5, 3.0);
     this._installIOSUnlock();
     this._initAudioStatus();
     console.log(`[LiveMixer] init: duration=${durationSec}s (${(durationSec/60).toFixed(1)} min)`);
+  }
+
+  // 3-band EQ boost/cut in dB (Bass / Mids / Highs).
+  setEQ(bassDb, midDb, highDb) {
+    if (this.eqLow) this.eqLow.gain.value = bassDb || 0;
+    if (this.eqMid) this.eqMid.gain.value = midDb || 0;
+    if (this.eqHigh) this.eqHigh.gain.value = highDb || 0;
   }
 
   // iOS won't output ANY Web Audio until a buffer has been played from inside a
