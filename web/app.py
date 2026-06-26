@@ -1230,10 +1230,23 @@ add 1-2 warm textures (strings, pad, santur). NEVER lead with a drone, sub-bass,
 that opens "X over a sustained low drone" RELIABLY produces only 2 instruments. Mention any drone/low \
 foundation LAST and briefly ("...beneath a soft low drone"), if at all. Two melodic leads up front = \
 depth; one melody over a drone = thin. \
-THE PROVEN SWEET SPOT — use this exact shape, order, and density as your model: \
-"Lush warm ambient in D minor, calm and flowing — felt piano and duduk weaving gentle melodies over \
-soft strings, a warm synth pad and subtle santur shimmer, richly textured and immersive but unhurried, \
-never busy." \
+MATCH THE DENSITY AND SHAPE OF THIS PROVEN FORM, BUT VARY EVERYTHING ELSE — do NOT reuse its exact \
+words, key, or instruments. Every prompt MUST differ in three ways: \
+  (1) KEY — rotate to fit the mood; do NOT default to D minor (use A minor, E Dorian, F Lydian, C major, \
+B-flat major, G Phrygian, F-sharp minor, etc.). \
+  (2) OPENING DESCRIPTOR — vary it; do NOT always start "Lush warm ambient" (try "hushed orchestral \
+ambient", "glowing analog ambient", "weightless space ambient", "warm cinematic ambient", "lush \
+film-score ambient", "dusky neon ambient"). \
+  (3) INSTRUMENTS — pick voices that suit the SPECIFIC world: a desert wants duduk and santur; a \
+rain-soaked city wants felt piano and Rhodes; a frozen world wants glass harmonica and bowed vibraphone; \
+deep space wants analog synth and bowed guitar. Don't reuse the same palette every time. \
+Three models — SAME shape and density, DIFFERENT in every detail: \
+  - "Hushed orchestral ambient in A minor, slow and aching — felt piano and cello weaving a tender melody \
+over soft strings and a glassy shimmer, vast and reverent but unhurried, never busy." \
+  - "Glowing analog ambient in E Dorian, drifting and bright — fingerpicked guitar and glass harmonica \
+interlacing over a warm Rhodes and brushed mallets, dreamy and immersive but spacious, never busy." \
+  - "Weightless space ambient in B-flat major, gentle and hopeful — harp and marimba trading soft figures \
+over swelling strings and a low woodwind hum, richly textured but calm, never busy." \
 - USE CALM, WARM FEELING WORDS (the model responds to them and they carry the mood): warm, tender, \
 immersive, gentle, serene, wistful, reverent, hopeful, aching, yearning, dreamlike, spacious. Weave \
 2-4 in. Pair them with the depth/cap words ("richly textured ... but unhurried, never busy"). \
