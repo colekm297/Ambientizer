@@ -1599,6 +1599,9 @@
   window._renderTrackDetails = function (data) {
     const body = document.getElementById("track-details-body");
     if (!body || !data) return;
+    const esc = (typeof escapeHtml === "function")
+      ? escapeHtml
+      : (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
     const mode = data.music_generation_mode || "text";
     const model = (data.music_model || "music_v1").replace("music_", "");
     let modeStr;
