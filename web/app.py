@@ -621,6 +621,7 @@ def run_generation(
     stem_separation: str = "none", reference_analysis: dict = None,
     planner_mode: str = "claude", music_generation_mode: str = "text",
     composition_plan: dict = None, music_model: str = "music_v1",
+    stitch_cell_sec: float = 0,
 ):
     """
     Background worker: generates samples via ElevenLabs + renders a short
@@ -660,6 +661,7 @@ def run_generation(
             reference_analysis=reference_analysis,
             planner_mode=planner_mode,
             music_generation_mode=music_generation_mode,
+            stitch_cell_sec=stitch_cell_sec,
             loopable=loopable,
             ref_start_sec=ref_start_sec,
             ref_end_sec=ref_end_sec,
@@ -1546,6 +1548,10 @@ def api_generate():
     stem_separation = data.get("stem_separation", "none")
     planner_mode = data.get("planner_mode", "claude")
     music_generation_mode = data.get("music_generation_mode", "text")
+    try:
+        stitch_cell_sec = float(data.get("stitch_cell_sec", 0) or 0)
+    except (TypeError, ValueError):
+        stitch_cell_sec = 0
     music_model = data.get("music_model", "music_v1")
     if music_model not in ("music_v1", "music_v2"):
         music_model = "music_v1"
@@ -1593,7 +1599,7 @@ def api_generate():
         args=(job_id, prompt, duration, mastering, mode, reference_url, loopable,
               music_length, ref_start_sec, ref_end_sec, layer_plan, approach,
               stem_separation, reference_analysis, planner_mode, music_generation_mode,
-              composition_plan, music_model),
+              composition_plan, music_model, stitch_cell_sec),
         daemon=True,
     )
     thread.start()
