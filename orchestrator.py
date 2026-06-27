@@ -107,6 +107,7 @@ class SoundscapeOrchestrator:
             if layer.layer_type == LayerType.MUSICAL:
                 setattr(layer, "music_generation_mode", getattr(config, "music_generation_mode", "text"))
                 setattr(layer, "composition_plan", getattr(config, "composition_plan", None))
+                setattr(layer, "stitch_cell_sec", getattr(config, "stitch_cell_sec", 0))
 
         layers_to_generate = [
             layer for layer in config.layers
@@ -197,6 +198,7 @@ class SoundscapeOrchestrator:
         reference_analysis: Optional[dict] = None,
         planner_mode: str = "claude",
         music_generation_mode: str = "text",
+        stitch_cell_sec: float = 0,
         loopable: bool = True,
         layer_plan: Optional[list] = None,
         approach: str = "unified",
@@ -282,6 +284,7 @@ class SoundscapeOrchestrator:
             config.music_length_sec = music_length_minutes * 60
 
         config.music_generation_mode = music_generation_mode
+        setattr(config, "stitch_cell_sec", stitch_cell_sec or 0)
         config.composition_plan = composition_plan
         config.loopable = loopable
         if loopable:

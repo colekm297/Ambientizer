@@ -210,12 +210,17 @@ class ElevenLabsSampleGenerator:
         seed_part = f"|seed={reroll_seed}" if reroll_seed else ""
         music_mode = getattr(layer, "music_generation_mode", "text") if is_musical else "text"
         # Stitch mode: generate N evolving cells and crossfade them into one track.
+        # stitch_cell_sec (per layer) overrides the cell length — e.g. 300 = 5-min
+        # sections (fewer, smoother cuts) vs the default 150 (richer, more cuts).
         n_cells = 1
+        cell_sec = MUSIC_CELL_SEC
         if is_musical and music_mode == "stitch":
-            src_sec = music_length_sec or track_duration_sec or (MUSIC_CELL_SEC * 4)
-            n_cells = max(2, min(MAX_STITCH_CELLS, int(-(-src_sec // MUSIC_CELL_SEC))))
-            duration = MUSIC_CELL_SEC  # each cell is one short rich generation
-        stitch_part = f"|cells={n_cells}" if (is_musical and music_mode == "stitch") else ""
+            cell_sec = float(getattr(layer, "stitch_cell_sec", 0) or MUSIC_CELL_SEC)
+            cell_sec = max(60.0, min(cell_sec, HARD_MAX_MUSIC_SEC))
+            src_sec = music_length_sec or track_duration_sec or (cell_sec * 4)
+            n_cells = max(2, min(MAX_STITCH_CELLS, int(-(-src_sec // cell_sec))))
+            duration = cell_sec  # each cell is one short rich generation
+        stitch_part = f"|cells={n_cells}x{int(cell_sec)}" if (is_musical and music_mode == "stitch") else ""
         # A provided/edited composition plan must change the cache key so edits
         # produce fresh audio instead of returning a stale cached render.
         provided_plan = getattr(layer, "composition_plan", None) if is_musical else None
@@ -230,7 +235,7 @@ class ElevenLabsSampleGenerator:
             return wav_path
 
         cr_per_sec = 30 if is_musical else 20
-        billed_sec = (n_cells * MUSIC_CELL_SEC) if (is_musical and music_mode == "stitch") else duration
+        billed_sec = (n_cells * cell_sec) if (is_musical and music_mode == "stitch") else duration
         estimated_credits = billed_sec * cr_per_sec
         self._check_spend_limit(estimated_credits)
         self.check_real_balance(estimated_credits)
@@ -248,7 +253,7 @@ class ElevenLabsSampleGenerator:
                 )
             elif music_mode == "stitch":
                 result = self._generate_music_stitched(
-                    layer.name, prompt, MUSIC_CELL_SEC, n_cells, wav_path, cache_key)
+                    layer.name, prompt, cell_sec, n_cells, wav_path, cache_key)
             else:
                 result = self._generate_music(layer.name, prompt, duration, wav_path, cache_key)
         else:
