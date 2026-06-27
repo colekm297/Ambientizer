@@ -1464,23 +1464,30 @@
       parent.appendChild(marker);
     }
 
+    marker.dataset.frac = String(frac);
+    marker.style.display = (frac > 0 && frac < 1) ? "" : "none";  // only show a real interior wrap
     const place = () => {
-      const parentRect = parent.getBoundingClientRect();
-      const sliderRect = transportSeek.getBoundingClientRect();
-      if (parentRect.width === 0 || sliderRect.width === 0) {
-        requestAnimationFrame(place);
-        return;
-      }
-      // Slider thumb travels from (left + thumbW/2) to (right - thumbW/2).
-      // Approximate thumb width based on the slider's height.
-      const thumbW = Math.max(12, sliderRect.height);
-      const trackLeft = sliderRect.left - parentRect.left + thumbW / 2;
-      const trackWidth = sliderRect.width - thumbW;
-      const px = trackLeft + trackWidth * frac;
-      marker.style.left = `${px}px`;
+      const f = parseFloat(marker.dataset.frac || "0.5");
+      // Use the slider's LAYOUT box (offsetLeft/offsetWidth), relative to the same
+      // positioned parent the marker lives in. Unlike getBoundingClientRect this is
+      // immune to page zoom/CSS transforms, which were skewing the marker off-center.
+      const thumbW = Math.max(12, transportSeek.offsetHeight);
+      const trackWidth = transportSeek.offsetWidth - thumbW;
+      if (trackWidth <= 0) { requestAnimationFrame(place); return; }
+      const trackLeft = transportSeek.offsetLeft + thumbW / 2;
+      marker.style.left = `${trackLeft + trackWidth * f}px`;
+      console.log(`[loop marker] frac=${f} offLeft=${transportSeek.offsetLeft} offW=${transportSeek.offsetWidth} thumbW=${thumbW} px=${(trackLeft + trackWidth * f).toFixed(0)} | total=${transportTotal ? transportTotal.textContent : "?"}`);
     };
     place();
-    window.addEventListener("resize", place, { passive: true });
+    requestAnimationFrame(place);
+    setTimeout(place, 150);
+    setTimeout(place, 500);
+    if (!_setSeekLoopMarker._onResize) {
+      _setSeekLoopMarker._onResize = place;
+      window.addEventListener("resize", () => { if (_setSeekLoopMarker._onResize) _setSeekLoopMarker._onResize(); }, { passive: true });
+    } else {
+      _setSeekLoopMarker._onResize = place;
+    }
   }
 
   if (btnPlayPause) {
@@ -1812,9 +1819,9 @@
     if (btnLoopToggle) { btnLoopToggle.classList.add("active"); btnLoopToggle.title = "Loop: ON"; }
     audioPlayer.onloadedmetadata = () => {
       if (transportTotal) transportTotal.textContent = formatTime(audioPlayer.duration || 0);
-      // The remote stream is the unique loop served DOUBLED (?loop=2), so the loop
-      // wrap point lands at the exact midpoint — mark it like the local mixer does.
-      if (isRemoteClient()) _setSeekLoopMarker(0.5);
+      // The native stream is the unique loop served DOUBLED (?loop=2), so the loop
+      // wrap point lands at the exact midpoint — mark it (local or remote).
+      _setSeekLoopMarker(0.5);
     };
     audioPlayer.ontimeupdate = () => {
       if (window._seekDragging && window._seekDragging()) return;
@@ -1824,10 +1831,9 @@
     };
     audioPlayer.onplay = () => { iconPlay.classList.add("hidden"); iconPause.classList.remove("hidden"); };
     audioPlayer.onpause = () => { iconPlay.classList.remove("hidden"); iconPause.classList.add("hidden"); };
-    // Remote (Tailscale): stream a compressed MP3, served DOUBLED (loop=2) so the
-    // loop seam sits at the midpoint and can be auditioned just like the local
-    // mixer. Local: keep the lossless WAV.
-    audioPlayer.src = `/api/audio/${jobId}?t=${Date.now()}${isRemoteClient() ? "&fmt=mp3&loop=2" : ""}`;
+    // ALWAYS serve the loop DOUBLED (loop=2) so the seam sits at the midpoint and
+    // can be auditioned — local OR remote. MP3 (small, proxy-safe) is fine on both.
+    audioPlayer.src = `/api/audio/${jobId}?t=${Date.now()}&fmt=mp3&loop=2`;
     audioPlayer.volume = getSavedMasterVolume();
     audioPlayer.load();
     _ensureElementAudioGraph();
@@ -3355,7 +3361,7 @@
         else if (diff < 86400000) timeStr = Math.floor(diff / 3600000) + "h ago";
         else timeStr = d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
       }
-      const _rt = j.rating != null ? j.rating : (j.favorite ? 1 : 0);
+      const _rt = (j.rating > 0) ? j.rating : (j.favorite ? 1 : 0);
       const star = _rt > 0 ? "\u2605".repeat(_rt) + " " : "";
       const dot = j.status === "complete" ? "\u2713" : j.status === "running" ? "\u25CB" : "\u2717";
       // Prefer the short evocative title; fall back to the prompt if absent.
@@ -3381,7 +3387,8 @@
   }
   function _ratingOf(job) {
     if (!job) return 0;
-    return job.rating != null ? job.rating : (job.favorite ? 1 : 0);
+    const r = job.rating || 0;
+    return r > 0 ? r : (job.favorite ? 1 : 0);  // legacy favorites (rating 0) = 1 star
   }
   function _updateFavBtn(jobId) {
     const job = _historyCache.find((j) => j.job_id === jobId);

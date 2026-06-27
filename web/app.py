@@ -471,7 +471,8 @@ def _load_saved_jobs():
                 "composition_plan": data.get("composition_plan"),
                 "music_generation_mode": data.get("music_generation_mode"),
                 "favorite": data.get("favorite", False),
-                "rating": data.get("rating", 0),
+                # Legacy favorites (pre-rating) default to 1 star so they don't vanish.
+                "rating": (data.get("rating") or (1 if data.get("favorite") else 0)),
                 "shorts": data.get("shorts", []),
                 "ads_brief_md": data.get("ads_brief_md"),
                 "community_drafts": data.get("community_drafts", {}),
