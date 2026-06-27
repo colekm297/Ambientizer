@@ -1590,6 +1590,60 @@
   });
   _syncEQSliders();
 
+  // ── Generation details panel (Listen tab) ──
+  function _fmtSecs(s) {
+    if (!s) return "—";
+    const m = s / 60;
+    return m >= 1 ? `${(m % 1 ? m.toFixed(1) : m)} min` : `${Math.round(s)}s`;
+  }
+  window._renderTrackDetails = function (data) {
+    const body = document.getElementById("track-details-body");
+    if (!body || !data) return;
+    const mode = data.music_generation_mode || "text";
+    const model = (data.music_model || "music_v1").replace("music_", "");
+    let modeStr;
+    if (mode === "stitch") {
+      const cell = data.stitch_cell_sec || 150;
+      const total = data.music_length_sec || data.duration_sec || 0;
+      const n = total ? Math.max(2, Math.round(total / cell)) : "?";
+      modeStr = `Stitch — ${n} × ${_fmtSecs(cell)} cells (${n - 1} seam${n - 1 === 1 ? "" : "s"})`;
+    } else if (mode === "composition_plan") {
+      modeStr = "Composition plan";
+    } else {
+      modeStr = "Text — single generation";
+    }
+    const rating = data.rating || 0;
+    const rows = [
+      ["Mode", modeStr],
+      ["Model", `ElevenLabs Music ${model}`],
+      ["Unique length", _fmtSecs(data.music_length_sec || data.duration_sec)],
+      ["Mastering", data.mastering === false ? "Off (raw)" : "On (−16 LUFS)"],
+      ["Key", data.root_key || "—"],
+      ["Mood", data.mood || "—"],
+      ["Rating", rating > 0 ? "★".repeat(rating) : "—"],
+      ["Created", data.created_at ? new Date(data.created_at).toLocaleString() : "—"],
+    ];
+    let html = '<dl class="td-grid">';
+    for (const [k, v] of rows) html += `<dt>${esc(k)}</dt><dd>${esc(String(v))}</dd>`;
+    html += "</dl>";
+    if (data.gen_prompts && data.gen_prompts.length) {
+      html += `<div class="td-prompt"><span class="td-prompt-label">Prompt sent to ElevenLabs</span>`;
+      for (const p of data.gen_prompts) html += `<p class="td-prompt-text">${esc(p)}</p>`;
+      html += `</div>`;
+    }
+    if (data.prompt) {
+      html += `<div class="td-prompt"><span class="td-prompt-label">Your seed / idea</span><p class="td-prompt-text">${esc(data.prompt)}</p></div>`;
+    }
+    body.innerHTML = html;
+  };
+  const _tdToggle = document.getElementById("track-details-toggle");
+  if (_tdToggle) _tdToggle.addEventListener("click", () => {
+    const body = document.getElementById("track-details-body");
+    if (!body) return;
+    const open = body.classList.toggle("hidden");
+    _tdToggle.textContent = (open ? "▸" : "▾") + " Generation details";
+  });
+
   // ── Loop toggle ──
   const btnLoopToggle = document.getElementById("btn-loop-toggle");
   if (btnLoopToggle) {
@@ -1760,6 +1814,7 @@
 
   function showPlayer(data, autoplay = true) {
     window._currentTrackData = data;
+    if (window._renderTrackDetails) window._renderTrackDetails(data);
     try { if (data && data.job_id) localStorage.setItem("ambientizer_last_track", data.job_id); } catch (e) {}
     const gp = document.getElementById("global-player");
     if (gp) gp.classList.remove("hidden");

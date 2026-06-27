@@ -1741,6 +1741,21 @@ def api_status(job_id: str):
             or (getattr(config, "music_generation_mode", None) if config else None),
         "composition_plan": job.get("composition_plan")
             or (getattr(config, "composition_plan", None) if config else None),
+        # Full generation details for the Listen-tab "Details" panel.
+        "music_model": job.get("music_model") or (getattr(config, "music_model", None) if config else None),
+        "mastering": job.get("mastering"),
+        "rating": (job.get("rating") or (1 if job.get("favorite") else 0)),
+        "music_length_sec": getattr(config, "music_length_sec", None) if config else None,
+        "duration_sec": getattr(config, "duration_sec", None) if config else None,
+        "stitch_cell_sec": getattr(config, "stitch_cell_sec", None) if config else None,
+        "mood": getattr(config, "mood", None) if config else None,
+        "setting": getattr(config, "setting", None) if config else None,
+        "title": getattr(config, "title", None) if config else None,
+        # The exact prompt(s) sent to ElevenLabs (per musical layer).
+        "gen_prompts": [
+            l.elevenlabs_prompt for l in (config.layers if config else [])
+            if getattr(l, "layer_type", None) == LayerType.MUSICAL and getattr(l, "elevenlabs_prompt", None)
+        ],
     })
 
 
