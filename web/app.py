@@ -377,6 +377,7 @@ def _save_job(job_id: str):
         "music_model": job.get("music_model"),
         "stitch_cell_sec": job.get("stitch_cell_sec"),
         "raw_seed": job.get("raw_seed"),
+        "seed_idea": job.get("seed_idea", ""),
         "favorite": job.get("favorite", False),
         "rating": job.get("rating", 0),
         # Distribute-tab persistence
@@ -424,6 +425,7 @@ def _load_saved_jobs():
                 "job_id": job_id,
                 "prompt": data.get("prompt", ""),
                 "raw_seed": data.get("raw_seed"),
+                "seed_idea": data.get("seed_idea", ""),
                 "duration": data.get("duration", 5.0),
                 "mastering": data.get("mastering", True),
                 "mode": data.get("mode", "ambient"),
@@ -1570,6 +1572,9 @@ def api_generate():
         jobs[job_id] = {
             "job_id": job_id,
             "prompt": prompt,
+            # What the user actually typed (the world/idea, e.g. "Dune") before
+            # Enhance rewrote it — shown in the Listen-tab details.
+            "seed_idea": (data.get("seed_idea") or "").strip(),
             "raw_seed": (data.get("raw_seed") or "").strip() or prompt,
             "duration": duration,
             "music_length": music_length,
@@ -1690,6 +1695,7 @@ def api_status(job_id: str):
         "job_id": job["job_id"],
         "prompt": job["prompt"],
         "raw_seed": job.get("raw_seed"),
+        "seed_idea": job.get("seed_idea", ""),
         "duration": job.get("duration", 5),
         "mode": job.get("mode", "ambient"),
         "reference_url": job.get("reference_url", ""),

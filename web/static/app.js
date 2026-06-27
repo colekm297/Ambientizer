@@ -992,6 +992,7 @@
       : "Searching the web for context...";
     enhanceStatus.className = "enhance-status active";
 
+    window._seedIdea = raw;  // the world/idea the user typed, before Enhance rewrites the box
     try {
       const res = await fetch("/api/enhance-prompt", {
         method: "POST",
@@ -1175,6 +1176,7 @@
     try {
       const genBody = {
           prompt,
+          seed_idea: (window._seedIdea || prompt || "").trim(),
           duration: getDerivedTrackMinutes(),
           music_length: parseFloat(musicLengthEl.value),
           mastering: true,
@@ -1629,13 +1631,15 @@
     let html = '<dl class="td-grid">';
     for (const [k, v] of rows) html += `<dt>${esc(k)}</dt><dd>${esc(String(v))}</dd>`;
     html += "</dl>";
+    if (data.seed_idea) {
+      html += `<div class="td-prompt"><span class="td-prompt-label">World / idea (what you typed)</span><p class="td-prompt-text">${esc(data.seed_idea)}</p></div>`;
+    }
     if (data.gen_prompts && data.gen_prompts.length) {
       html += `<div class="td-prompt"><span class="td-prompt-label">Prompt sent to ElevenLabs</span>`;
       for (const p of data.gen_prompts) html += `<p class="td-prompt-text">${esc(p)}</p>`;
       html += `</div>`;
-    }
-    if (data.prompt) {
-      html += `<div class="td-prompt"><span class="td-prompt-label">Your seed / idea</span><p class="td-prompt-text">${esc(data.prompt)}</p></div>`;
+    } else if (data.prompt) {
+      html += `<div class="td-prompt"><span class="td-prompt-label">Prompt</span><p class="td-prompt-text">${esc(data.prompt)}</p></div>`;
     }
     body.innerHTML = html;
   };
