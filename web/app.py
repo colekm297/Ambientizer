@@ -375,6 +375,7 @@ def _save_job(job_id: str):
         "composition_plan": job.get("composition_plan"),
         "music_generation_mode": job.get("music_generation_mode"),
         "music_model": job.get("music_model"),
+        "stitch_cell_sec": job.get("stitch_cell_sec"),
         "raw_seed": job.get("raw_seed"),
         "favorite": job.get("favorite", False),
         "rating": job.get("rating", 0),
@@ -470,6 +471,8 @@ def _load_saved_jobs():
                 "stem_files": data.get("stem_files"),
                 "composition_plan": data.get("composition_plan"),
                 "music_generation_mode": data.get("music_generation_mode"),
+                "music_model": data.get("music_model"),
+                "stitch_cell_sec": data.get("stitch_cell_sec"),
                 "favorite": data.get("favorite", False),
                 # Legacy favorites (pre-rating) default to 1 star so they don't vanish.
                 "rating": (data.get("rating") or (1 if data.get("favorite") else 0)),
@@ -1592,6 +1595,7 @@ def api_generate():
             "composition_plan": composition_plan,
             "music_generation_mode": music_generation_mode,
             "music_model": music_model,
+            "stitch_cell_sec": stitch_cell_sec,
         }
 
     thread = threading.Thread(
@@ -1747,7 +1751,7 @@ def api_status(job_id: str):
         "rating": (job.get("rating") or (1 if job.get("favorite") else 0)),
         "music_length_sec": getattr(config, "music_length_sec", None) if config else None,
         "duration_sec": getattr(config, "duration_sec", None) if config else None,
-        "stitch_cell_sec": getattr(config, "stitch_cell_sec", None) if config else None,
+        "stitch_cell_sec": job.get("stitch_cell_sec") or (getattr(config, "stitch_cell_sec", None) if config else None),
         "mood": getattr(config, "mood", None) if config else None,
         "setting": getattr(config, "setting", None) if config else None,
         "title": getattr(config, "title", None) if config else None,
