@@ -3317,6 +3317,40 @@ audio::-webkit-media-controls-panel {
     text-shadow: 0 0 7px rgba(255, 200, 50, 0.6);
 }
 
+/* Tone / 3-band EQ row on the Listen tab */
+.eq-tone {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    flex-wrap: wrap;
+    padding: 12px 4px 2px;
+    border-top: 1px solid var(--border);
+    margin-top: 10px;
+}
+.eq-tone-title {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    opacity: 0.6;
+}
+.eq-band {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.eq-band label {
+    font-size: 12px;
+    opacity: 0.75;
+    min-width: 34px;
+}
+.eq-band input[type="range"] {
+    width: 120px;
+}
+.eq-reset-btn {
+    font-size: 12px;
+    padding: 4px 10px;
+}
+
 .btn-filter-fav {
     background: var(--bg-secondary);
     border: 1px solid var(--border);

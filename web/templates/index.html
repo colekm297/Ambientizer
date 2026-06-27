@@ -269,6 +269,22 @@
                         </div>
                     </div>
                 </div>
+                <div id="eq-panel" class="eq-tone">
+                    <span class="eq-tone-title">Tone</span>
+                    <div class="eq-band">
+                        <label for="eq-bass">Bass</label>
+                        <input type="range" id="eq-bass" min="-12" max="12" value="0" step="0.5" title="Bass booster (dB)">
+                    </div>
+                    <div class="eq-band">
+                        <label for="eq-mid">Mids</label>
+                        <input type="range" id="eq-mid" min="-12" max="12" value="0" step="0.5" title="Mids booster (dB)">
+                    </div>
+                    <div class="eq-band">
+                        <label for="eq-high">Highs</label>
+                        <input type="range" id="eq-high" min="-12" max="12" value="0" step="0.5" title="High-end booster (dB)">
+                    </div>
+                    <button id="eq-reset" class="btn btn-secondary eq-reset-btn">Reset</button>
+                </div>
             </section>
 
             <!-- Layer Inspector -->
@@ -1078,22 +1094,6 @@
                 <input type="range" id="transport-volume" class="transport-volume" min="0" max="100" value="80" step="1" title="Master Volume">
             </div>
             <span id="mixer-badge" class="mixer-badge hidden">LIVE</span>
-        </div>
-        <div id="eq-panel" style="display:flex;align-items:center;gap:16px;padding:4px 14px 8px;flex-wrap:wrap;">
-            <span style="font-size:11px;opacity:.55;letter-spacing:.06em;text-transform:uppercase;">EQ</span>
-            <div style="display:flex;flex-direction:column;align-items:center;gap:3px;">
-                <input type="range" id="eq-bass" min="-12" max="12" value="0" step="0.5" style="width:92px;" title="Bass booster (dB)">
-                <label style="font-size:10px;opacity:.65;">Bass</label>
-            </div>
-            <div style="display:flex;flex-direction:column;align-items:center;gap:3px;">
-                <input type="range" id="eq-mid" min="-12" max="12" value="0" step="0.5" style="width:92px;" title="Mids booster (dB)">
-                <label style="font-size:10px;opacity:.65;">Mids</label>
-            </div>
-            <div style="display:flex;flex-direction:column;align-items:center;gap:3px;">
-                <input type="range" id="eq-high" min="-12" max="12" value="0" step="0.5" style="width:92px;" title="High-end booster (dB)">
-                <label style="font-size:10px;opacity:.65;">Highs</label>
-            </div>
-            <button id="eq-reset" style="font-size:10px;opacity:.6;background:none;border:1px solid currentColor;border-radius:4px;padding:3px 8px;cursor:pointer;color:inherit;">Reset</button>
         </div>
     </div>
 
