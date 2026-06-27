@@ -377,6 +377,7 @@ def _save_job(job_id: str):
         "music_model": job.get("music_model"),
         "raw_seed": job.get("raw_seed"),
         "favorite": job.get("favorite", False),
+        "rating": job.get("rating", 0),
         # Distribute-tab persistence
         "shorts": job.get("shorts", []),
         "ads_brief_md": job.get("ads_brief_md"),
@@ -470,6 +471,7 @@ def _load_saved_jobs():
                 "composition_plan": data.get("composition_plan"),
                 "music_generation_mode": data.get("music_generation_mode"),
                 "favorite": data.get("favorite", False),
+                "rating": data.get("rating", 0),
                 "shorts": data.get("shorts", []),
                 "ads_brief_md": data.get("ads_brief_md"),
                 "community_drafts": data.get("community_drafts", {}),
@@ -2860,6 +2862,7 @@ def api_history():
             "feedback_count": len(j.get("feedback_history", [])),
             "created_at": j["created_at"],
             "favorite": j.get("favorite", False),
+            "rating": j.get("rating", 0),
             "visual_image_url": f"/api/visual/image/{j['job_id']}/view" if j.get("visual_image_path") else None,
             "visual_clip_url": f"/api/visual/clip/{j['job_id']}/view" if j.get("visual_clip_path") else None,
             "visual_video_url": f"/api/visual/video/{j['job_id']}/download" if j.get("visual_video_path") else None,
@@ -2871,17 +2874,28 @@ def api_history():
 
 @app.route("/api/favorite/<job_id>", methods=["POST"])
 def toggle_favorite(job_id: str):
-    """Toggle the favorite flag on a job."""
+    """Set a 0-3 star rating on a job. Body {"rating": 0-3}. With no body, falls
+    back to a legacy toggle (off -> 1 star, any stars -> off). `favorite` stays in
+    sync as rating > 0 so all existing favorite filters keep working."""
     with jobs_lock:
         job = jobs.get(job_id)
     if not job:
         return jsonify({"error": "Job not found"}), 404
 
-    new_val = not job.get("favorite", False)
+    data = request.get_json(silent=True) or {}
+    cur = int(job.get("rating", 1 if job.get("favorite") else 0) or 0)
+    if "rating" in data:
+        try:
+            rating = max(0, min(3, int(data["rating"])))
+        except (TypeError, ValueError):
+            rating = cur
+    else:
+        rating = 0 if cur > 0 else 1  # legacy toggle
     with jobs_lock:
-        jobs[job_id]["favorite"] = new_val
+        jobs[job_id]["rating"] = rating
+        jobs[job_id]["favorite"] = rating > 0
     _save_job(job_id)
-    return jsonify({"favorite": new_val})
+    return jsonify({"favorite": rating > 0, "rating": rating})
 
 
 # ────────────────────────────────────────────────────────
