@@ -92,7 +92,7 @@
   const feedbackSend = document.getElementById("feedback-send");
 
   const historySelect = document.getElementById("history-select");
-  const favToggleBtn = document.getElementById("fav-toggle-btn");
+  const favStars = document.getElementById("fav-stars");
   const filterFavBtn = document.getElementById("filter-favorites");
 
   // ── State ─────────────────────────────────────
@@ -3355,7 +3355,8 @@
         else if (diff < 86400000) timeStr = Math.floor(diff / 3600000) + "h ago";
         else timeStr = d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
       }
-      const star = j.favorite ? "\u2605 " : "";
+      const _rt = j.rating != null ? j.rating : (j.favorite ? 1 : 0);
+      const star = _rt > 0 ? "\u2605".repeat(_rt) + " " : "";
       const dot = j.status === "complete" ? "\u2713" : j.status === "running" ? "\u25CB" : "\u2717";
       // Prefer the short evocative title; fall back to the prompt if absent.
       const label = (j.title && j.title.trim()) ? j.title.trim() : j.prompt;
@@ -3371,16 +3372,26 @@
     _updateFavBtn(currentJobId);
   }
 
+  // Paint the 3 stars filled (gold) up to `n`; the rest empty.
+  function _paintStars(n) {
+    if (!favStars) return;
+    favStars.querySelectorAll(".fav-star").forEach((s) => {
+      s.classList.toggle("filled", parseInt(s.dataset.val, 10) <= n);
+    });
+  }
+  function _ratingOf(job) {
+    if (!job) return 0;
+    return job.rating != null ? job.rating : (job.favorite ? 1 : 0);
+  }
   function _updateFavBtn(jobId) {
     const job = _historyCache.find((j) => j.job_id === jobId);
     if (job) {
-      favToggleBtn.textContent = job.favorite ? "\u2605" : "\u2606";
-      favToggleBtn.title = job.favorite ? "Unfavorite" : "Favorite";
-      favToggleBtn.classList.toggle("is-fav", !!job.favorite);
-      favToggleBtn.dataset.jobId = job.job_id;
-      favToggleBtn.style.display = "";
-    } else {
-      favToggleBtn.style.display = "none";
+      favStars.dataset.jobId = job.job_id;
+      favStars.dataset.rating = String(_ratingOf(job));
+      favStars.style.display = "";
+      _paintStars(_ratingOf(job));
+    } else if (favStars) {
+      favStars.style.display = "none";
     }
   }
 
@@ -3389,18 +3400,33 @@
     if (jobId) viewJob(jobId);
   });
 
-  favToggleBtn.addEventListener("click", async () => {
-    const jobId = favToggleBtn.dataset.jobId;
-    if (!jobId) return;
-    try {
-      const r = await fetch(`/api/favorite/${jobId}`, { method: "POST" });
-      const data = await r.json();
-      const cached = _historyCache.find((j) => j.job_id === jobId);
-      if (cached) cached.favorite = data.favorite;
-      _updateFavBtn(jobId);
-      if (showFavoritesOnly) _renderHistoryDropdown();
-    } catch (err) { console.error("Favorite toggle error:", err); }
-  });
+  if (favStars) {
+    // Hover preview, restore on leave.
+    favStars.querySelectorAll(".fav-star").forEach((star) => {
+      star.addEventListener("mouseenter", () => _paintStars(parseInt(star.dataset.val, 10)));
+    });
+    favStars.addEventListener("mouseleave", () => _paintStars(parseInt(favStars.dataset.rating || "0", 10)));
+    favStars.addEventListener("click", async (e) => {
+      const star = e.target.closest(".fav-star");
+      if (!star) return;
+      const jobId = favStars.dataset.jobId;
+      if (!jobId) return;
+      const val = parseInt(star.dataset.val, 10);
+      const cur = parseInt(favStars.dataset.rating || "0", 10);
+      const rating = (val === cur) ? 0 : val;  // click current top star to clear
+      try {
+        const r = await fetch(`/api/favorite/${jobId}`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ rating }),
+        });
+        const data = await r.json();
+        const cached = _historyCache.find((j) => j.job_id === jobId);
+        if (cached) { cached.rating = data.rating; cached.favorite = data.favorite; }
+        _updateFavBtn(jobId);
+        if (showFavoritesOnly) _renderHistoryDropdown();
+      } catch (err) { console.error("Rating error:", err); }
+    });
+  }
 
   if (filterFavBtn) {
     filterFavBtn.addEventListener("click", () => {

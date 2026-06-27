@@ -3293,6 +3293,30 @@ audio::-webkit-media-controls-panel {
     text-shadow: 0 0 8px rgba(255, 200, 50, 0.6);
 }
 
+/* 0-3 star rating widget */
+.fav-stars {
+    display: inline-flex;
+    gap: 1px;
+    align-items: center;
+    cursor: pointer;
+    user-select: none;
+    flex-shrink: 0;
+    font-size: 1.05rem;
+    line-height: 1;
+}
+.fav-star {
+    color: var(--text-muted);
+    opacity: 0.4;
+    padding: 2px 1px;
+    transition: color 0.12s, opacity 0.12s, transform 0.12s, text-shadow 0.12s;
+}
+.fav-star:hover { transform: scale(1.18); }
+.fav-star.filled {
+    color: #ffd43b;
+    opacity: 1;
+    text-shadow: 0 0 7px rgba(255, 200, 50, 0.6);
+}
+
 .btn-filter-fav {
     background: var(--bg-secondary);
     border: 1px solid var(--border);
