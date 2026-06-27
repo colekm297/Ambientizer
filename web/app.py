@@ -2603,12 +2603,26 @@ def api_audio(job_id: str):
         return _serve_audio_file(path, job_id)
 
     flat_path = str(PROJECT_ROOT / "output" / f"{job_id}_flat.wav")
-    if not os.path.exists(flat_path):
+    # Regenerate the flat mix if missing OR stale (any layer audio newer than the
+    # cache). A stale flat mix previously served the wrong length, which broke the
+    # loop tester ("no loop / continuous"). The derived stream MP3s auto-refresh
+    # off flat_path's mtime in _serve_audio_file, so this keeps the loop preview
+    # always correct.
+    def _flat_is_stale():
+        if not os.path.exists(flat_path):
+            return True
+        fm = os.path.getmtime(flat_path)
+        for l in config.layers:
+            p = getattr(l, "generated_audio_path", None)
+            if p and os.path.exists(p) and os.path.getmtime(p) > fm:
+                return True
+        return False
+    if _flat_is_stale():
         try:
             engine = _get_engine()
             flat_audio = engine.render_flat(config)
             flat_audio.export(flat_path, format="wav")
-            print(f"  [api_audio] Created flat mix for {job_id}: {len(flat_audio)/1000:.0f}s")
+            print(f"  [api_audio] (Re)rendered flat mix for {job_id}: {len(flat_audio)/1000:.0f}s")
         except Exception as e:
             print(f"  [api_audio] Flat render failed for {job_id}: {e}")
             import traceback; traceback.print_exc()
