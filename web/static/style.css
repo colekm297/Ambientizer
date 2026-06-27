@@ -3351,6 +3351,48 @@ audio::-webkit-media-controls-panel {
     padding: 4px 10px;
 }
 
+/* Generation details panel (Listen tab) */
+.track-details {
+    margin-top: 10px;
+    border-top: 1px solid var(--border);
+    padding-top: 8px;
+}
+.track-details-toggle {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 4px 0;
+    letter-spacing: 0.03em;
+}
+.track-details-toggle:hover { color: var(--text); }
+.track-details-body { margin-top: 8px; font-size: 12.5px; }
+.td-grid {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 5px 16px;
+    margin: 0 0 10px;
+}
+.td-grid dt { color: var(--text-muted); }
+.td-grid dd { margin: 0; color: var(--text); }
+.td-prompt { margin-top: 8px; }
+.td-prompt-label {
+    display: block;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    margin-bottom: 3px;
+}
+.td-prompt-text {
+    margin: 0 0 6px;
+    padding: 6px 8px;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 5px;
+    line-height: 1.45;
+}
+
 .btn-filter-fav {
     background: var(--bg-secondary);
     border: 1px solid var(--border);
