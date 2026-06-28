@@ -2586,7 +2586,7 @@ def _serve_audio_file(path: str, job_id: str):
                 seg = AudioSegment.from_file(path)
                 if doubled:
                     seg = seg + seg
-                seg.export(mp3_path, format="mp3", bitrate="192k")
+                seg.export(mp3_path, format="mp3", bitrate="320k")
             # conditional=False → plain full 200, NOT a 206 range response. Tailscale
             # Serve (the HTTPS proxy) mangles 206/Range responses, which breaks the
             # <audio> element over the tailnet (duration reads 0:00, won't play —

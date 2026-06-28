@@ -497,35 +497,47 @@ class ElevenLabsSampleGenerator:
             cue = stitch_arc_cue(i, n_cells)
             cell_prompt = self._guard_ending(f"{base_prompt} {cue}".strip() if cue else base_prompt)
             print(f"      🧵 cell {i+1}/{n_cells}: {cue or 'base palette'}", flush=True)
-            audio_bytes = None
-            try:
-                result = self._call_with_retry(
-                    self.client.music.compose,
-                    prompt=cell_prompt, model_id=self.music_model,
-                    music_length_ms=cell_ms, force_instrumental=True,
-                    output_format="mp3_44100_192",
-                )
-                audio_bytes = b"".join(result)
-            except QuotaExhaustedError:
-                raise
-            except Exception as e:
-                suggestion = self._extract_prompt_suggestion(e)
-                if suggestion:
-                    try:
-                        audio_bytes = b"".join(self._call_with_retry(
-                            self.client.music.compose, prompt=suggestion,
-                            model_id=self.music_model, music_length_ms=cell_ms,
-                            force_instrumental=True, output_format="mp3_44100_192"))
-                    except Exception as e2:
-                        print(f"      ⚠ stitch cell {i+1} failed after rewrite: {str(e2)[:120]}", flush=True)
+            seg = None
+            # Prefer LOSSLESS PCM (matches the text path) → fall back to MP3 only if
+            # PCM is unavailable. Generating cells as MP3 baked lossy artifacts into
+            # stitched tracks ("doesn't sound PCM").
+            for fmt in ("pcm_44100", "mp3_44100_192"):
+                audio_bytes = None
+                try:
+                    audio_bytes = b"".join(self._call_with_retry(
+                        self.client.music.compose, prompt=cell_prompt, model_id=self.music_model,
+                        music_length_ms=cell_ms, force_instrumental=True, output_format=fmt))
+                except QuotaExhaustedError:
+                    raise
+                except Exception as e:
+                    suggestion = self._extract_prompt_suggestion(e)
+                    if suggestion:
+                        try:
+                            audio_bytes = b"".join(self._call_with_retry(
+                                self.client.music.compose, prompt=suggestion, model_id=self.music_model,
+                                music_length_ms=cell_ms, force_instrumental=True, output_format=fmt))
+                        except Exception as e2:
+                            print(f"      ⚠ stitch cell {i+1} failed ({fmt}): {str(e2)[:90]}", flush=True)
+                            continue
+                    elif fmt == "pcm_44100":
+                        print(f"      ↓ PCM unavailable for cell {i+1}, trying MP3...", flush=True)
+                        continue
+                    else:
+                        print(f"      ⚠ stitch cell {i+1} failed: {str(e)[:90]}", flush=True)
+                        continue
+                if not audio_bytes:
+                    continue
+                if fmt.startswith("pcm"):
+                    cell_path = str(self.cache_dir / f"{cache_key}_cell{i}.wav")
+                    self._save_pcm_to_wav(audio_bytes, cell_path, expected_duration=cell_ms / 1000)
                 else:
-                    print(f"      ⚠ stitch cell {i+1} failed: {str(e)[:120]}", flush=True)
-            if not audio_bytes:
+                    cell_path = str(self.cache_dir / f"{cache_key}_cell{i}.mp3")
+                    with open(cell_path, "wb") as f:
+                        f.write(audio_bytes)
+                seg = AudioSegment.from_file(cell_path)
+                break
+            if seg is None:
                 continue
-            cell_path = str(self.cache_dir / f"{cache_key}_cell{i}.mp3")
-            with open(cell_path, "wb") as f:
-                f.write(audio_bytes)
-            seg = AudioSegment.from_file(cell_path)
             # trim each cell's natural fade-in/out so the joins never dip to silence
             lead = detect_leading_silence(seg, silence_threshold=-34.0, chunk_size=50)
             trail = detect_leading_silence(seg.reverse(), silence_threshold=-34.0, chunk_size=50)
