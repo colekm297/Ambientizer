@@ -2608,13 +2608,18 @@ def _serve_audio_file(path: str, job_id: str):
                 if doubled:
                     seg = seg + seg
                 seg.export(mp3_path, format="mp3", bitrate="320k")
-            # conditional=False → plain full 200, NOT a 206 range response. Tailscale
-            # Serve (the HTTPS proxy) mangles 206/Range responses, which breaks the
-            # <audio> element over the tailnet (duration reads 0:00, won't play —
-            # tailscale/tailscale#17916). A full 200 passes the proxy intact; the MP3
-            # is small (~8MB) so it streams/plays progressively and seeks once buffered.
-            resp = send_file(mp3_path, mimetype="audio/mpeg", as_attachment=False, conditional=False)
-            resp.headers["Accept-Ranges"] = "none"
+            # conditional=True → real 206/Range support. WITHOUT it, the browser can only
+            # play sequentially from what it's downloaded so far — seeking anywhere beyond
+            # the buffered window snaps back to ~0 (reproduced: seek to 1050s on a 1750s
+            # track instantly reset to 0.8s). That broke the seek bar for EVERYONE, not just
+            # Tailscale users, once tracks got long/doubled (was masked earlier by a small
+            # ~8MB test file that happened to fully buffer fast).
+            # Tailscale Serve (the *.ts.net HTTPS proxy) mangles 206 responses
+            # (tailscale/tailscale#17916) — that only affects that specific proxy URL;
+            # local playback and direct-tailnet-IP access both need Range to seek at all,
+            # so Range wins here. Workaround for the *.ts.net URL: use the tailnet IP
+            # directly (http://<tailscale-ip>:5050), which bypasses Serve entirely.
+            resp = send_file(mp3_path, mimetype="audio/mpeg", as_attachment=False, conditional=True)
             resp.headers["Cache-Control"] = "no-cache"
             return resp
         except Exception as e:
