@@ -3387,8 +3387,110 @@
       const res = await fetch("/api/history");
       _historyCache = await res.json();
       _renderHistoryDropdown();
+      if (!libraryOverlay.classList.contains("hidden")) _renderLibraryList();
     } catch (err) { console.error("History fetch error:", err); }
   }
+
+  // ── Library search / filter / sort panel ──
+  const libraryOverlay = document.getElementById("library-overlay");
+  const libraryOpenBtn = document.getElementById("btn-open-library");
+  const libraryCloseBtn = document.getElementById("library-close");
+  const librarySearch = document.getElementById("library-search");
+  const librarySort = document.getElementById("library-sort");
+  const libraryFilterMode = document.getElementById("library-filter-mode");
+  const libraryFilterRating = document.getElementById("library-filter-rating");
+  const libraryFilterScore = document.getElementById("library-filter-score");
+  const libraryList = document.getElementById("library-list");
+  const libraryCount = document.getElementById("library-count");
+
+  function _libraryRatingOf(j) {
+    const r = j.rating || 0;
+    return r > 0 ? r : (j.favorite ? 1 : 0);
+  }
+
+  function _renderLibraryList() {
+    const q = (librarySearch.value || "").trim().toLowerCase();
+    const modeFilter = libraryFilterMode.value;
+    const ratingFilter = parseInt(libraryFilterRating.value || "0", 10);
+    const scoreFilter = parseInt(libraryFilterScore.value || "0", 10);
+    const sortMode = librarySort.value;
+
+    let items = _historyCache.filter((j) => j.status === "complete");
+
+    if (q) {
+      items = items.filter((j) => {
+        const hay = [j.title, j.seed_idea, j.prompt, j.mood, j.raw_seed]
+          .filter(Boolean).join(" ").toLowerCase();
+        return hay.includes(q);
+      });
+    }
+    if (modeFilter) items = items.filter((j) => (j.music_generation_mode || "text") === modeFilter);
+    if (ratingFilter) items = items.filter((j) => _libraryRatingOf(j) >= ratingFilter);
+    if (scoreFilter) items = items.filter((j) => (j.ai_score || 0) >= scoreFilter);
+
+    items = items.slice().sort((a, b) => {
+      if (sortMode === "rating") return _libraryRatingOf(b) - _libraryRatingOf(a);
+      if (sortMode === "score") return (b.ai_score || 0) - (a.ai_score || 0);
+      if (sortMode === "title") return (a.title || a.prompt || "").localeCompare(b.title || b.prompt || "");
+      if (sortMode === "old") return new Date(a.created_at) - new Date(b.created_at);
+      return new Date(b.created_at) - new Date(a.created_at); // "new" default
+    });
+
+    libraryCount.textContent = `${items.length} track${items.length === 1 ? "" : "s"}`;
+    libraryList.innerHTML = "";
+    if (!items.length) {
+      libraryList.innerHTML = `<div class="library-empty">No tracks match.</div>`;
+      return;
+    }
+    for (const j of items) {
+      const row = document.createElement("div");
+      row.className = "library-row";
+      row.dataset.jobId = j.job_id;
+      const rating = _libraryRatingOf(j);
+      const stars = rating > 0 ? "★".repeat(rating) : "";
+      const score = j.ai_score ? `<span class="lib-score">AI ${j.ai_score}/10</span>` : "";
+      const mode = j.music_generation_mode || "text";
+      const modeTag = mode === "stitch" ? "Stitch" : mode === "composition_plan" ? "Plan" : "Text";
+      const d = j.created_at ? new Date(j.created_at) : null;
+      const dateStr = d ? d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
+      const title = (j.title || j.prompt || "Untitled").trim();
+      const world = (j.seed_idea || "").trim();
+      row.innerHTML = `
+        <div class="lib-row-main">
+          <span class="lib-title">${escapeHtml(title)}</span>
+          ${stars ? `<span class="lib-stars">${stars}</span>` : ""}
+        </div>
+        <div class="lib-row-sub">
+          ${world ? `<span class="lib-world">${escapeHtml(world)}</span>` : ""}
+          <span class="lib-mode">${modeTag}</span>
+          ${score}
+          <span class="lib-date">${dateStr}</span>
+        </div>`;
+      row.addEventListener("click", () => {
+        viewJob(j.job_id);
+        libraryOverlay.classList.add("hidden");
+      });
+      libraryList.appendChild(row);
+    }
+  }
+
+  if (libraryOpenBtn) libraryOpenBtn.addEventListener("click", () => {
+    libraryOverlay.classList.remove("hidden");
+    _renderLibraryList();
+    librarySearch.focus();
+  });
+  if (libraryCloseBtn) libraryCloseBtn.addEventListener("click", () => libraryOverlay.classList.add("hidden"));
+  if (libraryOverlay) libraryOverlay.addEventListener("click", (e) => {
+    if (e.target === libraryOverlay) libraryOverlay.classList.add("hidden");
+  });
+  [librarySearch, librarySort, libraryFilterMode, libraryFilterRating, libraryFilterScore].forEach((el) => {
+    if (el) el.addEventListener("input", _renderLibraryList);
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && libraryOverlay && !libraryOverlay.classList.contains("hidden")) {
+      libraryOverlay.classList.add("hidden");
+    }
+  });
 
   function _renderHistoryDropdown() {
     let items = _historyCache;

@@ -1075,6 +1075,7 @@
             <select id="history-select" class="gp-select" title="Switch track">
                 <option value="" disabled selected>No tracks yet</option>
             </select>
+            <button id="btn-open-library" class="btn-filter-fav" title="Search / browse the full library">🔍 Library</button>
             <span id="fav-stars" class="fav-stars" data-job-id="" title="Rate 1-3 stars (click same star to clear)">
                 <span class="fav-star" data-val="1">&#9733;</span>
                 <span class="fav-star" data-val="2">&#9733;</span>
@@ -1098,6 +1099,45 @@
                 <input type="range" id="transport-volume" class="transport-volume" min="0" max="100" value="80" step="1" title="Master Volume">
             </div>
             <span id="mixer-badge" class="mixer-badge hidden">LIVE</span>
+        </div>
+    </div>
+
+    <!-- Library: full search / filter / sort panel over the whole track history -->
+    <div id="library-overlay" class="library-overlay hidden">
+        <div class="library-panel">
+            <div class="library-header">
+                <input type="text" id="library-search" class="library-search" placeholder="Search title, world/idea, prompt, mood...">
+                <button id="library-close" class="library-close" title="Close">&times;</button>
+            </div>
+            <div class="library-controls">
+                <select id="library-sort" class="library-select">
+                    <option value="new">Newest first</option>
+                    <option value="old">Oldest first</option>
+                    <option value="rating">Highest rated</option>
+                    <option value="score">Highest AI score</option>
+                    <option value="title">Title A-Z</option>
+                </select>
+                <select id="library-filter-mode" class="library-select">
+                    <option value="">Any mode</option>
+                    <option value="text">Text</option>
+                    <option value="stitch">Stitch</option>
+                    <option value="composition_plan">Composition plan</option>
+                </select>
+                <select id="library-filter-rating" class="library-select">
+                    <option value="">Any rating</option>
+                    <option value="1">★ 1+</option>
+                    <option value="2">★★ 2+</option>
+                    <option value="3">★★★ 3</option>
+                </select>
+                <select id="library-filter-score" class="library-select">
+                    <option value="">Any AI score</option>
+                    <option value="9">9-10</option>
+                    <option value="8">8+</option>
+                    <option value="7">7+</option>
+                </select>
+                <span id="library-count" class="library-count"></span>
+            </div>
+            <div id="library-list" class="library-list"></div>
         </div>
     </div>
 

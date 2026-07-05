@@ -380,6 +380,10 @@ def _save_job(job_id: str):
         "seed_idea": job.get("seed_idea", ""),
         "favorite": job.get("favorite", False),
         "rating": job.get("rating", 0),
+        "ai_score": job.get("ai_score"),
+        "ai_subscores": job.get("ai_subscores"),
+        "ai_character": job.get("ai_character"),
+        "ai_graded_at": job.get("ai_graded_at"),
         # Distribute-tab persistence
         "shorts": job.get("shorts", []),
         "ads_brief_md": job.get("ads_brief_md"),
@@ -478,6 +482,10 @@ def _load_saved_jobs():
                 "favorite": data.get("favorite", False),
                 # Legacy favorites (pre-rating) default to 1 star so they don't vanish.
                 "rating": (data.get("rating") or (1 if data.get("favorite") else 0)),
+                "ai_score": data.get("ai_score"),
+                "ai_subscores": data.get("ai_subscores"),
+                "ai_character": data.get("ai_character"),
+                "ai_graded_at": data.get("ai_graded_at"),
                 "shorts": data.get("shorts", []),
                 "ads_brief_md": data.get("ads_brief_md"),
                 "community_drafts": data.get("community_drafts", {}),
@@ -1233,13 +1241,15 @@ string harmonics, airy synth pads, bowed glass, soft flutes.
 - WRITE ONE EMOTIVE LINE — THIS IS THE FORMAT THAT ACTUALLY WORKS. The prompt must be a SINGLE \
 flowing sentence (~200-350 chars), NOT a multi-sentence spec. Long detailed prompts make the model \
 collapse and go static. \
-- LEAD WITH 2-3 DISTINCT MELODIC INSTRUMENTS WEAVING TOGETHER — THIS IS THE SINGLE BIGGEST CONTROLLER \
-OF INSTRUMENT COUNT. Open with TWO interweaving melodic/plucked/struck voices (e.g. "felt piano and \
-duduk weaving", "fingerpicked guitar and flute trading phrases", "harp and marimba interlacing"), THEN \
-add 1-2 warm textures (strings, pad, santur). NEVER lead with a drone, sub-bass, or pad — a prompt \
-that opens "X over a sustained low drone" RELIABLY produces only 2 instruments. Mention any drone/low \
-foundation LAST and briefly ("...beneath a soft low drone"), if at all. Two melodic leads up front = \
-depth; one melody over a drone = thin. \
+- LEAD WITH 2-4 SUSTAINED, INTERMIXING TEXTURAL LAYERS — this is a SOUNDSCAPE, not a song. The body \
+must be warm, slowly-evolving textures that BLEND and breathe together: layered analog pads, bowed \
+strings and cello swells, airy synth washes, glassy shimmer, soft drones with internal movement, \
+bowed-glass and granular textures. STACK SEVERAL of these so it's rich and full — never a single bare \
+drone (that's the thin failure mode). Any melodic instrument (piano, plucked, mallets) must be SUBTLE \
+and FAR BACK — a faint, distant figure half-buried in the texture, never the lead. KEY RULE: lead with \
+a melody and it sounds like generic AI music; lead with several intermixing textures and it sounds like \
+a real, immersive ambient soundscape. Favor "washes / pads / swells / textures / shimmer / blending / \
+breathing / enveloping" over "melody / weaving / trading phrases". \
 MATCH THE DENSITY AND SHAPE OF THIS PROVEN FORM, BUT VARY EVERYTHING ELSE — do NOT reuse its exact \
 words, key, or instruments. Every prompt MUST differ in three ways: \
   (1) KEY — rotate to fit the mood; do NOT default to D minor (use A minor, E Dorian, F Lydian, C major, \
@@ -1250,13 +1260,15 @@ film-score ambient", "dusky neon ambient"). \
   (3) INSTRUMENTS — pick voices that suit the SPECIFIC world: a desert wants duduk and santur; a \
 rain-soaked city wants felt piano and Rhodes; a frozen world wants glass harmonica and bowed vibraphone; \
 deep space wants analog synth and bowed guitar. Don't reuse the same palette every time. \
-Three models — SAME shape and density, DIFFERENT in every detail: \
-  - "Hushed orchestral ambient in A minor, slow and aching — felt piano and cello weaving a tender melody \
-over soft strings and a glassy shimmer, vast and reverent but unhurried, never busy." \
-  - "Glowing analog ambient in E Dorian, drifting and bright — fingerpicked guitar and glass harmonica \
-interlacing over a warm Rhodes and brushed mallets, dreamy and immersive but spacious, never busy." \
-  - "Weightless space ambient in B-flat major, gentle and hopeful — harp and marimba trading soft figures \
-over swelling strings and a low woodwind hum, richly textured but calm, never busy." \
+Three TEXTURAL models — layers blending, no foreground melody; SAME density, DIFFERENT in every detail: \
+  - "Hushed cinematic ambient in A minor, slow and vast — layered warm pads and bowed cello swells \
+melting into airy glass shimmer and a soft breathing drone, richly textured and immersive but unhurried, \
+never busy." \
+  - "Glowing analog ambient in E Dorian, drifting and bright — washes of warm synth and bowed strings \
+intermixing with granular shimmer over a slow evolving low texture, dreamy and enveloping but spacious, \
+never busy." \
+  - "Weightless space ambient in B-flat major, gentle and hopeful — sustained string pads, airy washes \
+and bowed-glass tones blending and swelling above a soft warm drone, deep and immersive but calm, never busy." \
 - USE CALM, WARM FEELING WORDS (the model responds to them and they carry the mood): warm, tender, \
 immersive, gentle, serene, wistful, reverent, hopeful, aching, yearning, dreamlike, spacious. Weave \
 2-4 in. Pair them with the depth/cap words ("richly textured ... but unhurried, never busy"). \
@@ -2473,11 +2485,20 @@ Respond in this exact JSON format:
             except (TypeError, ValueError):
                 pass
 
+        character = (result.get("character") or "").strip()
+        with jobs_lock:
+            jobs[job_id]["ai_score"] = score
+            jobs[job_id]["ai_subscores"] = subscores
+            jobs[job_id]["ai_character"] = character
+            jobs[job_id]["ai_notes"] = notes
+            jobs[job_id]["ai_graded_at"] = datetime.now().isoformat()
+        _save_job(job_id)
+
         return jsonify({
             "score": score,
             "notes": notes,
             "subscores": subscores,
-            "character": (result.get("character") or "").strip(),
+            "character": character,
         })
 
     except Exception as e:
@@ -2883,39 +2904,37 @@ def api_audio_extended(job_id: str):
 
 @app.route("/api/history")
 def api_history():
-    """Return recent generation jobs, always including favorites and exported videos."""
+    """Return ALL generation jobs for the library search/filter/sort panel."""
     with jobs_lock:
-        history = sorted(jobs.values(), key=lambda j: j["created_at"], reverse=True)
-        recent = history[:50]
-        favorites = [j for j in history if j.get("favorite", False)]
-        with_videos = [j for j in history if j.get("visual_video_path")]
+        visible_history = sorted(jobs.values(), key=lambda j: j["created_at"], reverse=True)
 
-    by_id = {j["job_id"]: j for j in recent}
-    for j in favorites:
-        by_id[j["job_id"]] = j
-    for j in with_videos:
-        by_id[j["job_id"]] = j
-    visible_history = sorted(by_id.values(), key=lambda j: j["created_at"], reverse=True)
-
-    return jsonify([
-        {
+    def _f(j):
+        cfg = j.get("config")
+        return {
             "job_id": j["job_id"],
             "prompt": j["prompt"],
             "raw_seed": j.get("raw_seed"),
-            "title": (getattr(j.get("config"), "title", "") or "").strip(),
+            "seed_idea": j.get("seed_idea", ""),
+            "title": (getattr(cfg, "title", "") or "").strip(),
+            "mood": getattr(cfg, "mood", None) if cfg else None,
             "status": j["status"],
             "duration": j["duration"],
+            "music_generation_mode": j.get("music_generation_mode")
+                or (getattr(cfg, "music_generation_mode", None) if cfg else None),
+            "music_model": j.get("music_model"),
             "feedback_count": len(j.get("feedback_history", [])),
             "created_at": j["created_at"],
             "favorite": j.get("favorite", False),
             "rating": j.get("rating", 0),
+            "ai_score": j.get("ai_score"),
+            "ai_character": j.get("ai_character"),
             "visual_image_url": f"/api/visual/image/{j['job_id']}/view" if j.get("visual_image_path") else None,
             "visual_clip_url": f"/api/visual/clip/{j['job_id']}/view" if j.get("visual_clip_path") else None,
             "visual_video_url": f"/api/visual/video/{j['job_id']}/download" if j.get("visual_video_path") else None,
             "youtube_url": j.get("youtube_url"),
         }
-        for j in visible_history
-    ])
+
+    return jsonify([_f(j) for j in visible_history])
 
 
 @app.route("/api/favorite/<job_id>", methods=["POST"])
