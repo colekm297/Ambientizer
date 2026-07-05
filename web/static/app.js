@@ -3400,6 +3400,7 @@
   const libraryFilterMode = document.getElementById("library-filter-mode");
   const libraryFilterRating = document.getElementById("library-filter-rating");
   const libraryFilterScore = document.getElementById("library-filter-score");
+  const libraryFilterVisual = document.getElementById("library-filter-visual");
   const libraryList = document.getElementById("library-list");
   const libraryCount = document.getElementById("library-count");
 
@@ -3413,6 +3414,7 @@
     const modeFilter = libraryFilterMode.value;
     const ratingFilter = parseInt(libraryFilterRating.value || "0", 10);
     const scoreFilter = parseInt(libraryFilterScore.value || "0", 10);
+    const visualFilter = libraryFilterVisual.value;
     const sortMode = librarySort.value;
 
     let items = _historyCache.filter((j) => j.status === "complete");
@@ -3427,6 +3429,11 @@
     if (modeFilter) items = items.filter((j) => (j.music_generation_mode || "text") === modeFilter);
     if (ratingFilter) items = items.filter((j) => _libraryRatingOf(j) >= ratingFilter);
     if (scoreFilter) items = items.filter((j) => (j.ai_score || 0) >= scoreFilter);
+    if (visualFilter === "has_video") items = items.filter((j) => !!j.visual_video_url);
+    else if (visualFilter === "has_image") items = items.filter((j) => !!j.visual_image_url);
+    else if (visualFilter === "no_visuals") items = items.filter((j) => !j.visual_image_url && !j.visual_video_url);
+    else if (visualFilter === "published") items = items.filter((j) => !!j.youtube_url);
+    else if (visualFilter === "ready_unpublished") items = items.filter((j) => !!j.visual_video_url && !j.youtube_url);
 
     items = items.slice().sort((a, b) => {
       if (sortMode === "rating") return _libraryRatingOf(b) - _libraryRatingOf(a);
@@ -3455,10 +3462,15 @@
       const dateStr = d ? d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
       const title = (j.title || j.prompt || "Untitled").trim();
       const world = (j.seed_idea || "").trim();
+      let visualBadge = "";
+      if (j.youtube_url) visualBadge = `<span class="lib-visual lib-visual-published">Published</span>`;
+      else if (j.visual_video_url) visualBadge = `<span class="lib-visual lib-visual-video">Video ready</span>`;
+      else if (j.visual_image_url) visualBadge = `<span class="lib-visual lib-visual-image">Scene only</span>`;
       row.innerHTML = `
         <div class="lib-row-main">
           <span class="lib-title">${escapeHtml(title)}</span>
           ${stars ? `<span class="lib-stars">${stars}</span>` : ""}
+          ${visualBadge}
         </div>
         <div class="lib-row-sub">
           ${world ? `<span class="lib-world">${escapeHtml(world)}</span>` : ""}
@@ -3483,7 +3495,7 @@
   if (libraryOverlay) libraryOverlay.addEventListener("click", (e) => {
     if (e.target === libraryOverlay) libraryOverlay.classList.add("hidden");
   });
-  [librarySearch, librarySort, libraryFilterMode, libraryFilterRating, libraryFilterScore].forEach((el) => {
+  [librarySearch, librarySort, libraryFilterMode, libraryFilterRating, libraryFilterScore, libraryFilterVisual].forEach((el) => {
     if (el) el.addEventListener("input", _renderLibraryList);
   });
   document.addEventListener("keydown", (e) => {

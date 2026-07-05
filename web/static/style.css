@@ -3508,6 +3508,15 @@ audio::-webkit-media-controls-panel {
     border-radius: 4px;
 }
 .lib-score { color: #7cc4ff; }
+.lib-visual {
+    font-size: 0.68rem;
+    padding: 1px 6px;
+    border-radius: 4px;
+    margin-left: 4px;
+}
+.lib-visual-published { background: rgba(255, 90, 90, 0.18); color: #ff8a8a; }
+.lib-visual-video { background: rgba(120, 220, 150, 0.15); color: #7fe0a0; }
+.lib-visual-image { background: rgba(255, 255, 255, 0.08); color: var(--text-muted); }
 
 .btn-filter-fav {
     background: var(--bg-secondary);
