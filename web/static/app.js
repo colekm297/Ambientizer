@@ -1822,6 +1822,7 @@
   function showPlayer(data, autoplay = true) {
     window._currentTrackData = data;
     if (window._renderTrackDetails) window._renderTrackDetails(data);
+    if (typeof _highlightCurrentLibraryRow === "function") _highlightCurrentLibraryRow();
     try { if (data && data.job_id) localStorage.setItem("ambientizer_last_track", data.job_id); } catch (e) {}
     const gp = document.getElementById("global-player");
     if (gp) gp.classList.remove("hidden");
@@ -3387,7 +3388,14 @@
       const res = await fetch("/api/history");
       _historyCache = await res.json();
       _renderHistoryDropdown();
-      if (!libraryOverlay.classList.contains("hidden")) _renderLibraryList();
+      if (!libraryOverlay.classList.contains("hidden")) {
+        _renderLibraryList();
+      } else {
+        // Keep the Skip order current even with the panel closed, so Skip
+        // always follows whatever filters were last set (or "all, newest" by
+        // default) without needing to reopen the Library panel first.
+        _libraryOrder = _computeLibraryItems().map((j) => j.job_id);
+      }
     } catch (err) { console.error("History fetch error:", err); }
   }
 
@@ -3409,7 +3417,13 @@
     return r > 0 ? r : (j.favorite ? 1 : 0);
   }
 
-  function _renderLibraryList() {
+  // The currently active filtered+sorted browsing order (array of job_ids).
+  // This is THE single list both the Library panel and the Skip button walk
+  // through — computed even when the panel is closed, so Skip always reflects
+  // whatever the Library filters were last set to (defaults to "all, newest first").
+  let _libraryOrder = [];
+
+  function _computeLibraryItems() {
     const q = (librarySearch.value || "").trim().toLowerCase();
     const modeFilter = libraryFilterMode.value;
     const ratingFilter = parseInt(libraryFilterRating.value || "0", 10);
@@ -3442,6 +3456,24 @@
       if (sortMode === "old") return new Date(a.created_at) - new Date(b.created_at);
       return new Date(b.created_at) - new Date(a.created_at); // "new" default
     });
+    return items;
+  }
+
+  function _currentJobId() {
+    return (window._currentTrackData && window._currentTrackData.job_id) || historySelect.value || null;
+  }
+
+  function _highlightCurrentLibraryRow() {
+    const cur = _currentJobId();
+    libraryList.querySelectorAll(".library-row").forEach((r) => {
+      r.classList.toggle("is-current", !!cur && r.dataset.jobId === cur);
+    });
+  }
+
+  function _renderLibraryList() {
+    const items = _computeLibraryItems();
+    _libraryOrder = items.map((j) => j.job_id);
+    const curId = _currentJobId();
 
     libraryCount.textContent = `${items.length} track${items.length === 1 ? "" : "s"}`;
     libraryList.innerHTML = "";
@@ -3451,7 +3483,7 @@
     }
     for (const j of items) {
       const row = document.createElement("div");
-      row.className = "library-row";
+      row.className = "library-row" + (j.job_id === curId ? " is-current" : "");
       row.dataset.jobId = j.job_id;
       const rating = _libraryRatingOf(j);
       const stars = rating > 0 ? "★".repeat(rating) : "";
@@ -3484,7 +3516,30 @@
       });
       libraryList.appendChild(row);
     }
+    const curRow = libraryList.querySelector(".library-row.is-current");
+    if (curRow) curRow.scrollIntoView({ block: "center" });
   }
+
+  // ── Skip (prev/next) — walks the SAME filtered/sorted order as the Library
+  // panel, so the dropdown, the panel, and skip are all one consistent list
+  // instead of three disconnected ways to browse.
+  function _skipTrack(delta) {
+    if (!_libraryOrder.length) _libraryOrder = _computeLibraryItems().map((j) => j.job_id);
+    if (!_libraryOrder.length) return;
+    const cur = _currentJobId();
+    let idx = _libraryOrder.indexOf(cur);
+    if (idx === -1) idx = 0;
+    else idx = Math.max(0, Math.min(_libraryOrder.length - 1, idx + delta));
+    const nextId = _libraryOrder[idx];
+    if (nextId && nextId !== cur) {
+      viewJob(nextId);
+      if (!libraryOverlay.classList.contains("hidden")) _highlightCurrentLibraryRow();
+    }
+  }
+  const btnSkipPrev = document.getElementById("btn-skip-prev");
+  const btnSkipNext = document.getElementById("btn-skip-next");
+  if (btnSkipPrev) btnSkipPrev.addEventListener("click", () => _skipTrack(-1));
+  if (btnSkipNext) btnSkipNext.addEventListener("click", () => _skipTrack(1));
 
   if (libraryOpenBtn) libraryOpenBtn.addEventListener("click", () => {
     libraryOverlay.classList.remove("hidden");
