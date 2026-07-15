@@ -4327,15 +4327,44 @@ body { padding-bottom: 120px; }   /* clear the fixed bar */
     flex: 0 1 420px;
     min-width: 0;
 }
-.gp-select {
+.gp-select.hidden-select {
+    /* Internal state only — see the HTML comment above it. Not a visible control. */
+    position: absolute;
+    width: 1px; height: 1px;
+    padding: 0; margin: -1px;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
+}
+
+/* The ONE track-navigation entry point: current track + opens the Library. */
+.btn-now-playing {
     flex: 1;
     min-width: 0;
-    padding: 13px 16px !important;
-    font-size: 1.02rem !important;
-    font-weight: 600 !important;
-    color: var(--text-primary) !important;
-    background: var(--bg-secondary) !important;
-    border-radius: 11px !important;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 13px 16px;
+    font-size: 1.02rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 11px;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.12s, border-color 0.12s;
+}
+.btn-now-playing:hover {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: var(--border-strong, var(--border));
+}
+.now-playing-icon { flex-shrink: 0; opacity: 0.7; }
+.now-playing-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
 }
 
 /* Transport inside the bar — bigger, clearer; this is the heart of the app. */

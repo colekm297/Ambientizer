@@ -1072,16 +1072,21 @@
     <!-- ═══════════════════════════════════════════════ -->
     <div id="global-player" class="global-player hidden">
         <div class="gp-left">
-            <select id="history-select" class="gp-select" title="Switch track">
+            <!-- Internal state only — drives track switching / last-track restore.
+                 Never shown; the Library panel (opened via btn-open-library below)
+                 is the ONE user-facing way to browse and pick a track. -->
+            <select id="history-select" class="gp-select hidden-select" title="Switch track" aria-hidden="true" tabindex="-1">
                 <option value="" disabled selected>No tracks yet</option>
             </select>
-            <button id="btn-open-library" class="btn-filter-fav" title="Search / browse the full library">🔍 Library</button>
+            <button id="btn-open-library" class="btn-now-playing" title="Search / browse your library">
+                <span class="now-playing-icon">🔍</span>
+                <span id="now-playing-label" class="now-playing-label">No tracks yet</span>
+            </button>
             <span id="fav-stars" class="fav-stars" data-job-id="" title="Rate 1-3 stars (click same star to clear)">
                 <span class="fav-star" data-val="1">&#9733;</span>
                 <span class="fav-star" data-val="2">&#9733;</span>
                 <span class="fav-star" data-val="3">&#9733;</span>
             </span>
-            <button id="filter-favorites" class="btn-filter-fav" title="Show favorites only">All</button>
         </div>
         <div id="live-transport" class="live-transport gp-transport">
             <button id="btn-skip-prev" class="transport-btn transport-skip" title="Previous track in current Library list">
