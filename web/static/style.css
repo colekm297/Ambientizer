@@ -3479,6 +3479,11 @@ audio::-webkit-media-controls-panel {
     transition: background 0.1s;
 }
 .library-row:hover { background: rgba(255, 255, 255, 0.05); }
+.library-row.is-current {
+    background: rgba(233, 69, 96, 0.10);
+    border-left: 3px solid var(--accent, #e94560);
+    padding-left: 11px;
+}
 .lib-row-main {
     display: flex;
     align-items: center;
@@ -4347,6 +4352,14 @@ body { padding-bottom: 120px; }   /* clear the fixed bar */
     box-shadow: 0 4px 18px rgba(233, 69, 96, 0.45);
 }
 .gp-transport .transport-btn svg { width: 28px; height: 28px; }
+.gp-transport .transport-skip {
+    width: 38px; height: 38px;
+    background: var(--bg-secondary);
+    box-shadow: none;
+    color: var(--text-secondary);
+}
+.gp-transport .transport-skip svg { width: 18px; height: 18px; }
+.gp-transport .transport-skip:hover { color: var(--text); background: rgba(255, 255, 255, 0.08); }
 /* Thicker, easier-to-grab seek bar */
 .gp-transport .transport-seek {
     min-width: 120px;
