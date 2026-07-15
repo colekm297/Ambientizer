@@ -1819,8 +1819,18 @@
 
   let _currentStems = null;
 
+  function _updateNowPlayingLabel(data) {
+    const label = document.getElementById("now-playing-label");
+    if (!label) return;
+    if (!data) { label.textContent = "No tracks yet"; return; }
+    const title = (data.title || data.prompt || "Untitled").trim();
+    const rating = data.rating > 0 ? data.rating : (data.favorite ? 1 : 0);
+    label.textContent = (rating > 0 ? "★".repeat(rating) + " " : "") + title;
+  }
+
   function showPlayer(data, autoplay = true) {
     window._currentTrackData = data;
+    _updateNowPlayingLabel(data);
     if (window._renderTrackDetails) window._renderTrackDetails(data);
     if (typeof _highlightCurrentLibraryRow === "function") _highlightCurrentLibraryRow();
     try { if (data && data.job_id) localStorage.setItem("ambientizer_last_track", data.job_id); } catch (e) {}
@@ -3660,6 +3670,11 @@
         const data = await r.json();
         const cached = _historyCache.find((j) => j.job_id === jobId);
         if (cached) { cached.rating = data.rating; cached.favorite = data.favorite; }
+        if (window._currentTrackData && window._currentTrackData.job_id === jobId) {
+          window._currentTrackData.rating = data.rating;
+          window._currentTrackData.favorite = data.favorite;
+          _updateNowPlayingLabel(window._currentTrackData);
+        }
         _updateFavBtn(jobId);
         if (showFavoritesOnly) _renderHistoryDropdown();
       } catch (err) { console.error("Rating error:", err); }
