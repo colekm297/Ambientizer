@@ -214,7 +214,14 @@ class MotionCompositor:
         aurora_cfg = _find(layers, "aurora")
         aurora_state = self._make_aurora(W, H, aurora_cfg) if aurora_cfg else None
         parallax_cfg = _find(layers, "parallax")
-        parallax_state = self._make_parallax(image_path, W, H, parallax_cfg) if parallax_cfg else None
+        # _find() matches purely by type, so a plan's {"type":"parallax","enabled":
+        # false} (the documented default — parallax is opt-in) was being applied
+        # anyway: the enabled flag was never actually checked here. That silently
+        # ran a real 2.5D depth-camera effect on every render regardless of intent,
+        # and stacked with the cloud-slide seam bug to make loops visibly non-
+        # seamless. Only build parallax when it's explicitly enabled.
+        parallax_active = bool(parallax_cfg) and parallax_cfg.get("enabled") is True
+        parallax_state = self._make_parallax(image_path, W, H, parallax_cfg) if parallax_active else None
         if parallax_state is not None:
             status("depth map ready — using 2.5D parallax camera")
         glow_cfg = _find(layers, "color_glow")
@@ -341,11 +348,13 @@ class MotionCompositor:
                         if cmask is not None:
                             self._blend_with_mask(frame, pre, cmask)
                     elif cmask is not None:
-                        # Real clouds: gentle seamless flow-warp over the sky region —
-                        # the SAME technique as nebula. No slide, no edge-wrap, so no
-                        # colour seam, and it's forgiving of an imperfect mask.
-                        self._apply_region_warp(frame, cmask, t,
-                                                cloud_state.get("amount", 0.5), trig=cloud_trig)
+                        # Real clouds DRIFT directionally: slide the cloud SHAPES through
+                        # a STATIC lighting field (gradient separation). The clouds keep
+                        # the good directional translation, and because lighting is fixed
+                        # by position, a cloud relights as it travels (warm right, cool
+                        # left) instead of carrying old lighting to the wrong side — so
+                        # the loop-back has no lighting seam.
+                        self._apply_cloud_slide(frame, cloud_state, cmask, t)
 
                 for fi, field in enumerate(particle_fields):
                     pmask = particle_masks[fi] if fi < len(particle_masks) else None
@@ -979,6 +988,46 @@ class MotionCompositor:
             img_tile=img_tile,
         )
 
+    def _apply_cloud_dualphase(self, frame, cloud_state, mask, t):
+        """Dual-phase flow warp — the real clouds DRIFT directionally across the sky
+        (not swirl in place) and the loop is hidden by cross-fading two half-period-
+        shifted copies of the displaced sky.
+
+        Each pixel in the masked region is pushed along a gentle, mostly-horizontal
+        flow by an amount that grows with one phase; a second copy runs half a period
+        ahead. The two are blended so that whichever copy is about to "reset" (jump
+        back to zero displacement) is faded to zero weight at that instant — so the
+        eye sees continuous drift, never the wrap. Tradeoff: a little softness at the
+        cross-fade, which is the price of directional drift in a perfect loop."""
+        from scipy.ndimage import map_coordinates
+        H, W, _ = frame.shape
+        amount = float(cloud_state.get("amount", 0.5))
+        # Total directional drift across one loop, in px. Gentle but visibly moving.
+        drift = amount * 110.0
+        st = cloud_state.setdefault("_dp", {})
+        if "yy" not in st:
+            yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
+            st["yy"], st["xx"] = yy, xx
+            # Slight large-scale variation in the flow so it reads as clouds, not a
+            # rigid sheet sliding: faint vertical undulation + a gentle horizontal
+            # gradient in speed. Still essentially directional.
+            u = drift * (0.9 + 0.2 * (yy / H))            # rightward, a touch faster low
+            v = drift * 0.10 * np.sin(2 * np.pi * xx / max(200.0, W / 3.0))
+            st["u"], st["v"] = (u * mask).astype(np.float32), (v * mask).astype(np.float32)
+        yy, xx, u, v = st["yy"], st["xx"], st["u"], st["v"]
+        p0 = t % 1.0
+        p1 = (p0 + 0.5) % 1.0
+        w0 = 0.5 - 0.5 * np.cos(2.0 * np.pi * p0)   # 0 at p0=0/1 → hides warped0's reset
+        w1 = 1.0 - w0
+        m = mask[:, :, None]
+        c0 = [yy - v * p0, xx - u * p0]
+        c1 = [yy - v * p1, xx - u * p1]
+        for c in range(3):
+            a = map_coordinates(frame[:, :, c], c0, order=1, mode="reflect")
+            b = map_coordinates(frame[:, :, c], c1, order=1, mode="reflect")
+            blended = a * w0 + b * w1
+            frame[:, :, c] = frame[:, :, c] * (1.0 - m[:, :, 0]) + blended * m[:, :, 0]
+
     def _apply_cloud_slide(self, frame, cloud_state, mask, t):
         """Slide actual sky pixels left in a seamless loop.
 
@@ -994,8 +1043,26 @@ class MotionCompositor:
         H, W, _ = frame.shape
         speed = cloud_state["speed"]
         amount = cloud_state["amount"]
-        offset = int((t * speed * W)) % W
-        if offset == 0 and t < 1e-6:
+        # A linear crawl (int(t*speed*W) % W) only lands back on offset=0 at t=1
+        # when speed is an exact integer (whole screen-widths per loop) — any
+        # gentle fractional speed (e.g. 0.1, the normal "subtle drift" range)
+        # leaves a real content-position mismatch between the first and last
+        # frame: a visible pop at the loop seam (measured: ~30x normal frame-to-
+        # frame motion, 25% of pixels different). Fixed the same way
+        # breathing_zoom already does it in this file: a cosine ease-out-and-back
+        # sweep is 0 at t=0 AND t=1 for ANY speed, integer or not — mathematically
+        # seamless by construction, no crossfade or speed-rounding needed.
+        travel = speed * W
+        offset = int(travel * 0.5 * (1.0 - math.cos(TWO_PI * t))) % W
+        # Any frame with offset==0 (not just t≈0 — the cosine sweep also lands
+        # back on 0 at t≈1, i.e. the LAST frame) must skip identically. The old
+        # "and t < 1e-6" guard only protected frame 0, so the last frame took the
+        # sky-reconstruction path (low-freq wash + detail tile) instead of this
+        # early return — and that reconstruction isn't pixel-identical to the
+        # untouched original (the gaussian low/detail split loses some fidelity),
+        # so frame 0 and the last frame mismatched at the loop seam despite both
+        # having offset 0. Every zero-offset frame must take the same path.
+        if offset == 0:
             return
 
         # ── Lazy-build static colour wash + tileable cloud detail ─────────
@@ -1043,8 +1110,11 @@ class MotionCompositor:
 
     def _apply_cloud_drift(self, frame, st, t):
         W = st["W"]
-        # off returns to 0 (mod W) at t=1 for any integer speed → seamless wrap.
-        off = int((t * st["speed"] * W) % W)
+        # Cosine sweep (0 at t=0 AND t=1) instead of a linear mod-wrap, which was
+        # only seamless for exactly-integer speed — see _apply_cloud_slide for the
+        # full writeup of the bug this fixes.
+        travel = st["speed"] * W
+        off = int(travel * 0.5 * (1.0 - math.cos(TWO_PI * t))) % W
         strip = st["tex"][:, off:off + W]
         if strip.shape[1] < W:  # wrap across the tile seam (continuous by construction)
             strip = np.concatenate([strip, st["tex"][:, :W - strip.shape[1]]], axis=1)
