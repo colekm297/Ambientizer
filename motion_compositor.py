@@ -1043,27 +1043,19 @@ class MotionCompositor:
         H, W, _ = frame.shape
         speed = cloud_state["speed"]
         amount = cloud_state["amount"]
-        # A linear crawl (int(t*speed*W) % W) only lands back on offset=0 at t=1
-        # when speed is an exact integer (whole screen-widths per loop) — any
-        # gentle fractional speed (e.g. 0.1, the normal "subtle drift" range)
-        # leaves a real content-position mismatch between the first and last
-        # frame: a visible pop at the loop seam (measured: ~30x normal frame-to-
-        # frame motion, 25% of pixels different). Fixed the same way
-        # breathing_zoom already does it in this file: a cosine ease-out-and-back
-        # sweep is 0 at t=0 AND t=1 for ANY speed, integer or not — mathematically
-        # seamless by construction, no crossfade or speed-rounding needed.
-        travel = speed * W
-        offset = int(travel * 0.5 * (1.0 - math.cos(TWO_PI * t))) % W
-        # Any frame with offset==0 (not just t≈0 — the cosine sweep also lands
-        # back on 0 at t≈1, i.e. the LAST frame) must skip identically. The old
-        # "and t < 1e-6" guard only protected frame 0, so the last frame took the
-        # sky-reconstruction path (low-freq wash + detail tile) instead of this
-        # early return — and that reconstruction isn't pixel-identical to the
-        # untouched original (the gaussian low/detail split loses some fidelity),
-        # so frame 0 and the last frame mismatched at the loop seam despite both
-        # having offset 0. Every zero-offset frame must take the same path.
-        if offset == 0:
-            return
+        # NO cosine sweep here — that is a boomerang (drift out, then reverse),
+        # which we never use. The detail tile below is built horizontally
+        # periodic (period W), so the seamless motion is a CONSTANT-speed crawl
+        # of exactly whole screen-widths per loop: it wraps back to offset 0
+        # continuously, one direction, no reversal. Fractional speeds are
+        # snapped to the nearest whole wrap (min 1) — slow the drift by using a
+        # longer loop_sec, not a fractional speed.
+        wraps = max(1, int(round(speed)))
+        offset = int(t * wraps * W) % W
+        # No offset==0 early return: frame 0 must take the SAME reconstruction
+        # path (frozen wash + detail tile) as every other frame. The
+        # reconstruction is not pixel-identical to the untouched original, so
+        # letting frame 0 skip it produces a one-frame flash at each loop pass.
 
         # ── Lazy-build static colour wash + tileable cloud detail ─────────
         # A non-uniform sky (warm sunset on one side, cool on the other) is NOT
@@ -1110,11 +1102,11 @@ class MotionCompositor:
 
     def _apply_cloud_drift(self, frame, st, t):
         W = st["W"]
-        # Cosine sweep (0 at t=0 AND t=1) instead of a linear mod-wrap, which was
-        # only seamless for exactly-integer speed — see _apply_cloud_slide for the
-        # full writeup of the bug this fixes.
-        travel = st["speed"] * W
-        off = int(travel * 0.5 * (1.0 - math.cos(TWO_PI * t))) % W
+        # Constant-speed whole-wrap crawl — same rationale as _apply_cloud_slide:
+        # the texture is a seamless horizontal tile, so integer wraps per loop is
+        # seamless with NO direction reversal (never boomerang/cosine-sweep this).
+        wraps = max(1, int(round(st["speed"])))
+        off = int(t * wraps * W) % W
         strip = st["tex"][:, off:off + W]
         if strip.shape[1] < W:  # wrap across the tile seam (continuous by construction)
             strip = np.concatenate([strip, st["tex"][:, :W - strip.shape[1]]], axis=1)
