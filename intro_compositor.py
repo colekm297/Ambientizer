@@ -56,6 +56,8 @@ FONT_PRESETS = {
     "cormorant": "Cormorant.ttf",  # elegant serif
     "bebas": "BebasNeue.ttf",      # bold condensed display
     "oswald": "Oswald.ttf",        # modern condensed
+    "nolan": "ArchivoBlack.ttf",   # heavy grotesque — matches the nolan thumbnail style
+    "nolan_tall": "Anton.ttf",     # condensed heavy — matches nolan_tall
 }
 DEFAULT_FONT = "hailmary"
 
@@ -145,7 +147,7 @@ def render_title_png(out_png: str, width: int, height: int, name: str,
     size = max(28, int(height * 0.085 * size_scale))
     font = _load_font(font_key, size)
     tracking = max(2, int(size * 0.12))
-    name_up = name.upper() if font_key in ("cinzel", "bebas", "oswald") else name
+    name_up = name.upper() if font_key in ("cinzel", "bebas", "oswald", "nolan", "nolan_tall") else name
 
     measure = ImageDraw.Draw(img)
     tw = _text_width(measure, name_up, font, tracking)
@@ -156,7 +158,12 @@ def render_title_png(out_png: str, width: int, height: int, name: str,
         tracking = max(2, int(size * 0.12))
         tw = _text_width(measure, name_up, font, tracking)
 
-    sub_font = _load_font("cormorant" if font_key != "cormorant" else "oswald",
+    # Subtitle stays in the SAME family as the title. It used to hard-code
+    # Cormorant, which pairs a serif subtitle under a grotesque title and reads
+    # as two unrelated designs -- and it silently overrode whatever font the
+    # caller picked. Serif titles still get a contrasting sans below.
+    _sub_key = "oswald" if font_key in ("cormorant", "cinzel") else font_key
+    sub_font = _load_font(_sub_key,
                           max(18, int(size * 0.34)))
     sub_track = max(1, int(size * 0.06))
     sub_w = _text_width(measure, subtitle, sub_font, sub_track) if subtitle else 0
