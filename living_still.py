@@ -68,7 +68,58 @@ RECIPES: dict[str, dict] = {
         ],
         "frozen": ["beach", "foreground"],
     },
+
+    # Night sky over static architecture/terrain: no sea. Any practical lights in
+    # the scene (lanterns, windows, a campfire) are found as 'fire' by region
+    # derivation and get the real flicker, which is what sells a lit ruin at night.
+    "night_ruin": {
+        "version": RECIPE_VERSION,
+        "loop_sec": 16,
+        "layers": [
+            {"region": "sky",
+             "layer": {"type": "twinkle", "amount": 0.5, "sparkle": 0.75}},
+            {"region": "firelight",
+             "layer": {"type": "firelight", "amount": 0.6, "threshold": 150,
+                       "spill": 0.55, "spill_radius": 0.45}},
+            {"region": "sky",
+             "layer": {"type": "cloud_drift", "amount": 0.14, "speed": 1,
+                       "mode": "overlay", "tint": "dusk"}},
+        ],
+        "frozen": ["foreground", "beach"],
+    },
+
+    # Daylight/dawn landscape: the sky is the only thing alive. Cloud drift is a
+    # constant one-direction wrap (never a boomerang), confined to the sky so the
+    # terrain cannot slide -- an earlier build dragged a whole mountain sideways.
+    "sky_landscape": {
+        "version": RECIPE_VERSION,
+        "loop_sec": 24,
+        "layers": [
+            {"region": "sky",
+             "layer": {"type": "cloud_drift", "amount": 0.5, "speed": 1,
+                       "mode": "slide", "tint": "warm"}},
+            {"region": "sky",
+             "layer": {"type": "twinkle", "amount": 0.25, "sparkle": 0.6}},
+        ],
+        "frozen": ["foreground", "beach"],
+    },
 }
+
+
+def pick_archetype(regions: dict) -> str:
+    """Deterministic archetype choice from the DERIVED REGIONS, not from prose.
+
+    Explicit rules, no model call, so a re-render months later picks the same
+    recipe. Order matters: sea wins over lights, lights win over plain sky.
+    """
+    def cov(name):
+        m = regions.get(name)
+        return 0.0 if m is None else float((m > 0.5).mean())
+    if cov("open_water") > 0.05:
+        return "night_shore"
+    if cov("fire") > 0.001:
+        return "night_ruin"
+    return "sky_landscape"
 
 
 def _resolve_region(regions: dict, spec: str) -> np.ndarray:
