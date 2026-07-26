@@ -89,14 +89,16 @@ STYLES = {
         # deliberately NOT a copy of the film's logo lockup.
         "label": "Nolan title card — heavy grotesque caps",
         "title": (f"{_PROJ}/ArchivoBlack.ttf", 0), "sub": (f"{_PROJ}/ArchivoBlack.ttf", 0),
-        "case": "upper", "tracking": 12, "sub_tracking": 8, "align": "center",
-        "treatment": "line", "title_size": 92, "sub_size": 26, "system": True,
+        # No decorative rule: a film title card sets hierarchy with size and space,
+        # and an accent underline is the thing that makes a thumbnail look homemade.
+        "case": "upper", "tracking": 12, "sub_tracking": 10, "align": "center",
+        "treatment": "none", "title_size": 96, "sub_size": 22, "system": True,
     },
     "nolan_tall": {  # same idea, condensed — more title fits before it shrinks
         "label": "Nolan title card — condensed",
         "title": (f"{_PROJ}/Anton.ttf", 0), "sub": (f"{_PROJ}/ArchivoBlack.ttf", 0),
-        "case": "upper", "tracking": 10, "sub_tracking": 8, "align": "center",
-        "treatment": "line", "title_size": 112, "sub_size": 26, "system": True,
+        "case": "upper", "tracking": 10, "sub_tracking": 10, "align": "center",
+        "treatment": "none", "title_size": 118, "sub_size": 22, "system": True,
     },
 }
 DEFAULT_STYLE = "hailmary"
@@ -253,8 +255,13 @@ def render_thumbnail(image_path: str, out_path: str, hook: str, subtitle: str = 
     # subtitle still sits cleanly below the hook when the user scales the title.
     sub_y = title_y + title_size_px + 22
     if sd["treatment"] == "line":
-        lx2 = tx + min(tw, int(TW * 0.42))
-        draw.line([(tx, sub_y - 6), (lx2, sub_y - 6)], fill=accent_rgb, width=2)
+        # The rule has to be centered on the SAME axis the title is centered on.
+        # It used to always start at tx (the title's left edge) and run to a fixed
+        # 42% of frame width, which is right for a left-aligned style and visibly
+        # skewed for a centered one — the rule sat left of the title it was under.
+        rule_w = min(tw, int(TW * 0.42))
+        lx1 = (TW - rule_w) // 2 if align == "center" else tx
+        draw.line([(lx1, sub_y - 6), (lx1 + rule_w, sub_y - 6)], fill=accent_rgb, width=2)
         sub_y += 8
     elif sd["treatment"] == "engrave":
         draw.rectangle([(TW // 2 - 60, title_y - 22), (TW // 2 + 60, title_y - 18)], fill=accent_rgb)
