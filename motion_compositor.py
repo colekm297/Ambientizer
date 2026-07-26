@@ -234,15 +234,28 @@ class MotionCompositor:
             cloud_base = self._camera_frame(base_pil, W, H, zmax, orbit, 0.0, pan)
         cloud_state = self._make_cloud_drift(W, H, cloud_cfg, cloud_base) if cloud_cfg else None
 
-        # Nebula: auto-masked by CONTENT (colored, mid-bright gas), not semantic
-        # segmentation — ADE20K "sky" doesn't fire on stylized space art.
-        # A user-painted per-layer mask OVERRIDES this auto-mask (you decided
-        # where the drift goes).
+        # Nebula: auto-masked by CONTENT (colored, mid-bright gas) INTERSECTED
+        # with the semantic sky mask when the scene has one. The content
+        # heuristic alone matches any warm/saturated pixels — on a lantern-lit
+        # landscape it covers buildings and people, so the warp twisted the
+        # whole image. Semantic sky confines it to the sky; the content mask
+        # then picks the gas WITHIN the sky. Pure space art (where ADE20K
+        # "sky" doesn't fire) falls back to the content mask alone.
+        # A user-painted per-layer mask OVERRIDES all of this.
         nebula_cfg = _find(layers, "nebula")
         nebula_idx = layer_idx("nebula")
         nebula_user_mask = mask_for(nebula_idx)
-        nebula_mask = nebula_user_mask if nebula_user_mask is not None else (
-            self._nebula_mask(W, H, base_pil) if nebula_cfg else None)
+        nebula_mask = nebula_user_mask
+        if nebula_mask is None and nebula_cfg:
+            nebula_mask = self._nebula_mask(W, H, base_pil)
+            try:
+                sky_p, _ = self._ensure_seg_masks(image_path)
+                sem_sky = self._load_region_mask(sky_p, W, H)
+            except Exception:
+                sem_sky = None
+            if sem_sky is not None and float((sem_sky > 0.5).mean()) > 0.05:
+                nebula_mask = nebula_mask * sem_sky
+                status("nebula confined to semantic sky mask")
         shimmer_idx = layer_idx("shimmer")
         shimmer_user_mask = mask_for(shimmer_idx)
         aurora_idx = layer_idx("aurora")
