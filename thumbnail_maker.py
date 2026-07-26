@@ -87,10 +87,16 @@ STYLES = {
         # Black in the same .ttc is the wrong WIDTH, which reads less like Nolan than
         # a slightly lighter weight does. Matching a typeface is fine; this is
         # deliberately NOT a copy of the film's logo lockup.
-        "label": "Helvetica Neue — Nolan title card",
-        "title": (f"{_FONTS}/HelveticaNeue.ttc", 1), "sub": (f"{_FONTS}/HelveticaNeue.ttc", 1),
-        "case": "upper", "tracking": 14, "sub_tracking": 8, "align": "center",
-        "treatment": "line", "title_size": 96, "sub_size": 28, "system": True,
+        "label": "Nolan title card — heavy grotesque caps",
+        "title": (f"{_PROJ}/ArchivoBlack.ttf", 0), "sub": (f"{_PROJ}/ArchivoBlack.ttf", 0),
+        "case": "upper", "tracking": 12, "sub_tracking": 8, "align": "center",
+        "treatment": "line", "title_size": 92, "sub_size": 26, "system": True,
+    },
+    "nolan_tall": {  # same idea, condensed — more title fits before it shrinks
+        "label": "Nolan title card — condensed",
+        "title": (f"{_PROJ}/Anton.ttf", 0), "sub": (f"{_PROJ}/ArchivoBlack.ttf", 0),
+        "case": "upper", "tracking": 10, "sub_tracking": 8, "align": "center",
+        "treatment": "line", "title_size": 112, "sub_size": 26, "system": True,
     },
 }
 DEFAULT_STYLE = "hailmary"
