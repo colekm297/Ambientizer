@@ -68,6 +68,11 @@ PARTICLE_PRESETS = {
 }
 
 
+def _wave_smoothstep(x):
+    x = np.clip(x, 0.0, 1.0)
+    return x * x * (3.0 - 2.0 * x)
+
+
 class MotionCompositor:
     def __init__(self, ffmpeg_bin: str = "ffmpeg"):
         self.ffmpeg = ffmpeg_bin
@@ -234,6 +239,15 @@ class MotionCompositor:
             cloud_base = self._camera_frame(base_pil, W, H, zmax, orbit, 0.0, pan)
         cloud_state = self._make_cloud_drift(W, H, cloud_cfg, cloud_base) if cloud_cfg else None
 
+        # Firelight: baked once off the anchored t=0 frame (the flame doesn't move).
+        fire_cfg = _find(layers, "firelight")
+        fire_state = None
+        if fire_cfg:
+            fire_base = self._camera_frame(base_pil, W, H, zmax, orbit, 0.0, pan)
+            fire_state = self._make_firelight(W, H, fire_cfg, fire_base, loop_sec)
+            if fire_state is None:
+                status("firelight: no bright warm source in frame — layer skipped")
+
         # Nebula: auto-masked by CONTENT (colored, mid-bright gas) INTERSECTED
         # with the semantic sky mask when the scene has one. The content
         # heuristic alone matches any warm/saturated pixels — on a lantern-lit
@@ -261,6 +275,10 @@ class MotionCompositor:
         aurora_idx = layer_idx("aurora")
         aurora_user_mask = mask_for(aurora_idx)
         twinkle_idx = layer_idx("twinkle")
+        fire_idx = layer_idx("firelight")
+        fire_user_mask = mask_for(fire_idx)
+        wave_idx = layer_idx("wave")
+        wave_user_mask = mask_for(wave_idx)
         twinkle_user_mask = mask_for(twinkle_idx)
         rays_idx = layer_idx("god_rays")
         rays_user_mask = mask_for(rays_idx)
@@ -279,13 +297,29 @@ class MotionCompositor:
 
         # Water shimmer DOES use segmentation (real water scenes are in-distribution).
         water_mask = None
+        wave_cfg = _find(layers, "wave")
         need_water = shimmer_cfg is not None and shimmer_cfg.get("region") == "water"
+        if (wave_cfg is not None and wave_user_mask is None
+                and wave_cfg.get("region", "water") == "water"):
+            need_water = True
         if need_water:
             status("segmenting scene (water)...")
             _, water_p = self._ensure_seg_masks(image_path)
             water_mask = self._load_region_mask(water_p, W, H)
             status("water mask ready" if water_mask is not None
                    else "no water found — shimmer skipped")
+
+        wave_state = None
+        if wave_cfg is not None:
+            wave_region = wave_user_mask if wave_user_mask is not None else water_mask
+            if wave_region is None and wave_cfg.get("region", "water") == "water":
+                status("no water found — wave skipped")
+            else:
+                wave_state = self._make_wave(W, H, wave_cfg, wave_region)
+                if wave_state is not None:
+                    status(f"wave: horizon row {wave_state['y0']:.0f}, "
+                           f"{wave_state['cycles']} swell cycles/loop, "
+                           f"{float(np.max(wave_state['amp'])):.1f}px peak at the shore")
 
         # Cloud drift confines to the sky by DEFAULT (clouds belong in the sky).
         # A user-painted per-layer mask overrides the auto sky mask; setting
@@ -348,6 +382,18 @@ class MotionCompositor:
                         frame = frame * (1.0 - m) + sh * m
                     else:
                         frame = sh                        # whole-frame shimmer (no region)
+
+                if wave_state is not None:
+                    pre = frame.copy() if wave_user_mask is not None else None
+                    self._apply_wave(frame, wave_state, t)
+                    if wave_user_mask is not None:
+                        self._blend_with_mask(frame, pre, wave_user_mask)
+
+                if fire_state is not None:
+                    pre = frame.copy() if fire_user_mask is not None else None
+                    self._apply_firelight(frame, fire_state, t)
+                    if fire_user_mask is not None:
+                        self._blend_with_mask(frame, pre, fire_user_mask)
 
                 if nebula_mask is not None:
                     self._apply_region_warp(frame, nebula_mask, t, nebula_cfg.get("amount", 0.5), trig=nebula_trig)
@@ -1128,6 +1174,337 @@ class MotionCompositor:
         veil = strip[:, :, None] * (st["amount"] * breathe)
         frame += (st["tint"][None, None, :] - frame) * veil   # screen-ish blend toward tint
 
+    # ── premium: firelight (fast emissive flicker + warm light spill) ───────
+    # Everything else in this file lives under 0.5 Hz, which is exactly why a
+    # masked fire still reads as a photograph: real flame flicker sits in the
+    # 4–12 Hz band. Speed was never the seamlessness constraint — every band
+    # below is an INTEGER number of cycles per LOOP, so 127 cycles wraps at the
+    # seam exactly as cleanly as 1 does.
+    #
+    # (target Hz, relative amplitude). Amplitudes were solved, not guessed: they
+    # maximize the share of AC power sitting in 4–12 Hz subject to no single
+    # 24fps frame moving more than a third of the envelope's range (past that it
+    # reads as a strobe, not a flame). The two sub-1 Hz bands are what buy that
+    # headroom — they carry the slow surge a fire breathes with, and the crackle
+    # rides on top of it.
+    _FIRE_BANDS = (
+        (0.25, 0.150), (0.8125, 0.180), (1.9375, 0.090),
+        (4.0625, 0.330), (5.5625, 0.150), (7.9375, 0.100),
+    )
+    _FIRE_LOBES = 3           # flame split into 3 soft zones that flicker out of phase
+    _FIRE_SPILL_TAU = 0.11    # s — one-pole lag applied ANALYTICALLY to the spill
+
+    def _make_firelight(self, W, H, cfg, base_frame, loop_sec: float) -> Optional[dict]:
+        """Locate the flame in the still and pre-bake its emissive + spill fields.
+
+        base_frame is the ANCHORED t=0 camera frame (same trick _make_cloud_drift
+        uses): the flame doesn't move, so its footprint is baked once instead of
+        re-blurred 384 times. Returns None when the region holds no fire.
+        """
+        cfg = cfg or {}
+        if base_frame is None:
+            return None
+        amount = float(cfg.get("amount", 0.5))
+        thresh = float(cfg.get("threshold", 150.0))
+        spill = float(cfg.get("spill", 0.5))
+        radius = float(cfg.get("spill_radius", 0.5))
+
+        arr = base_frame
+        r, b = arr[:, :, 0], arr[:, :, 2]
+        lum = arr.mean(axis=2)
+        # Flame = BRIGHT *and* WARM. The warmth gate is what keeps the flicker off
+        # pale sand, moonlit foam and stars that fall inside the painted mask —
+        # brightness alone lights up half a night beach.
+        bright = np.clip((lum - thresh) / max(1.0, 245.0 - thresh), 0.0, 1.0)
+        warm = np.clip((r - b) / 45.0, 0.0, 1.0)
+        core = (bright * warm).astype(np.float32)
+        core = gaussian_filter(core, sigma=max(1.0, W / 900.0))
+        peak = float(core.max())
+        if peak < 1e-4:
+            return None
+        core = np.clip(core / peak, 0.0, 1.0)
+
+        # Spill = the same emitter blurred wide — the light the fire throws onto
+        # the cave wall, the rock lip and the sand in front of it. Normalized to
+        # its own max so "spill" is a real 0..1 strength rather than a function of
+        # how many flame pixels the scene happens to contain.
+        sigma = max(6.0, (0.012 + 0.055 * min(max(radius, 0.0), 1.0)) * max(W, H))
+        halo = gaussian_filter(core, sigma=sigma)
+        hpk = float(halo.max())
+        if hpk > 1e-6:
+            halo = halo / hpk
+        halo = np.clip(halo - 0.05, 0.0, None)      # trim the long numerical tail
+        halo = halo / max(float(halo.max()), 1e-6)
+        # Punch the flame back out of its own halo: a fire lights the rock around
+        # it, not itself. Without this the spill piles onto pixels the core is
+        # already driving and the flame blows out at every surge.
+        halo = np.clip(halo * (1.0 - core), 0.0, 1.0).astype(np.float32)
+
+        # Soft 3-way partition of the flame so its zones flicker OUT of sync. One
+        # blob pulsing as a single unit reads as a blinking lamp; three
+        # decorrelated zones read as crackle. Seeded → deterministic.
+        rng = np.random.default_rng(int(cfg.get("seed", 11)))
+        low = rng.random((max(2, H // 90), max(2, W // 90))).astype(np.float32)
+        field = np.asarray(
+            Image.fromarray((low * 255).astype(np.uint8)).resize((W, H), Image.BILINEAR),
+            dtype=np.float32,
+        ) / 255.0
+        field = gaussian_filter(field, sigma=max(W, H) / 220.0)
+        raw = [np.exp(-(((field - (k + 0.5) / self._FIRE_LOBES) / 0.20) ** 2)).astype(np.float32)
+               for k in range(self._FIRE_LOBES)]
+        tot = np.maximum(sum(raw), 1e-6)
+        lobes = [((m / tot) * core).astype(np.float32) for m in raw]
+        # Golden-ratio phase offsets: decorrelated, fixed, reproducible.
+        lobe_phase = [(0.6180339887498949 * (k + 1)) % 1.0 for k in range(self._FIRE_LOBES)]
+
+        # Bands → integer cycles per loop. The realized Hz is cycles/loop_sec, so
+        # the flicker keeps the same PACE whatever loop length the user picks.
+        # The 4th tuple slot is DESYNC: fast bands get a per-lobe phase offset
+        # (the tongues crackle independently), slow bands stay in phase across
+        # lobes (a fire surges as a whole). That split is what makes the flame
+        # look agitated without making its total output jitter.
+        bands = []
+        for i, (hz, a) in enumerate(self._FIRE_BANDS):
+            cyc = max(1, int(round(hz * max(1.0, float(loop_sec)))))
+            bands.append((cyc, float(a), (0.6180339887498949 * (i + 1) * 1.7) % 1.0,
+                          1.0 if hz >= 3.0 else 0.0))
+        norm = sum(a for _, a, _, _ in bands) or 1.0
+
+        # Spill envelope: the flame's TOTAL output (the coherent sum over lobes,
+        # solved per band as a phasor sum — the desynced fast bands largely cancel
+        # each other, exactly as a real fire's total light output is smoother than
+        # any one tongue of it), then a one-pole lag solved analytically per band:
+        # gain 1/sqrt(1+(wT)^2), lag atan(wT). Still a sum of integer-cycle sines,
+        # so it stays exactly seamless — no IIR state, no warm-up, no seam.
+        spill_bands = []
+        for cyc, a, ph, dsy in bands:
+            z = sum(complex(math.cos(TWO_PI * (ph + dsy * p)), math.sin(TWO_PI * (ph + dsy * p)))
+                    for p in lobe_phase) / max(1, len(lobe_phase))
+            w = TWO_PI * (cyc / max(1e-6, float(loop_sec)))
+            g = 1.0 / math.sqrt(1.0 + (w * self._FIRE_SPILL_TAU) ** 2)
+            lag = math.atan(w * self._FIRE_SPILL_TAU) / TWO_PI
+            spill_bands.append((cyc, a * abs(z) * g,
+                                (math.atan2(z.imag, z.real) / TWO_PI - lag) % 1.0))
+        spill_norm = norm
+
+        return dict(
+            lobes=lobes, lobe_phase=lobe_phase, halo=halo,
+            bands=bands, norm=norm, spill_bands=spill_bands, spill_norm=spill_norm,
+            amount=amount, spill=spill,
+            # Per-channel sensitivity. Blue swings MOST, red least: dimming pushes
+            # the flame deep orange-red (R>G>B), a surge pushes it hot yellow.
+            # That's blackbody behaviour, and it means the modulation itself is
+            # warm rather than a grey brightness pump. Written inline as RGB —
+            # _GLOW_COLORS is channel-swapped and would render this blue.
+            core_rgb=np.array([0.62, 0.88, 1.18], dtype=np.float32),
+            hot_rgb=np.array([1.00, 0.72, 0.38], dtype=np.float32),      # surge: warm light added, R>G>B
+            spill_rgb=np.array([1.00, 0.52, 0.20], dtype=np.float32),   # screen-blend, ember orange
+            dim_rgb=np.array([0.60, 0.85, 1.10], dtype=np.float32),     # shadows fall off cool-first
+        )
+
+    def _apply_firelight(self, frame, st, t):
+        """Emissive flicker on the flame + a lagged warm spill on everything the
+        fire lights. Both envelopes are sums of integer-cycle sines → value at
+        t=1 is bit-identical to t=0."""
+        # ── emissive core ──
+        # The two halves of the swing go through DIFFERENT operators, which is
+        # what keeps a near-255 flame from blowing out. A surge is a SCREEN blend
+        # — it adds a fraction of the remaining headroom, so a pixel at 254 barely
+        # moves and can never clip, while the mid-tones inside the flame open up.
+        # An ebb is multiplicative, so the fire genuinely falls back into shadow.
+        # Both halves stay LINEAR in the envelope, so the flicker's frame-to-frame
+        # step keeps the envelope's own measured ratio instead of inheriting a
+        # compressor's kink.
+        up = np.zeros(frame.shape[:2], dtype=np.float32)
+        dn = np.zeros(frame.shape[:2], dtype=np.float32)
+        for w, p0 in zip(st["lobes"], st["lobe_phase"]):
+            e = 0.0
+            for cyc, a, ph, dsy in st["bands"]:
+                e += a * math.sin(TWO_PI * (((cyc * t) % 1.0) + ph + dsy * p0))
+            e /= st["norm"]
+            if e > 0.0:
+                up += w * (st["amount"] * 0.60 * e)
+            else:
+                dn += w * (st["amount"] * 0.78 * e)
+        frame += (255.0 - frame) * up[:, :, None] * st["hot_rgb"]
+        frame *= (1.0 + dn[:, :, None] * st["core_rgb"])
+
+        # ── warm spill ──
+        es = 0.0
+        for cyc, a, ph in st["spill_bands"]:
+            es += a * math.sin(TWO_PI * (((cyc * t) % 1.0) + ph))
+        es /= st["spill_norm"]
+        s = st["spill"]
+        if es > 0.0:                                   # surge → screen-blend warm light in
+            frame += (255.0 - frame) * (st["halo"] * (0.42 * s * es))[:, :, None] * st["spill_rgb"]
+        elif es < 0.0:                                 # ebb → the lit rock falls back into shadow
+            frame *= (1.0 + (st["halo"] * (0.26 * s * es))[:, :, None] * st["dim_rgb"])
+
+
+# ═══ integration ═══════════════════════════════════════════════════════════
+
+    # ── premium: wave (perspective tidal swell rolling toward the shore) ──
+    def _make_wave(self, W, H, cfg, region_mask=None) -> Optional[dict]:
+        """Pre-compute the STATIC geometry of a perspective swell field.
+
+        Screen row y maps to world distance D ~ 1/(y - y_horizon), so crests
+        evenly spaced in WORLD space give a spatial phase linear in D. Crests
+        bunch toward the horizon and spread toward the shore for free.
+
+            theta(x, y, t) = Phi(y) + Psi(x, y) - 2*pi*N*t   (N a positive integer)
+
+        Phi is strictly increasing in y, so a point of constant theta moves toward
+        larger y (down the frame, toward the viewer) for every t in [0,1). It never
+        turns around. theta only enters via sin/cos and the only time term is
+        -2*pi*N*t with N integer, so frame(t=1) is bit-identical to frame(t=0).
+        """
+        cfg = cfg or {}
+        amount = float(cfg.get("amount", 0.5))
+        cycles = max(1, int(round(float(cfg.get("cycles", 3)))))
+        density = float(cfg.get("density", 1.4))
+        hratio = float(cfg.get("horizontal", 0.30))
+        shear_cap = float(cfg.get("shear_cap", 0.20))
+        stokes = float(cfg.get("stokes", 0.22))
+        amp_px = amount * 36.0
+
+        # ── horizon row: top of the water region ──
+        y0 = None
+        if cfg.get("horizon") is not None:
+            y0 = float(cfg["horizon"]) * H
+        elif region_mask is not None:
+            rows = np.where((region_mask > 0.5).sum(axis=1) > 0.02 * W)[0]
+            if len(rows):
+                y0 = float(rows[0])
+        if y0 is None:
+            y0 = H * 0.35
+        y0 = float(np.clip(y0, 0.0, H - 8.0))
+        span = max(8.0, H - y0)
+
+        yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
+        ycol = np.arange(H, dtype=np.float32)[:, None]
+        u = np.clip((ycol - y0) / span, 0.0, 1.0)
+
+        # ── perspective phase (vertical) ──
+        # k diverges at the horizon, so clamp k (never u) to a minimum on-screen
+        # wavelength and integrate. Clamping u would flatten the phase in the top
+        # band and the crests would stop travelling there.
+        lam_min = float(cfg.get("lam_min", 14.0))
+        k = TWO_PI * density / (np.maximum(u, 1e-4) ** 2 * span)
+        k = np.minimum(k, TWO_PI / max(2.0, lam_min)).astype(np.float32)
+        phi = np.cumsum(k, axis=0)
+
+        # ── lateral crest undulation (time-invariant, cannot affect the loop) ──
+        lat_amp = float(cfg.get("lateral", 0.40))
+        lat_wav = max(120.0, W / 3.6)
+        up_lat = np.maximum(u, 0.30)
+        xw = (xx - 0.5 * W) / (lat_wav * up_lat)
+        psi = lat_amp * (np.sin(TWO_PI * xw) + 0.5 * np.sin(TWO_PI * 0.37 * xw + 1.13))
+        psi = psi + float(cfg.get("tilt", 0.35)) * ((xx / W) - 0.5)
+
+        theta0 = (phi + psi).astype(np.float32)
+
+        # ── amplitude: perspective growth, capped by a measured shear budget ──
+        ky = np.abs(np.diff(theta0, axis=0))
+        ky = np.vstack([ky[:1], ky]).max(axis=1, keepdims=True)
+        ky = np.maximum(ky, 1e-4)
+        _th = np.linspace(0.0, TWO_PI, 2048, dtype=np.float32)
+        _eta = (np.sin(_th) - stokes * np.cos(2 * _th)) / (1.0 + stokes)
+        slope_f = float(np.abs(np.diff(_eta)).max() / (_th[1] - _th[0]))
+
+        a_persp = amp_px * np.power(u, 1.2, dtype=np.float32)
+        a_shear = shear_cap / (ky * slope_f)
+        n = 6.0
+        amp = (a_persp * a_shear) / np.power(
+            np.power(a_persp, n) + np.power(a_shear, n) + 1e-12, 1.0 / n)
+        amp = gaussian_filter(amp.astype(np.float32), sigma=(3.0, 0))
+
+        ramp = float(cfg.get("horizon_ramp", 0.10))
+        amp = amp * _wave_smoothstep(u / max(1e-3, ramp))
+
+        if cfg.get("shore") is not None:
+            s_row = float(cfg["shore"]) * H
+            band = max(8.0, float(cfg.get("shore_band", 0.05)) * H)
+            amp = amp * (1.0 - _wave_smoothstep((ycol - s_row) / band))
+
+        amp = amp.astype(np.float32)
+
+        # ── effective mask ──
+        if region_mask is None:
+            mask = np.ones((H, W), dtype=np.float32)
+        else:
+            mask = region_mask.astype(np.float32).copy()
+        prot = cfg.get("protect")
+        if prot:
+            keep = np.ones((H, W), dtype=np.float32)
+            for b in prot:
+                try:
+                    bx0, by0, bx1, by1 = (float(v) for v in b)
+                except (TypeError, ValueError):
+                    continue
+                x0, x1 = int(bx0 * W), int(math.ceil(bx1 * W))
+                yb0, yb1 = int(by0 * H), int(math.ceil(by1 * H))
+                x0, x1 = max(0, x0), min(W, x1)
+                yb0, yb1 = max(0, yb0), min(H, yb1)
+                if x1 > x0 and yb1 > yb0:
+                    keep[yb0:yb1, x0:x1] = 0.0
+            # FIX A: ONE-SIDED feather. A plain symmetric blur reaches 0 only ~3
+            # sigma INSIDE the box and is 0.5 at the border, so a box narrower
+            # than ~6 sigma protects nothing near its edges (measured: keep max
+            # 0.7406 inside the 212px-wide figure box). Taking the min against the
+            # hard box keeps the interior at exactly 0 and feathers OUTWARD only.
+            keep = np.minimum(gaussian_filter(keep, sigma=max(8.0, W / 90.0)), keep)
+            mask = mask * np.clip(keep, 0.0, 1.0)
+
+        return dict(
+            yy=yy, xx=xx, mask=mask, amp=amp, theta0=theta0,
+            sin0=np.sin(theta0).astype(np.float32),
+            cos0=np.cos(theta0).astype(np.float32),
+            cycles=cycles, hratio=hratio, stokes=stokes,
+            ky=ky, slope_f=slope_f,
+            eta_norm=np.float32(1.0 / (1.0 + stokes)),
+            y_top=float(y0) + 1.0, y0=float(y0), span=span,
+            # FIX B: PER-PIXEL lower sampling bound. A scalar y_top clamps every
+            # row above the horizon up to row y0+1, so anywhere the water mask
+            # leaks into the sky the stars get permanently replaced by horizon
+            # pixels (measured 65.8/255 static smear over 17,107 px). Using
+            # min(yy, y_top) keeps the horizon guard for sea rows while leaving
+            # every row above the horizon an exact identity sample.
+            y_floor=np.minimum(yy, float(y0) + 1.0).astype(np.float32),
+            W=W, H=H,
+        )
+
+    def _apply_wave(self, frame, st, t):
+        """Traveling perspective swell. In-place, masked, sub-pixel resampled."""
+        H, W, _ = frame.shape
+        ph = TWO_PI * st["cycles"] * t
+        cp, sp = math.cos(ph), math.sin(ph)
+        sin_t = st["sin0"] * cp - st["cos0"] * sp
+        cos_t = st["cos0"] * cp + st["sin0"] * sp
+
+        # Stokes profile: sharp crests, broad shallow troughs.
+        s = st["stokes"]
+        cos_2t = 1.0 - 2.0 * (sin_t * sin_t)
+        eta = (sin_t - s * cos_2t) * st["eta_norm"]
+
+        A = st["amp"]
+        dy = A * eta
+        # Quadrature horizontal component = orbital motion: a particle traces a
+        # closed ellipse and returns to its start; only the PATTERN travels.
+        dx = (A * st["hratio"]) * cos_t
+
+        sy = st["yy"] + dy
+        sx = st["xx"] + dx
+        np.clip(sy, st["y_floor"], H - 1, out=sy)
+        np.clip(sx, 0.0, W - 1, out=sx)
+
+        coords = np.stack([sy.ravel(), sx.ravel()])
+        m = st["mask"]
+        inv = 1.0 - m
+        for c in range(3):
+            warped = map_coordinates(frame[:, :, c], coords, order=1,
+                                     mode="nearest").reshape(H, W)
+            frame[:, :, c] = frame[:, :, c] * inv + warped * m
+
     # ── ffmpeg ──────────────────────────────────────────────────────────────
     def _open_ffmpeg(self, output_path, W, H, fps, crf):
         cmd = [
@@ -1282,6 +1659,12 @@ _LAYER_SPEC = {
     "color_glow":     {"amount": (0.0, 0.6)},
     "twinkle":        {"amount": (0.0, 1.0), "threshold": (60.0, 240.0), "sparkle": (0.0, 1.0)},
     "nebula":         {"amount": (0.0, 1.0)},  # masked slow gas drift (region: sky)
+    "firelight":      {"amount": (0.0, 1.0), "threshold": (60.0, 240.0),
+                       "spill": (0.0, 1.0), "spill_radius": (0.0, 1.0)},
+    "wave":           {"amount": (0.0, 1.0), "cycles": (1, 8), "density": (0.4, 3.0),
+                       "horizontal": (0.0, 1.0), "stokes": (0.0, 0.6),
+                       "shear_cap": (0.05, 0.5), "shore": (0.0, 1.0),
+                       "shore_band": (0.01, 0.4)},
     "cloud_drift":    {"amount": (0.0, 1.0), "speed": (0.1, 2.0)},  # sky-masked drifting cloud bank
 }
 
@@ -1525,7 +1908,7 @@ def scale_motion(layers: list[dict], factor: float) -> list[dict]:
     return out
 
 
-_IMAGE_MOVEMENT_TYPES = {"cloud_drift", "shimmer", "nebula", "twinkle", "aurora"}
+_IMAGE_MOVEMENT_TYPES = {"cloud_drift", "shimmer", "nebula", "twinkle", "aurora", "wave", "firelight"}
 
 
 def _enforce_auto_plan(layers: list[dict], director_style: str = "subtle") -> list[dict]:
