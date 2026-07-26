@@ -79,6 +79,19 @@ STYLES = {
         "case": "upper", "tracking": 4, "sub_tracking": 8, "align": "center",
         "treatment": "glow", "title_size": 118, "sub_size": 34, "system": True,
     },
+    "nolan": {  # Nolan title-card look: heavy Helvetica caps, wide tracking, centered.
+        # Empire pins the Odyssey (2026) poster to Helvetica Neue Black, "the usual
+        # Nolan font" — the same treatment as Interstellar/Tenet/Oppenheimer. macOS
+        # ships Helvetica Neue Bold (face 1) but no uncondensed Black, and Bold at
+        # display size with heavy tracking is the closest honest match; the condensed
+        # Black in the same .ttc is the wrong WIDTH, which reads less like Nolan than
+        # a slightly lighter weight does. Matching a typeface is fine; this is
+        # deliberately NOT a copy of the film's logo lockup.
+        "label": "Helvetica Neue — Nolan title card",
+        "title": (f"{_FONTS}/HelveticaNeue.ttc", 1), "sub": (f"{_FONTS}/HelveticaNeue.ttc", 1),
+        "case": "upper", "tracking": 14, "sub_tracking": 8, "align": "center",
+        "treatment": "line", "title_size": 96, "sub_size": 28, "system": True,
+    },
 }
 DEFAULT_STYLE = "hailmary"
 
