@@ -440,29 +440,43 @@ def add_intro_sting(video: str, out: str, sting: str, xfade: float = 1.2,
     xfade = max(0.2, min(xfade, sdur / 3))
     head_pad = max(xfade + 1.0, head_pad)
 
-    tmp = Path(tempfile.mkdtemp(prefix="sting_"));
+    # The head OUTPUT is longer than the slice of scene video that feeds it: the
+    # sting occupies (sdur - xfade) seconds before the scene appears. Sizing the
+    # head's audio to head_pad instead of this leaves a silent hole between the
+    # end of the head's audio and the start of the tail's — a dead gap right at
+    # the transition, which is exactly what it sounded like.
+    head_total = (sdur - xfade) + head_pad
+
+    tmp = Path(tempfile.mkdtemp(prefix="sting_"))
     try:
         # 1. sting (scaled/fps-matched) xfaded into the first head_pad seconds.
+        #    Input 1 supplies the VIDEO (head_pad long); input 2 supplies the
+        #    AUDIO, which has to run the full head_total.
         head_mp4 = str(tmp / "head.mp4")
         filt = (
             f"[0:v]scale={W}:{H},fps={fps},setsar=1[s];"
             f"[1:v]scale={W}:{H},fps={fps},setsar=1[m];"
             f"[s][m]xfade=transition=fade:duration={xfade}:offset={sdur - xfade}[v]"
         )
-        cmd = [FFMPEG, "-y", "-i", sting, "-t", f"{head_pad}", "-i", video,
-               "-filter_complex", filt, "-map", "[v]"]
+        cmd = [FFMPEG, "-y", "-i", sting, "-t", f"{head_pad}", "-i", video]
         if info["has_audio"]:
-            # Audio from the scene, starting at t=0 — it runs under the sting.
-            cmd += ["-map", "1:a:0", "-c:a", "aac", "-b:a", "320k"]
+            cmd += ["-t", f"{head_total}", "-i", video]
+        cmd += ["-filter_complex", filt, "-map", "[v]"]
+        if info["has_audio"]:
+            # Audio from the scene, from t=0 — it runs under the sting so the
+            # music is playing before the picture arrives.
+            cmd += ["-map", "2:a:0", "-c:a", "aac", "-b:a", "320k"]
         cmd += ["-c:v", "libx264", "-preset", "medium", "-crf", "18",
                 "-pix_fmt", "yuv420p", "-r", f"{fps}", head_mp4]
         _run(cmd)
 
-        # 2. Tail = the scene from head_pad on. The audio here starts at head_pad,
-        #    which is correct: the head already consumed 0..head_pad of audio.
+        # 2. Tail picks up where the head's AUDIO ended, not where its video
+        #    slice ended. That drops (head_total - head_pad) seconds of scene
+        #    footage, which is invisible: the scene is a tiled seamless loop, so
+        #    one arbitrary window of it is interchangeable with any other.
         tail_mp4 = str(tmp / "tail.mp4")
         can_copy = info["vcodec"] == "h264" and info["pix_fmt"] in ("yuv420p", "yuvj420p")
-        tail_cmd = [FFMPEG, "-y", "-ss", f"{head_pad}", "-i", video]
+        tail_cmd = [FFMPEG, "-y", "-ss", f"{head_total}", "-i", video]
         if can_copy:
             tail_cmd += ["-c", "copy"]
         else:
