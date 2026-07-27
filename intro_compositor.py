@@ -423,6 +423,69 @@ def add_intro_card(video: str, out: str, name: str, subtitle: str = "",
         except OSError: pass
 
 
+def add_intro_sting(video: str, out: str, sting: str, xfade: float = 1.2,
+                    head_pad: float = 6.0) -> str:
+    """Prepend a pre-rendered animated logo sting, crossfading into the scene.
+
+    The music plays UNDER the sting from t=0 (the sting itself is silent), so a
+    viewer never hears silence. Only sting + a short head of the scene are
+    re-encoded; the rest of the hour is stream-copied and concatenated — the
+    same trick add_intro_overlay uses. A naive xfade over the whole file would
+    re-encode an hour of 1080p for the sake of six seconds.
+    """
+    info = probe(video)
+    sinfo = probe(sting)
+    W, H, fps = info["width"], info["height"], info["fps"]
+    sdur = sinfo["duration"]
+    xfade = max(0.2, min(xfade, sdur / 3))
+    head_pad = max(xfade + 1.0, head_pad)
+
+    tmp = Path(tempfile.mkdtemp(prefix="sting_"));
+    try:
+        # 1. sting (scaled/fps-matched) xfaded into the first head_pad seconds.
+        head_mp4 = str(tmp / "head.mp4")
+        filt = (
+            f"[0:v]scale={W}:{H},fps={fps},setsar=1[s];"
+            f"[1:v]scale={W}:{H},fps={fps},setsar=1[m];"
+            f"[s][m]xfade=transition=fade:duration={xfade}:offset={sdur - xfade}[v]"
+        )
+        cmd = [FFMPEG, "-y", "-i", sting, "-t", f"{head_pad}", "-i", video,
+               "-filter_complex", filt, "-map", "[v]"]
+        if info["has_audio"]:
+            # Audio from the scene, starting at t=0 — it runs under the sting.
+            cmd += ["-map", "1:a:0", "-c:a", "aac", "-b:a", "320k"]
+        cmd += ["-c:v", "libx264", "-preset", "medium", "-crf", "18",
+                "-pix_fmt", "yuv420p", "-r", f"{fps}", head_mp4]
+        _run(cmd)
+
+        # 2. Tail = the scene from head_pad on. The audio here starts at head_pad,
+        #    which is correct: the head already consumed 0..head_pad of audio.
+        tail_mp4 = str(tmp / "tail.mp4")
+        can_copy = info["vcodec"] == "h264" and info["pix_fmt"] in ("yuv420p", "yuvj420p")
+        tail_cmd = [FFMPEG, "-y", "-ss", f"{head_pad}", "-i", video]
+        if can_copy:
+            tail_cmd += ["-c", "copy"]
+        else:
+            tail_cmd += ["-c:v", "libx264", "-preset", "fast", "-crf", "18",
+                         "-pix_fmt", "yuv420p"]
+            if info["has_audio"]:
+                tail_cmd += ["-c:a", "aac", "-b:a", "320k"]
+        tail_cmd += [tail_mp4]
+        _run(tail_cmd)
+
+        listf = tmp / "concat.txt"
+        listf.write_text(f"file '{head_mp4}'\nfile '{tail_mp4}'\n")
+        _run([FFMPEG, "-y", "-f", "concat", "-safe", "0", "-i", str(listf),
+              "-c", "copy", out])
+        return out
+    finally:
+        for p in tmp.glob("*"):
+            try: p.unlink()
+            except OSError: pass
+        try: tmp.rmdir()
+        except OSError: pass
+
+
 def _cosmic_gradient(W: int, H: int) -> Image.Image:
     """A dark violet→black radial-ish gradient as a fallback card background."""
     base = Image.new("RGB", (W, H), (6, 4, 14))
