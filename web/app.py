@@ -4664,14 +4664,30 @@ def export_visual_video(job_id: str):
                 _long_task_check_cancel(job_id)
                 _long_task_update(job_id, message="Adding channel intro...")
                 intro_out = final_path[:-4] + "_intro.mp4"
-                intro_compositor.add_intro_overlay(
-                    final_path, intro_out, intro["name"].strip(),
-                    subtitle=(intro.get("subtitle") or "").strip(),
-                    duration=float(intro.get("duration", 10)),
-                    font_key=(intro.get("font") or "cinzel"),
-                    color=intro.get("color"),
-                    size_scale=float(intro.get("size_scale", 1.0)),
-                )
+                # "card" = the channel-open look: a title card (black by default)
+                # that crossfades into the scene. "overlay" fades the name over
+                # the scene itself. Only overlay used to be reachable from here.
+                if (intro.get("style") or "overlay").lower() == "card":
+                    intro_compositor.add_intro_card(
+                        final_path, intro_out, intro["name"].strip(),
+                        subtitle=(intro.get("subtitle") or "").strip(),
+                        duration=float(intro.get("duration", 7)),
+                        xfade=float(intro.get("xfade", 1.2)),
+                        font_key=(intro.get("font") or "cinzel"),
+                        bg_image=intro.get("bg_image") or "black",
+                        color=intro.get("color"),
+                        size_scale=float(intro.get("size_scale", 1.0)),
+                        logo=intro.get("logo"),
+                    )
+                else:
+                    intro_compositor.add_intro_overlay(
+                        final_path, intro_out, intro["name"].strip(),
+                        subtitle=(intro.get("subtitle") or "").strip(),
+                        duration=float(intro.get("duration", 10)),
+                        font_key=(intro.get("font") or "cinzel"),
+                        color=intro.get("color"),
+                        size_scale=float(intro.get("size_scale", 1.0)),
+                    )
                 os.replace(intro_out, final_path)  # keep the download path stable
                 print(f"  [export] Added channel intro (font={intro.get('font')})")
             except LongTaskCanceled:

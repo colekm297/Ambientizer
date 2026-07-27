@@ -136,10 +136,14 @@ def hex_to_rgb(value, default=(180, 200, 255)):
 def render_title_png(out_png: str, width: int, height: int, name: str,
                      subtitle: str = "", font_key: str = DEFAULT_FONT,
                      color=(255, 255, 255), accent=(180, 200, 255),
-                     size_scale: float = 1.0):
+                     size_scale: float = 1.0, logo: str = None):
     """Render a transparent PNG with the channel name (+ optional subtitle),
     centered, with a soft glow + drop shadow for legibility over any scene.
-    size_scale multiplies the base title size (1.0 = default ~8.5% of height)."""
+    size_scale multiplies the base title size (1.0 = default ~8.5% of height).
+
+    `logo` is an optional PNG (transparency respected) placed above the wordmark;
+    the whole lockup stays vertically centered so adding a logo doesn't shove the
+    text off-center."""
     img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
 
     # Size the title to ~8.5% of frame height, scaled by the user's size choice.
@@ -168,9 +172,27 @@ def render_title_png(out_png: str, width: int, height: int, name: str,
     sub_track = max(1, int(size * 0.06))
     sub_w = _text_width(measure, subtitle, sub_font, sub_track) if subtitle else 0
 
-    block_h = size + (int(size * 0.7) if subtitle else 0)
+    # Optional logo sits above the wordmark. Its height is folded into block_h
+    # BEFORE the centering math so the lockup as a whole stays centered.
+    logo_img, logo_h, logo_gap = None, 0, 0
+    if logo and os.path.exists(logo):
+        try:
+            logo_img = Image.open(logo).convert("RGBA")
+            target_h = max(24, int(height * 0.14 * size_scale))
+            ratio = target_h / logo_img.height
+            max_w = int(width * 0.5)
+            if logo_img.width * ratio > max_w:
+                ratio = max_w / logo_img.width
+            logo_img = logo_img.resize(
+                (max(1, int(logo_img.width * ratio)), max(1, int(logo_img.height * ratio))),
+                Image.LANCZOS)
+            logo_h, logo_gap = logo_img.height, int(size * 0.45)
+        except Exception:
+            logo_img, logo_h, logo_gap = None, 0, 0
+
+    block_h = logo_h + logo_gap + size + (int(size * 0.7) if subtitle else 0)
     name_x = (width - tw) / 2
-    name_y = (height - block_h) / 2
+    name_y = (height - block_h) / 2 + logo_h + logo_gap
 
     # Glow layer: draw text in accent on its own canvas, blur, paste under.
     glow = Image.new("RGBA", (width, height), (0, 0, 0, 0))
@@ -200,6 +222,11 @@ def render_title_png(out_png: str, width: int, height: int, name: str,
                            (0, 0, 0, 150), sub_track)
         _draw_tracked_text(draw, (sx, sy), subtitle, sub_font,
                            (225, 232, 245, 235), sub_track)
+
+    if logo_img is not None:
+        lx = int((width - logo_img.width) / 2)
+        ly = int((height - block_h) / 2)
+        img.alpha_composite(logo_img, (lx, ly))
 
     img.save(out_png)
     return out_png
@@ -324,7 +351,7 @@ def add_video_fades(video: str, out: str, fade_in: float = 10.0, fade_out: float
 def add_intro_card(video: str, out: str, name: str, subtitle: str = "",
                    duration: float = 7.0, xfade: float = 1.2,
                    font_key: str = DEFAULT_FONT, bg_image: str = None,
-                   color=None, size_scale: float = 1.0) -> str:
+                   color=None, size_scale: float = 1.0, logo: str = None) -> str:
     """Style B: an animated title card (slow Ken-Burns zoom over `bg_image`, or a
     dark cosmic gradient if none) that crossfades into the main video. The main
     video's audio plays under the card from t=0 so the music is continuous."""
@@ -333,7 +360,12 @@ def add_intro_card(video: str, out: str, name: str, subtitle: str = "",
     tmp = Path(tempfile.mkdtemp(prefix="introcard_"))
     try:
         # Background for the card.
-        if bg_image and os.path.exists(bg_image):
+        if bg_image == "black":
+            # A true black card. This is the standard channel-open look: black,
+            # wordmark/logo, then a crossfade into the scene. The zoompan below
+            # is a no-op on flat black, which is exactly what we want.
+            base = Image.new("RGB", (W, H), (0, 0, 0))
+        elif bg_image and os.path.exists(bg_image):
             base = Image.open(bg_image).convert("RGB").resize((W, H))
             base = base.filter(ImageFilter.GaussianBlur(8))
             # Darken for text legibility.
@@ -346,7 +378,7 @@ def add_intro_card(video: str, out: str, name: str, subtitle: str = "",
 
         title_png = render_title_png(str(tmp / "title.png"), W, H, name, subtitle,
                                      font_key, accent=hex_to_rgb(color) if color else (180, 200, 255),
-                                     size_scale=size_scale)
+                                     size_scale=size_scale, logo=logo)
 
         # Card clip: slow zoom on bg + title fading in. Silent (audio comes from
         # main). The bg PNG is already at WxH — DON'T prescale (zoompan at 4K is
