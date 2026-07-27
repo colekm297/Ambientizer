@@ -4667,7 +4667,16 @@ def export_visual_video(job_id: str):
                 # "card" = the channel-open look: a title card (black by default)
                 # that crossfades into the scene. "overlay" fades the name over
                 # the scene itself. Only overlay used to be reachable from here.
-                if (intro.get("style") or "overlay").lower() == "card":
+                _istyle = (intro.get("style") or "overlay").lower()
+                if _istyle == "sting" and intro.get("sting_path"):
+                    # Pre-rendered animated logo sting (brand/animate_logo.py),
+                    # crossfaded into the scene with the music running under it.
+                    intro_compositor.add_intro_sting(
+                        final_path, intro_out, intro["sting_path"],
+                        xfade=float(intro.get("xfade", 1.4)),
+                        head_pad=float(intro.get("head_pad", 6.0)),
+                    )
+                elif _istyle == "card":
                     intro_compositor.add_intro_card(
                         final_path, intro_out, intro["name"].strip(),
                         subtitle=(intro.get("subtitle") or "").strip(),
