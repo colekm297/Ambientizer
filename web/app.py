@@ -58,6 +58,31 @@ from youtube_publisher import YouTubePublisher, YouTubeAuthError, RECONNECT_MESS
 from retry_utils import retry_with_backoff, is_transient_api_error
 from gemini_limiter import gemini_limiter
 import distribute_shorts
+from flask import redirect as _redirect
+from media_store import get_store as _get_media_store
+
+
+def media_available(path) -> bool:
+    """True when the file is on disk OR verified in the cloud manifest."""
+    if path and os.path.exists(path):
+        return True
+    store = _get_media_store()
+    return bool(path and store.enabled and store.lookup(path))
+
+
+def send_media(path, **kwargs):
+    """send_file for possibly-offloaded media. Local disk wins; if the file was
+    evicted to the cloud bucket, 302 to a short-lived signed URL instead — R2
+    signed GETs honor Range, so seeking/scrubbing behave identically. Falls
+    through to plain send_file (and its normal errors) when the store is off."""
+    if path and os.path.exists(path):
+        return send_file(path, **kwargs)
+    store = _get_media_store()
+    if path and store.enabled:
+        url = store.presign_for_path(path)
+        if url:
+            return _redirect(url, code=302)
+    return send_file(path, **kwargs)
 import distribute_stream
 
 load_dotenv()
@@ -2562,7 +2587,7 @@ def api_layer_audio(job_id: str, layer_name: str):
         else:
             path = str(safe_loop_path)
 
-    return send_file(path, mimetype="audio/wav", as_attachment=False)
+    return send_media(path, mimetype="audio/wav", as_attachment=False)
 
 
 
@@ -2624,7 +2649,7 @@ def _serve_audio_file(path: str, job_id: str):
             return resp
         except Exception as e:
             print(f"  [api_audio] mp3 transcode failed for {job_id}: {e} — serving WAV")
-    return send_file(path, mimetype="audio/wav", as_attachment=False, conditional=True)
+    return send_media(path, mimetype="audio/wav", as_attachment=False, conditional=True)
 
 
 @app.route("/api/audio/<job_id>")
@@ -2713,7 +2738,7 @@ def api_audio_download(job_id: str):
                 flat_path = None
 
     if flat_path and os.path.exists(flat_path):
-        return send_file(flat_path, mimetype="audio/wav", as_attachment=True)
+        return send_media(flat_path, mimetype="audio/wav", as_attachment=True)
 
     path = (
         _resolve_audio_path(job.get("audio_path"))
@@ -2722,7 +2747,7 @@ def api_audio_download(job_id: str):
     )
     if not path:
         abort(404)
-    return send_file(path, mimetype="audio/wav", as_attachment=True)
+    return send_media(path, mimetype="audio/wav", as_attachment=True)
 
 
 @app.route("/api/detect-keys/<job_id>", methods=["POST"])
@@ -2904,7 +2929,7 @@ def api_audio_extended(job_id: str):
     path = _resolve_audio_path(job.get("extended_path"))
     if not path:
         abort(404)
-    return send_file(path, mimetype="audio/wav", as_attachment=True)
+    return send_media(path, mimetype="audio/wav", as_attachment=True)
 
 
 @app.route("/api/history")
@@ -3839,9 +3864,9 @@ def view_saved_still_video(job_id: str, still_id: str):
     if not job:
         abort(404)
     s = _find_living_still(job, still_id)
-    if not s or not s.get("video_path") or not os.path.exists(s["video_path"]):
+    if not s or not s.get("video_path") or not media_available(s["video_path"]):
         abort(404)
-    return send_file(s["video_path"], mimetype="video/mp4")
+    return send_media(s["video_path"], mimetype="video/mp4")
 
 
 @app.route("/api/visual/saved-still/<job_id>/<still_id>/thumb")
@@ -4478,9 +4503,9 @@ def view_visual_clip(job_id: str):
         path = (job.get("visual_clips") or {}).get(mode)
     else:
         path = job.get("visual_clip_path")
-    if not path or not os.path.exists(path):
+    if not path or not media_available(path):
         abort(404)
-    return send_file(path, mimetype="video/mp4")
+    return send_media(path, mimetype="video/mp4")
 
 
 @app.route("/api/visual/select-clip/<job_id>", methods=["POST"])
@@ -4795,7 +4820,7 @@ def intro_preview_file(job_id: str):
     path = PROJECT_ROOT / "output" / "_previews" / f"intro_preview_{job_id}.mp4"
     if not path.exists():
         abort(404)
-    return send_file(str(path), mimetype="video/mp4")
+    return send_media(str(path), mimetype="video/mp4")
 
 
 @app.route("/api/visual/video/<job_id>/download")
@@ -4806,9 +4831,9 @@ def download_visual_video(job_id: str):
     if not job:
         abort(404)
     path = job.get("visual_video_path")
-    if not path or not os.path.exists(path):
+    if not path or not media_available(path):
         abort(404)
-    return send_file(path, mimetype="video/mp4", as_attachment=True)
+    return send_media(path, mimetype="video/mp4", as_attachment=True)
 
 
 @app.route("/api/visual/video/<job_id>/view")
@@ -4819,9 +4844,9 @@ def view_visual_video(job_id: str):
     if not job:
         abort(404)
     path = job.get("visual_video_path")
-    if not path or not os.path.exists(path):
+    if not path or not media_available(path):
         abort(404)
-    return send_file(path, mimetype="video/mp4")
+    return send_media(path, mimetype="video/mp4")
 
 
 # ── YouTube Publishing ────────────────────────────────────
@@ -5376,9 +5401,9 @@ def _find_short(short_id: str) -> tuple[Optional[dict], Optional[dict]]:
 @app.route("/api/distribute/shorts/<short_id>/preview")
 def api_short_preview(short_id: str):
     _, s = _find_short(short_id)
-    if not s or not s.get("video_path") or not os.path.exists(s["video_path"]):
+    if not s or not s.get("video_path") or not media_available(s["video_path"]):
         abort(404)
-    return send_file(s["video_path"], mimetype="video/mp4", conditional=True)
+    return send_media(s["video_path"], mimetype="video/mp4", conditional=True)
 
 
 @app.route("/api/distribute/shorts/<short_id>", methods=["DELETE"])
