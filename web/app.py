@@ -1551,6 +1551,63 @@ def scan_copyright_risks(text: str) -> list:
     return out
 
 
+@app.route("/api/regenerate-exact/<job_id>", methods=["POST"])
+def api_regenerate_exact(job_id: str):
+    """Re-roll a job's audio by sending its SAVED ElevenLabs prompt verbatim.
+
+    Hardening born of a real failure: "regenerate" used to mean re-running the
+    user prompt through the planner, which re-composes the ElevenLabs text every
+    time (new key, new energy curve) — randomizing exactly the thing the user
+    wanted to keep. This endpoint takes the stored layer prompt — the text that
+    ACTUALLY generated the take — and resubmits it via the raw path, bypassing
+    every interpretive stage. Optional body {"prompt_override": "..."} allows
+    surgical hand-edits of that text (e.g. a key change) while still skipping
+    the planner. ElevenLabs has no seed, so this yields a new PERFORMANCE of
+    the same piece — that is the closest recreate their API allows.
+    """
+    with jobs_lock:
+        job = jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+    cfg = job.get("config")
+    layers = (cfg.layers if hasattr(cfg, "layers") else (cfg or {}).get("layers")) or []
+    exact = None
+    for l in layers:
+        lp = l.get("elevenlabs_prompt") if isinstance(l, dict) else getattr(l, "elevenlabs_prompt", None)
+        if lp:
+            exact = lp
+            break
+    if not exact:
+        return jsonify({"error": "Job has no stored elevenlabs_prompt to resend"}), 400
+
+    data = request.get_json(force=True, silent=True) or {}
+    prompt = (data.get("prompt_override") or exact).strip()
+
+    def _cfg(key, default):
+        if cfg is None:
+            return default
+        return getattr(cfg, key, None) if hasattr(cfg, key) else (cfg.get(key) or default)
+
+    payload = {
+        "prompt": prompt,
+        "mode": job.get("mode", "musical"),
+        "approach": "unified",
+        "planner_mode": "raw",
+        "music_generation_mode": job.get("music_generation_mode", "text"),
+        "music_model": job.get("music_model", "music_v2"),
+        "music_length": float(_cfg("music_length_sec", 600) or 600) / 60.0,
+        "duration": float(_cfg("duration_sec", 1200) or 1200) / 60.0,
+        "mastering": True,
+    }
+    # Reuse the normal generate path (same validation, same worker) via loopback.
+    import requests as _rq
+    r = _rq.post("http://127.0.0.1:5050/api/generate", json=payload, timeout=60)
+    out = r.json()
+    out["resent_exact"] = data.get("prompt_override") is None
+    out["source_job"] = job_id
+    return jsonify(out), r.status_code
+
+
 @app.route("/api/generate", methods=["POST"])
 def api_generate():
     """Start a new soundscape generation job."""
