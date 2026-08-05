@@ -2588,14 +2588,23 @@ Respond in this exact JSON format:
 
 
 def _resolve_audio_path(relative_path: str) -> str | None:
-    """Resolve an output path to an absolute path."""
+    """Resolve an output path to an absolute path.
+
+    A path whose local file was EVICTED to the cloud bucket still resolves —
+    the manifest knows it, and send_media/_serve_audio_file redirect to a
+    signed URL. Requiring local existence here 404'd every fully-migrated job
+    before the cloud fallback could run.
+    """
     if not relative_path:
         return None
     p = Path(relative_path)
-    if p.is_absolute():
-        return str(p) if p.exists() else None
-    resolved = PROJECT_ROOT / relative_path
-    return str(resolved) if resolved.exists() else None
+    absolute = str(p) if p.is_absolute() else str(PROJECT_ROOT / relative_path)
+    if os.path.exists(absolute):
+        return absolute
+    store = _get_media_store()
+    if store.enabled and store.lookup(absolute):
+        return absolute
+    return None
 
 
 @app.route("/api/audio/<job_id>/layer/<layer_name>")
@@ -2674,6 +2683,18 @@ def _serve_audio_file(path: str, job_id: str):
     Remote clients (Tailscale/phone) pass ?fmt=mp3 so they stream a ~10x smaller
     file that plays/seeks smoothly over the network instead of a 100MB+ WAV.
     Both paths use conditional=True for HTTP range requests (progressive playback)."""
+    if path and not os.path.exists(path):
+        # Evicted to the cloud bucket: no local bytes to transcode, so redirect
+        # straight to a signed URL (R2 honors Range; WAV streams fine). The 2x
+        # loop-audition and mp3 shrink are lost for evicted files — acceptable:
+        # they are old catalog items, and restore() exists if one comes back
+        # into active use.
+        store = _get_media_store()
+        if store.enabled:
+            url = store.presign_for_path(path)
+            if url:
+                return _redirect(url, code=302)
+        abort(404)
     if request.args.get("fmt") == "mp3":
         # loop=2 → serve the unique audio concatenated with itself, so the remote
         # streaming player can audition the loop seam at the midpoint (mirrors the
