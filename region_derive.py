@@ -178,6 +178,50 @@ def default_seg_provider(image_path: str):
                 str(water_p) if water_p.exists() else None)
 
 
+def _grow_flora(seed: np.ndarray, band: np.ndarray, f: dict, W: int, H: int) -> np.ndarray:
+    """Recover the plants semantic segmentation lost to the water class.
+
+    Wildflowers and grasses standing against a bright sea are a lace: most pixels
+    inside their silhouette really are water, so ADE20K labels the whole stand
+    "water" and the flora mask stops at the dense base. On the dawn image that
+    cost every umbel in the foreground -- the exact thing the render was missing.
+
+    They are found where they were lost. Search only inside the semantic water
+    band (which is what excludes the cliff, dark and plant-shaped as it is) within
+    reach of a real flora seed, and take what is darker than its own local
+    background: a plant shot against water is a silhouette, and `excess` already
+    measures precisely that, negated. The closing is 21x3 because stems are
+    vertical -- a square one bridged sideways into the horizon haze.
+    """
+    if not seed.any() or not band.any():
+        return seed
+    reach = max(1, int(0.10 * H))
+    zone = binary_dilation(seed, structure=np.ones((3, 3), bool), iterations=reach) & band
+    if zone.sum() < 64:
+        return seed
+    dark = -f["excess"]
+    t = _otsu(dark[zone], -0.5, 0.7)
+    cand = zone & (dark > max(float(t), 0.0))
+    joined = binary_closing(cand | seed, structure=np.ones((21, 3), bool))
+    return _touching_components(joined, seed)
+
+
+def _flora_seg_path(image_path: str) -> Optional[str]:
+    """Cached vegetation mask for `image_path`, or None if it was never written.
+
+    Missing is normal and not an error: it means this image was segmented before
+    the flora pass existed, or the segmenter is unavailable. Callers get an empty
+    flora region and any sway layer simply has nothing to move.
+    """
+    try:
+        from motion_compositor import seg_flora_path  # noqa: WPS433
+        p = seg_flora_path(image_path)
+    except Exception:
+        src = Path(image_path)
+        p = str(src.with_name(src.stem + "_seg_flora.png"))
+    return p if Path(p).exists() else None
+
+
 def _load_mask(path, W: int, H: int) -> Optional[np.ndarray]:
     """Same contract as MotionCompositor._load_region_mask."""
     if not path or not Path(path).exists():
@@ -188,7 +232,7 @@ def _load_mask(path, W: int, H: int) -> Optional[np.ndarray]:
 
 
 # ── fire ───────────────────────────────────────────────────────────────────
-def _derive_fire(f: dict, W: int, H: int):
+def _derive_fire(f: dict, W: int, H: int, sky: Optional[np.ndarray] = None):
     """Self-luminous warm blobs.
 
     A fire is warm AND bright AND locally the brightest thing around. Warm-and-
@@ -208,6 +252,16 @@ def _derive_fire(f: dict, W: int, H: int):
     # keeps the class physically warm when the scene is already warm overall.
     t_warm = max(_otsu(warm_rel, -1.5, 1.5), float(np.median(warm_rel)))
     warm_px = (warm_rel > t_warm) & (f["rb"] > 0.0)
+    # A flame stands IN the scene. Whatever is warm, bright and out-shining its
+    # neighbours up in the sky is the sun, the moon or a dawn glow -- none of
+    # which flicker at 4-12 Hz. Left in, a sunrise band scored 2% of the frame
+    # (under the ambient-warmth cap below, so nothing else caught it) and put a
+    # flickering firelight halo across 12% of a calm dawn seascape. Excluding sky
+    # here rather than after the fact also keeps the brightness and self-lit
+    # thresholds honest: they are Otsu splits OVER the warm pixels, and a sky full
+    # of warm pixels drags both of them.
+    if sky is not None:
+        warm_px &= sky < 0.5
     if warm_px.sum() < 64:
         empty = np.zeros((H, W), dtype=bool)
         return empty, empty, dict(t_warm=t_warm, t_lum=None, t_exc=None, area=0)
@@ -269,8 +323,16 @@ def _solidify(raw: np.ndarray, band: np.ndarray, W: int, H: int) -> np.ndarray:
     Open sea is shot through with moonlight glints and dark wave troughs, so the
     raw per-pixel test comes back as lace. A local-majority vote (box filter, then
     >= 0.5) closes it without moving the outer boundary, which is the only part
-    that matters here -- the boundary IS the waterline. Then keep only what hangs
-    off the top of the water band, which drops isolated bright sand patches.
+    that matters here -- the boundary IS the waterline.
+
+    What remains to drop is ISOLATED BRIGHT SAND PATCHES, and the operative word
+    is isolated: they are small next to the sea. Selecting only the component that
+    hangs off the top of the water band is a stricter rule than that, and it broke
+    on a dawn seascape -- a warm sky reflection lying across the water cut the sea
+    into horizontal bands, and everything below the topmost band was thrown away
+    (76% of the sea, leaving a scene with nothing left to animate). So the top
+    component is kept, and so is any component that is large relative to it; sand
+    patches are neither.
     """
     vh = _odd(int(round(0.035 * H)))
     vw = _odd(int(round(0.035 * W)))
@@ -283,7 +345,9 @@ def _solidify(raw: np.ndarray, band: np.ndarray, W: int, H: int) -> np.ndarray:
         seed[rows[0]:rows[0] + max(3, int(0.02 * H)), :] = True
         anchored = _touching_components(solid, seed & band)
         if anchored.sum() > 0.2 * max(solid.sum(), 1):
-            solid = anchored
+            substantial = _largest_components(solid, min_area=int(0.004 * W * H),
+                                              keep_ratio=0.25)
+            solid = anchored | substantial
     return solid
 
 
@@ -557,10 +621,12 @@ def derive_regions(
     water_soft = _load_mask(water_p, W, H)
     sky_soft = np.zeros((H, W), np.float32) if sky_soft is None else sky_soft
     water_soft = np.zeros((H, W), np.float32) if water_soft is None else water_soft
+    flora_soft = _load_mask(_flora_seg_path(image_path), W, H)
+    flora_soft = np.zeros((H, W), np.float32) if flora_soft is None else flora_soft
 
     feather = max(1.5, feather_frac * max(W, H))
 
-    fire_b, _warm_px, fire_info = _derive_fire(f, W, H)
+    fire_b, _warm_px, fire_info = _derive_fire(f, W, H, sky=sky_soft)
     firelight = _derive_firelight(fire_b, f, W, H)
 
     band = water_soft > 0.5
@@ -587,9 +653,20 @@ def derive_regions(
     debug["waterline"] = waterline
     debug["sea_solid_cov"] = float(sea_b.mean())
 
-    # open water = sea, minus everything that is not sea
+    # open water = sea, minus everything that is not sea.
+    #
+    # The sea here is the band ABOVE the waterline, not only the pixels the
+    # sea/sand split accepted. The split's job is to LOCATE the shore, and it does
+    # that well; but its features (non-blue, smooth) also describe a warm sky
+    # reflection lying on glassy water, so on a dawn seascape it punched a stripe
+    # of "sand" straight through the middle of the sea. Once the waterline is
+    # known, that stripe is settled by geometry: it has sea below it, so it is
+    # sea. Sand is what lies BELOW the line, and it stays excluded -- along with
+    # the beach, subject and fire masks, which are derived from the strict split
+    # and are subtracted here exactly as before.
     yy = np.arange(H, dtype=np.float64)[:, None]
-    open_b = (sea_b & (~beach_b) & (~fg_b) & (~fire_b)
+    above_line = band & (yy <= waterline[None, :] + max(2.0, 0.004 * H))
+    open_b = ((sea_b | above_line) & (~beach_b) & (~fg_b) & (~fire_b)
               & (yy <= waterline[None, :] + max(2.0, 0.004 * H)))
     open_b = binary_opening(open_b, structure=np.ones((5, 5), bool))
     if open_b.any():
@@ -598,6 +675,14 @@ def derive_regions(
 
     sky_b = sky_soft > 0.5
 
+    # Vegetation, straight from semantics -- there is no colour or texture rule
+    # that tells a wildflower from the rock behind it, and wind is the reason we
+    # want the distinction. Sea and sky are subtracted because a tree against the
+    # sky must not drag the sky with it, and a reed at the shore must not be
+    # animated twice by two different physics.
+    flora_b = binary_opening(flora_soft > 0.5, structure=np.ones((3, 3), bool))
+    flora_b = _grow_flora(flora_b, band, f, W, H) & (~sky_b)
+
     out = {
         "sky": _feather(sky_b, feather),
         "open_water": _feather(open_b, feather),
@@ -605,15 +690,28 @@ def derive_regions(
         "fire": _feather(fire_b, max(1.5, feather * 0.6)),
         "firelight": gaussian_filter(firelight, sigma=feather, mode="nearest").astype(np.float32),
         "foreground": _feather(fg_b, max(1.5, feather * 0.7)),
+        # Feathered like the rest: this mask is an amplitude field for a warp, and
+        # a hard edge on a displacement field tears. It deliberately spans the gaps
+        # between stems, so the background it carries along is the water directly
+        # behind the plants -- glassy and featureless, and invisible at these
+        # amplitudes, while the high-contrast silhouettes inside it clearly move.
+        "flora": _feather(flora_b, max(1.5, feather * 0.8)),
     }
     # a subject must win over the water it stands in, and the sea must not bleed
     # back over sand: hard-subtract the exclusive regions from open_water
     excl = np.clip(out["foreground"] + out["beach"], 0.0, 1.0)
     out["open_water"] = np.clip(out["open_water"] * (1.0 - excl), 0.0, 1.0).astype(np.float32)
     out["sky"] = np.clip(out["sky"] * (1.0 - out["open_water"]), 0.0, 1.0).astype(np.float32)
+    # Plants win over whatever they stand in -- the ground they grow out of, and
+    # the water a shoreline stand is silhouetted against. Without this a recipe
+    # cannot both sway the flora and assert the terrain frozen (the masks overlap,
+    # so the frozen check fails on motion working exactly as intended), and the
+    # wave layer would drive the flower zone as if it were open sea.
+    for name in ("foreground", "beach", "open_water"):
+        out[name] = np.clip(out[name] * (1.0 - out["flora"]), 0.0, 1.0).astype(np.float32)
 
-    moving = np.clip(np.maximum(np.maximum(out["sky"], out["open_water"]), out["fire"]),
-                     0.0, 1.0)
+    moving = np.clip(np.maximum(np.maximum(out["sky"], out["open_water"]),
+                                np.maximum(out["fire"], out["flora"])), 0.0, 1.0)
     out["static"] = np.clip(1.0 - moving, 0.0, 1.0).astype(np.float32)
 
     for k in out:
