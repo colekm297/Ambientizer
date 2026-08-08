@@ -88,6 +88,29 @@ RECIPES: dict[str, dict] = {
         "frozen": ["foreground", "beach"],
     },
 
+    # Calm dawn/dusk sea under a cloudless gradient sky: the SEA is the only
+    # thing alive. No cloud slide (smearing a cloudless gradient reads as a
+    # moving band, not weather) and no strong twinkle on the water — twinkle
+    # darkens between sparkles, and at night_shore levels it mottles a bright
+    # pastel sea black. Glints go on the 'glitter' region (bright reflection
+    # streak) at low amount only.
+    "dawn_shore": {
+        "version": RECIPE_VERSION,
+        "loop_sec": 20,
+        "layers": [
+            {"region": "open_water",
+             "layer": {"type": "wave", "amount": 1.1, "cycles": 3, "density": 1.5,
+                       "horizontal": 0.4, "stokes": 0.3, "shear_cap": 0.24,
+                       "shore": 0.97, "shore_band": 0.05, "lateral": 0.5}},
+            {"region": "open_water",
+             "layer": {"type": "shimmer", "amount": 0.5, "wavelength": 120}},
+            {"region": "glitter",
+             "layer": {"type": "twinkle", "amount": 0.45, "sparkle": 0.7,
+                       "lift": True}},
+        ],
+        "frozen": ["foreground", "sky"],
+    },
+
     # Daylight/dawn landscape: the sky is the only thing alive. Cloud drift is a
     # constant one-direction wrap (never a boomerang), confined to the sky so the
     # terrain cannot slide -- an earlier build dragged a whole mountain sideways.
@@ -138,13 +161,25 @@ def _resolve_region(regions: dict, spec: str) -> np.ndarray:
 
 def render_recipe(image_path: str, archetype: str, output_path: str,
                   size=(1920, 1080), overrides: Optional[dict] = None,
-                  guard: bool = True):
-    """Render `image_path` with the named recipe. Returns (output_path, report)."""
+                  guard: bool = True, regions: Optional[dict] = None):
+    """Render `image_path` with the named recipe. Returns (output_path, report).
+
+    `regions` overrides automatic derivation for images the segmenter misreads
+    (e.g. glassy pastel dawn water scores ~2% as open_water). Hand-built masks
+    still go through the same guardrails — the override swaps the masks, never
+    the checks."""
     recipe = json.loads(json.dumps(RECIPES[archetype]))   # deep copy
     if overrides:
         recipe.update(overrides)
 
-    regions = derive_regions(image_path, size=size)
+    if regions is None:
+        regions = derive_regions(image_path, size=size)
+    if "glitter" not in regions and "open_water" in regions:
+        # bright reflective band of the sea — where specular glints belong
+        img = np.asarray(Image.open(image_path).convert("RGB").resize(size))
+        lum = img.astype(np.float32).mean(axis=2)
+        regions["glitter"] = ((regions["open_water"] > 0.5) &
+                              (lum > 135)).astype(np.float32)
     layers, masks = [], {}
     for i, entry in enumerate(recipe["layers"]):
         layers.append(entry["layer"])
@@ -246,8 +281,19 @@ def guard_render(image_path, layers, mask_paths, regions, recipe, size=(1920, 10
     if seam > SEAM_RATIO_MAX * max(step, 1e-6):
         failures.append(f"loop seam {seam:.3f} vs step {step:.3f}")
 
-    # 4. something must actually move
-    live = energy(np.ones_like(fr[0]), fr)
+    # 4. something must actually move — measured over the union of the regions
+    # the recipe animates, NOT the whole frame. A dawn seascape whose only
+    # living surface is 10% of the frame dilutes a whole-frame average 10x and
+    # reads as dead even when the water is clearly moving; the union keeps the
+    # dead-render check honest for any animated coverage.
+    union = np.zeros_like(fr[0])
+    for i, p in mask_paths.items():
+        m = np.asarray(Image.open(p)).astype(np.float32) / 255.0
+        if m.shape == union.shape:
+            union = np.maximum(union, m)
+    if union.max() < 0.5:
+        union = np.ones_like(fr[0])
+    live = energy(union, fr)
     metrics["alive"] = live
     if live < ALIVE_MIN_ENERGY:
         failures.append(f"nothing moved ({live:.3f})")

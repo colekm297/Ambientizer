@@ -712,6 +712,10 @@ class MotionCompositor:
             "cycles": cycles,
             "blur": blur_sigma,
             "sparkle": sparkle,
+            # lift=true: brighten-only (specular glints on water). Symmetric
+            # oscillation darkens half the time, which mottles bright water
+            # black — sun glitter only ever ADDS light.
+            "lift": bool(cfg.get("lift", False)),
         }
 
     def _nebula_mask(self, W, H, base_pil) -> np.ndarray:
@@ -765,6 +769,8 @@ class MotionCompositor:
                   flush=True)
             st["_logged_cov"] = True
         osc = np.sin(TWO_PI * (st["cycles"] * t + st["phase"]))  # [-1,1], seamless
+        if st.get("lift"):
+            osc = 0.5 * (osc + 1.0)          # [0,1]: glints add light, never remove
         factor = 1.0 + st["amount"] * mask * osc
         frame *= factor[:, :, None]
 
