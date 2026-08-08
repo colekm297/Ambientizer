@@ -1621,7 +1621,13 @@ class MotionCompositor:
         span = np.maximum(root - top, 1.0)
 
         yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
-        profile = np.clip((root[None, :] - yy) / span[None, :], 0.0, 1.0) ** 1.5
+        # anchor="bottom" (default): rooted vegetation — still at the ground,
+        # tips travel. anchor="top": hanging cloth (a sail on its yard, a robe
+        # from the shoulders) — still at the top, the hem swings free.
+        if str(cfg.get("anchor", "bottom")) == "top":
+            profile = np.clip((yy - top[None, :]) / span[None, :], 0.0, 1.0) ** 1.5
+        else:
+            profile = np.clip((root[None, :] - yy) / span[None, :], 0.0, 1.0) ** 1.5
 
         # A stand as tall as a quarter of the frame is a tree, not a flower.
         tall = _wave_smoothstep((span - 0.10 * H) / (0.25 * H))[None, :]
@@ -1647,7 +1653,9 @@ class MotionCompositor:
             sin_f=sin_f, cos_f=cos_f, sin_s=sin_s, cos_s=cos_s,
             sin_g=sin_g, cos_g=cos_g,
             slow_ratio=float(cfg.get("slow_ratio", 0.55)),
-            droop=float(cfg.get("droop", 0.3)),
+            # hanging cloth rises as it swings out; rooted stems dip as they lean
+            droop=(-1.0 if str(cfg.get("anchor", "bottom")) == "top" else 1.0)
+                  * float(cfg.get("droop", 0.3)),
             span_px=float(np.max(span)), n_cols=int(cols.size), W=W, H=H,
         )
 
