@@ -142,9 +142,12 @@ RECIPES: dict[str, dict] = {
         "version": RECIPE_VERSION,
         "loop_sec": 20,
         "layers": [
+            # Long swells here too — the shear budget is spent on wavelength
+            # otherwise, and a strait seen from the water has a short vertical
+            # run of sea to work with (2.7px of travel before this change).
             {"region": "open_water",
-             "layer": {"type": "wave", "amount": 1.1, "cycles": 3, "density": 1.5,
-                       "horizontal": 0.4, "stokes": 0.3, "shear_cap": 0.24,
+             "layer": {"type": "wave", "amount": 1.1, "cycles": 3, "density": 0.8,
+                       "horizontal": 0.4, "stokes": 0.3, "shear_cap": 0.30,
                        "shore": 0.97, "shore_band": 0.05, "lateral": 0.5}},
             {"region": "open_water",
              "layer": {"type": "shimmer", "amount": 0.5, "wavelength": 120}},
