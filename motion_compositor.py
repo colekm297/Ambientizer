@@ -2087,7 +2087,7 @@ def scale_motion(layers: list[dict], factor: float) -> list[dict]:
     return out
 
 
-_IMAGE_MOVEMENT_TYPES = {"cloud_drift", "shimmer", "nebula", "twinkle", "aurora", "wave", "firelight"}
+_IMAGE_MOVEMENT_TYPES = {"cloud_drift", "shimmer", "nebula", "twinkle", "aurora", "wave", "firelight", "sway"}
 
 
 def _enforce_auto_plan(layers: list[dict], director_style: str = "subtle") -> list[dict]:
