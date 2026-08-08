@@ -35,7 +35,9 @@ from PIL import Image
 from motion_compositor import MotionCompositor
 from region_derive import derive_regions
 
-RECIPE_VERSION = 1
+# 2: dawn_shore gained a flora sway layer and lost its water twinkle; region
+# derivation gained the flora mask and stopped losing reflection-banded sea.
+RECIPE_VERSION = 2
 
 # A recipe maps DERIVED REGION NAMES -> layers. "region" is never pixels; it is a
 # key into region_derive's output, so the recipe survives a change of image.
@@ -88,13 +90,55 @@ RECIPES: dict[str, dict] = {
         "frozen": ["foreground", "beach"],
     },
 
-    # Calm dawn/dusk sea under a cloudless gradient sky: the SEA is the only
-    # thing alive. No cloud slide (smearing a cloudless gradient reads as a
-    # moving band, not weather) and no strong twinkle on the water — twinkle
-    # darkens between sparkles, and at night_shore levels it mottles a bright
-    # pastel sea black. Glints go on the 'glitter' region (bright reflection
-    # streak) at low amount only.
+    # Calm dawn/dusk sea under a cloudless gradient sky. Two surfaces are alive:
+    # the sea, and whatever is growing at the shore.
+    #
+    # No cloud slide — smearing a cloudless gradient reads as a moving band, not
+    # weather. And NO TWINKLE ON THE WATER at all. Twinkle darkens between
+    # sparkles, which mottles a bright pastel sea; the brighten-only 'lift' mode
+    # fixed the darkening but not the look, and the honest verdict on the render
+    # it produced was "the water just does the black thing and twinkle". Glassy
+    # dawn water does not sparkle. It swells and it shimmers, and that is all it
+    # does here.
     "dawn_shore": {
+        "version": RECIPE_VERSION,
+        "loop_sec": 20,
+        "layers": [
+            # Long swells, not tight ripples. The wave layer caps its own
+            # amplitude against a shear budget, and densely packed crests spend
+            # that budget on wavelength: at density 1.5 the swell was held to
+            # 4.2px on this scene, which is why the water read as barely moving.
+            # Fewer, longer crests buy roughly double the travel for the same
+            # shear -- and long low swell is what a dead-calm dawn sea actually
+            # does. This is where "little movement" is answered on the water.
+            {"region": "open_water",
+             "layer": {"type": "wave", "amount": 1.1, "cycles": 3, "density": 0.8,
+                       "horizontal": 0.4, "stokes": 0.3, "shear_cap": 0.30,
+                       "shore": 0.97, "shore_band": 0.05, "lateral": 0.5}},
+            {"region": "open_water",
+             "layer": {"type": "shimmer", "amount": 0.6, "wavelength": 110}},
+            # The wind is what makes a still photograph of a shore read as a
+            # place rather than a picture: grasses and canopy carry it, and the
+            # sway layer gives the tree and the flowers under it their own
+            # frequencies off the same gust.
+            {"region": "flora",
+             "layer": {"type": "sway", "amount": 0.9, "cycles": 4,
+                       "cycles_slow": 1, "gust_cycles": 1, "slow_ratio": 0.55}},
+        ],
+        "frozen": ["foreground", "sky"],
+    },
+
+    # Night sea under a moon: the same swell and shimmer as dawn_shore, plus the
+    # one thing dawn does not have — a specular streak. Glints go on 'glitter'
+    # (the bright reflection band) in brighten-only 'lift' mode, because a
+    # symmetric twinkle darkens between sparkles and mottles the water black.
+    #
+    # This is a SEPARATE archetype rather than a flag on dawn_shore because the
+    # two scenes disagree about one thing and agree about everything else, and
+    # the disagreement is real: moonlight on water glitters, a pastel dawn sea
+    # does not. Rendering the strait with dawn_shore is what put twinkle on a
+    # dawn image in the first place.
+    "moonlit_shore": {
         "version": RECIPE_VERSION,
         "loop_sec": 20,
         "layers": [
@@ -107,6 +151,9 @@ RECIPES: dict[str, dict] = {
             {"region": "glitter",
              "layer": {"type": "twinkle", "amount": 0.45, "sparkle": 0.7,
                        "lift": True}},
+            {"region": "flora",
+             "layer": {"type": "sway", "amount": 0.6, "cycles": 4,
+                       "cycles_slow": 1, "gust_cycles": 1, "slow_ratio": 0.55}},
         ],
         "frozen": ["foreground", "sky"],
     },

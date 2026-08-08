@@ -68,6 +68,17 @@ PARTICLE_PRESETS = {
 }
 
 
+def seg_flora_path(image_path) -> str:
+    """Cache path of the semantic vegetation mask for `image_path`.
+
+    Sky and water are addressed by the same `<stem>_seg_<region>.png` convention
+    inside _ensure_seg_masks; flora gets a named helper because region_derive
+    needs to find it without going through the compositor.
+    """
+    src = Path(image_path)
+    return str(src.with_name(src.stem + "_seg_flora.png"))
+
+
 def _wave_smoothstep(x):
     x = np.clip(x, 0.0, 1.0)
     return x * x * (3.0 - 2.0 * x)
@@ -309,6 +320,26 @@ class MotionCompositor:
             status("water mask ready" if water_mask is not None
                    else "no water found — shimmer skipped")
 
+        # Sway is mask-only by design: there is no content heuristic that tells a
+        # wildflower from the rock behind it, so without a region (a recipe's
+        # derived flora mask, or a painted one) the layer has nothing to move and
+        # says so rather than warping the whole frame.
+        sway_cfg = _find(layers, "sway")
+        sway_idx = layer_idx("sway")
+        sway_mask = mask_for(sway_idx)
+        sway_state = None
+        if sway_cfg is not None:
+            if sway_mask is None:
+                status("sway: no region mask — layer skipped")
+            else:
+                sway_state = self._make_sway(W, H, sway_cfg, sway_mask)
+                if sway_state is None:
+                    status("sway: region mask is empty — layer skipped")
+                else:
+                    status(f"sway: {sway_state['n_cols']} columns of plants, "
+                           f"{sway_state['span_px']:.0f}px tallest stand, "
+                           f"{sway_state['amp']:.1f}px peak lean")
+
         wave_state = None
         if wave_cfg is not None:
             wave_region = wave_user_mask if wave_user_mask is not None else water_mask
@@ -388,6 +419,12 @@ class MotionCompositor:
                     self._apply_wave(frame, wave_state, t)
                     if wave_user_mask is not None:
                         self._blend_with_mask(frame, pre, wave_user_mask)
+
+                # After the wave, before the light layers: the plants must bend
+                # against water that has already moved this frame, or the sea
+                # shows through the gaps in the stand one frame stale.
+                if sway_state is not None:
+                    self._apply_sway(frame, sway_state, t)
 
                 if fire_state is not None:
                     pre = frame.copy() if fire_user_mask is not None else None
@@ -800,23 +837,34 @@ class MotionCompositor:
     def _ensure_seg_masks(self, image_path: str):
         """Return (sky_mask_path, water_mask_path), running semantic segmentation
         (system python3.13 + Segformer/ADE20K) once per image and caching. Returns
-        (None, None) on failure so region effects just no-op."""
+        (None, None) on failure so region effects just no-op.
+
+        A flora mask is written alongside them by the same run; it is not in the
+        return value (callers of this method want sky and water), and is found by
+        filename via `seg_flora_path`. Images segmented before flora existed have
+        only two of the three cached, so a missing flora mask re-runs the pass —
+        once — rather than leaving those scenes permanently unable to sway."""
         import subprocess
         src = Path(image_path)
         sky_p = src.with_name(src.stem + "_seg_sky.png")
         water_p = src.with_name(src.stem + "_seg_water.png")
-        if sky_p.exists() and water_p.exists():
+        flora_p = Path(seg_flora_path(image_path))
+        if sky_p.exists() and water_p.exists() and flora_p.exists():
             return str(sky_p), str(water_p)
+        have_pair = sky_p.exists() and water_p.exists()
         script = str(Path(__file__).with_name("segmenter.py"))
         py = "/opt/homebrew/bin/python3.13"
         if not Path(py).exists():
             py = "python3.13"
         try:
-            subprocess.run([py, script, str(image_path), str(sky_p), str(water_p)],
+            subprocess.run([py, script, str(image_path), str(sky_p), str(water_p),
+                            str(flora_p)],
                            check=True, capture_output=True, timeout=600)
         except Exception as e:
             print(f"  [motion] segmentation failed ({e}); region effects disabled", flush=True)
-            return None, None
+            # A failed flora top-up must not throw away sky and water that are
+            # already on disk and still good.
+            return (str(sky_p), str(water_p)) if have_pair else (None, None)
         ok = sky_p.exists() and water_p.exists()
         return (str(sky_p), str(water_p)) if ok else (None, None)
 
@@ -982,8 +1030,16 @@ class MotionCompositor:
     def _apply_shimmer(self, frame, st, t):
         cyc = 2                                  # integer cycles per loop → seamless
         offs = st["amp"] * np.sin(TWO_PI * (st["yy"] / st["wav"] + cyc * t))  # (H,1)
-        idx = ((st["base_cols"] + offs) % st["W"]).astype(np.int32)          # (H,W)
-        np.clip(idx, 0, st["W"] - 1, out=idx)  # float % can round up to W at the edge
+        # MIRROR at the frame edges, never wrap. A modulo here made the sample
+        # index run off one side of the picture and come back in on the other, so
+        # rows near x=0 were being filled with pixels from x=W-1 — on the dawn
+        # seascape that painted a dark crescent of the far cliff into the bright
+        # water at the left edge, every frame. Mirroring keeps the sample local,
+        # which is what a few pixels of surface shimmer is supposed to be.
+        pos = st["base_cols"] + offs                                          # (H,W)
+        pos = np.abs(pos)
+        pos = (st["W"] - 1) - np.abs(pos - (st["W"] - 1))
+        idx = np.clip(pos, 0, st["W"] - 1).astype(np.int32)
         return np.take_along_axis(frame, idx[:, :, None].repeat(3, axis=2), axis=1)
 
     # ── premium: aurora (flowing colored curtains) ───────────────────────
@@ -1511,6 +1567,119 @@ class MotionCompositor:
                                      mode="nearest").reshape(H, W)
             frame[:, :, c] = frame[:, :, c] * inv + warped * m
 
+    # ── wind sway ───────────────────────────────────────────────────────────
+    def _make_sway(self, W, H, cfg, region_mask=None) -> Optional[dict]:
+        """Wind through vegetation, as a displacement field anchored at the roots.
+
+        Three things separate this from the generic region warp, and each one is
+        the difference between "plants in wind" and "a picture of plants sliding":
+
+        ROOTED. A plant does not translate, it bends. Amplitude is zero at the
+        base of each column of the mask and grows with height above it, on a
+        cantilever profile (^1.5), so tips travel and stems stay planted.
+
+        HEAVY THINGS MOVE SLOWLY. A stand of wildflowers and a mature tree in the
+        same frame cannot share a frequency without one of them looking wrong.
+        Column height picks the band: short stands get the fast one, tall ones the
+        slow one, blended -- so the tree in the dawn image breathes while the
+        umbels below it flutter.
+
+        WIND ARRIVES IN GUSTS. A uniform oscillation reads as a mechanism. A gust
+        envelope travelling one direction across the frame is what reads as
+        weather, and it is where most of the life in this layer actually comes
+        from.
+
+        Every temporal term has an INTEGER cycle count over the loop, so t=0 and
+        t=1 are the same frame by construction. The sway itself oscillates, which
+        is not the boomerang failure -- a flower genuinely returns; the gust that
+        drives it never reverses.
+        """
+        if region_mask is None:
+            return None
+        m = np.clip(region_mask.astype(np.float32), 0.0, 1.0)
+        solid = m > 0.15
+        if solid.sum() < 64:
+            return None
+
+        # Per-column root (deepest masked row) and stand height above it.
+        cols = np.nonzero(solid.any(axis=0))[0]
+        rows_idx = np.arange(H, dtype=np.float32)[:, None]
+        masked_rows = np.where(solid, rows_idx, -1.0)
+        root = masked_rows.max(axis=0)                      # -1 where no plants
+        top = np.where(solid, rows_idx, float(H)).min(axis=0)
+        known = root >= 0
+        if known.sum() < 2:
+            return None
+        xs = np.arange(W, dtype=np.float32)
+        root = np.interp(xs, xs[known], root[known]).astype(np.float32)
+        top = np.interp(xs, xs[known], top[known]).astype(np.float32)
+        # Smooth across x: a per-column root taken off a lace mask is jagged, and
+        # a jagged amplitude field shears neighbouring stems apart.
+        k = max(3, int(0.02 * W) | 1)
+        root = gaussian_filter(root, sigma=k / 3.0, mode="nearest")
+        top = gaussian_filter(top, sigma=k / 3.0, mode="nearest")
+        span = np.maximum(root - top, 1.0)
+
+        yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
+        profile = np.clip((root[None, :] - yy) / span[None, :], 0.0, 1.0) ** 1.5
+
+        # A stand as tall as a quarter of the frame is a tree, not a flower.
+        tall = _wave_smoothstep((span - 0.10 * H) / (0.25 * H))[None, :]
+
+        amount = float(cfg.get("amount", 0.6))
+        amp = amount * 0.0095 * W                            # ~14 px at 1456 wide
+        c_fast = int(cfg.get("cycles", 4))
+        c_slow = int(cfg.get("cycles_slow", 1))
+        c_gust = int(cfg.get("gust_cycles", 1))
+
+        def phase(wavelength):
+            a = (-TWO_PI * xx / max(wavelength, 8.0)).astype(np.float32)
+            return np.sin(a), np.cos(a)
+
+        sin_f, cos_f = phase(W / 2.5)
+        sin_s, cos_s = phase(W / 1.2)
+        sin_g, cos_g = phase(W / 0.9)
+
+        return dict(
+            mask=m, profile=profile.astype(np.float32), tall=tall.astype(np.float32),
+            amp=float(amp), yy=yy, xx=xx,
+            c_fast=c_fast, c_slow=c_slow, c_gust=c_gust,
+            sin_f=sin_f, cos_f=cos_f, sin_s=sin_s, cos_s=cos_s,
+            sin_g=sin_g, cos_g=cos_g,
+            slow_ratio=float(cfg.get("slow_ratio", 0.55)),
+            droop=float(cfg.get("droop", 0.3)),
+            span_px=float(np.max(span)), n_cols=int(cols.size), W=W, H=H,
+        )
+
+    def _apply_sway(self, frame, st, t):
+        """Apply one frame of wind sway. In-place, masked, sub-pixel resampled."""
+        H, W, _ = frame.shape
+
+        def travel(sin0, cos0, cycles):
+            ph = TWO_PI * cycles * t
+            return sin0 * math.cos(ph) + cos0 * math.sin(ph)
+
+        fast = travel(st["sin_f"], st["cos_f"], st["c_fast"])
+        slow = travel(st["sin_s"], st["cos_s"], st["c_slow"])
+        gust = 0.55 + 0.45 * travel(st["sin_g"], st["cos_g"], st["c_gust"])
+
+        tall = st["tall"]
+        bend = (1.0 - tall) * fast + tall * st["slow_ratio"] * slow
+        dx = st["amp"] * st["profile"] * gust * bend
+        # Bending shortens a stem's vertical reach, so the tip dips as it leans.
+        # Without this the stand shears sideways like a sheet of paper.
+        dy = st["droop"] * np.abs(dx) * st["profile"]
+
+        sx = np.clip(st["xx"] + dx, 0.0, W - 1)
+        sy = np.clip(st["yy"] + dy, 0.0, H - 1)
+        coords = np.stack([sy.ravel(), sx.ravel()])
+        m = st["mask"]
+        inv = 1.0 - m
+        for c in range(3):
+            warped = map_coordinates(frame[:, :, c], coords, order=1,
+                                     mode="nearest").reshape(H, W)
+            frame[:, :, c] = frame[:, :, c] * inv + warped * m
+
     # ── ffmpeg ──────────────────────────────────────────────────────────────
     def _open_ffmpeg(self, output_path, W, H, fps, crf):
         cmd = [
@@ -1672,6 +1841,10 @@ _LAYER_SPEC = {
                        "shear_cap": (0.05, 0.5), "shore": (0.0, 1.0),
                        "shore_band": (0.01, 0.4)},
     "cloud_drift":    {"amount": (0.0, 1.0), "speed": (0.1, 2.0)},  # sky-masked drifting cloud bank
+    # wind through vegetation; needs a region mask (recipes supply 'flora')
+    "sway":           {"amount": (0.0, 1.2), "cycles": (1, 8), "cycles_slow": (1, 4),
+                       "gust_cycles": (1, 4), "slow_ratio": (0.0, 1.0),
+                       "droop": (0.0, 0.8)},
 }
 
 # Named colors for the color_glow layer, in BGR (the frame buffer is BGR).
