@@ -248,10 +248,17 @@ def seam_report(video: str, source_frame: Optional[str] = None) -> dict:
             return {"error": f"only {len(arrs)} frames decoded"}
         wrap = float(np.mean(np.abs(arrs[-1] - arrs[0])))
         deltas = [float(np.mean(np.abs(arrs[i + 1] - arrs[i]))) for i in range(len(arrs) - 1)]
+        motion = float(np.mean(deltas))
         out = {
             "frames_sampled": len(arrs),
             "wrap": round(wrap, 2),
-            "motion_mean": round(float(np.mean(deltas)), 2),
+            # The only number that survives a resolution change. `wrap` and
+            # `motion_mean` are absolute pixel deltas, so 1080p inflates both
+            # and a raw comparison against a 720p run reads as a regression
+            # that is not there. Under 1.0 means the loop point is a smaller
+            # step than an ordinary frame, which is the whole target.
+            "wrap_ratio": round(wrap / max(motion, 1e-6), 2),
+            "motion_mean": round(motion, 2),
             "motion_max": round(float(np.max(deltas)), 2),
             "junction_spike": round(float(np.max(deltas) / max(np.mean(deltas), 1e-6)), 2),
         }
