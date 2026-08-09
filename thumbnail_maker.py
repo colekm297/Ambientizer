@@ -94,6 +94,24 @@ STYLES = {
         "case": "upper", "tracking": 12, "sub_tracking": 10, "align": "center",
         "treatment": "none", "title_size": 96, "sub_size": 22, "system": True,
     },
+    "odyssey": {  # the real family: Helvetica Neue, the face Nolan's posters use.
+        # Empire names the Odyssey (2026) title as Helvetica Neue Black. macOS ships
+        # no uncondensed Black, so Bold (face 1) is the heaviest true-width weight
+        # available. Trading one weight step for the actual typeface beats a
+        # lookalike at the right weight, and display size plus tracking carries it.
+        "label": "Odyssey — Helvetica Neue, Nolan's face",
+        "title": (f"{_CORE}/HelveticaNeue.ttc", 0, 1),
+        "sub": (f"{_CORE}/HelveticaNeue.ttc", 0, 1),
+        "case": "upper", "tracking": 14, "sub_tracking": 12, "align": "center",
+        "treatment": "none", "title_size": 100, "sub_size": 22, "system": True,
+    },
+    "odyssey_black": {  # right weight, wrong width — Helvetica Neue Condensed Black
+        "label": "Odyssey — Helvetica Neue Condensed Black",
+        "title": (f"{_CORE}/HelveticaNeue.ttc", 0, 9),
+        "sub": (f"{_CORE}/HelveticaNeue.ttc", 0, 9),
+        "case": "upper", "tracking": 12, "sub_tracking": 12, "align": "center",
+        "treatment": "none", "title_size": 116, "sub_size": 24, "system": True,
+    },
     "nolan_tall": {  # same idea, condensed — more title fits before it shrinks
         "label": "Nolan title card — condensed",
         "title": (f"{_PROJ}/Anton.ttf", 0), "sub": (f"{_PROJ}/ArchivoBlack.ttf", 0),
@@ -113,9 +131,12 @@ def _hex(c: str, fallback=(255, 255, 255)) -> tuple[int, int, int]:
 
 
 def _font(spec, size):
-    path, weight = spec
+    # A .ttc holds several faces, so a style may name one by index; without it
+    # PIL silently hands back face 0, which is how you ask for Black and get Regular.
+    path, weight, *rest = spec
+    index = rest[0] if rest else 0
     try:
-        f = ImageFont.truetype(path, size)
+        f = ImageFont.truetype(path, size, index=index)
         # Set the weight on variable fonts (no-op / harmless on static fonts).
         try:
             f.set_variation_by_axes([weight])
