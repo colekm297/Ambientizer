@@ -1637,10 +1637,19 @@ class MotionCompositor:
         # anchor="bottom" (default): rooted vegetation — still at the ground,
         # tips travel. anchor="top": hanging cloth (a sail on its yard, a robe
         # from the shoulders) — still at the top, the hem swings free.
+        #
+        # `stiffness` is the cantilever exponent. 1.5 is a stem. Higher values
+        # hold more of the length rigid and put the travel in the last stretch,
+        # which is what a shoulder needs: the per-column top row of a mask that
+        # covers four separate figures is smoothed across the gaps between them,
+        # so it lands tens of pixels off at the seams. A soft profile turns that
+        # error into a sliding shoulder; a stiff one keeps the error down where
+        # the hem is and nobody can see it.
+        stiff = float(cfg.get("stiffness", 1.5))
         if str(cfg.get("anchor", "bottom")) == "top":
-            profile = np.clip((yy - top[None, :]) / span[None, :], 0.0, 1.0) ** 1.5
+            profile = np.clip((yy - top[None, :]) / span[None, :], 0.0, 1.0) ** stiff
         else:
-            profile = np.clip((root[None, :] - yy) / span[None, :], 0.0, 1.0) ** 1.5
+            profile = np.clip((root[None, :] - yy) / span[None, :], 0.0, 1.0) ** stiff
 
         # A stand as tall as a quarter of the frame is a tree, not a flower.
         tall = _wave_smoothstep((span - 0.10 * H) / (0.25 * H))[None, :]
@@ -1680,6 +1689,12 @@ class MotionCompositor:
             sin_f=sin_f, cos_f=cos_f, sin_s=sin_s, cos_s=cos_s,
             sin_g=sin_g, cos_g=cos_g,
             slow_ratio=float(cfg.get("slow_ratio", 0.55)),
+            # How deeply the gust envelope cuts. 0.45 swings amplitude between
+            # 10% and 100% over the loop, which is weather over a wide meadow but
+            # reads as a fault on a single small object: it sits nearly still,
+            # then lurches, and the lurch is where warping smears. Lower values
+            # keep the cloth moving evenly the whole loop.
+            gust_depth=float(cfg.get("gust_depth", 0.45)),
             # hanging cloth rises as it swings out; rooted stems dip as they lean
             droop=(-1.0 if str(cfg.get("anchor", "bottom")) == "top" else 1.0)
                   * float(cfg.get("droop", 0.3)),
@@ -1696,7 +1711,8 @@ class MotionCompositor:
 
         fast = travel(st["sin_f"], st["cos_f"], st["c_fast"])
         slow = travel(st["sin_s"], st["cos_s"], st["c_slow"])
-        gust = 0.55 + 0.45 * travel(st["sin_g"], st["cos_g"], st["c_gust"])
+        gd = st["gust_depth"]
+        gust = (1.0 - gd) + gd * travel(st["sin_g"], st["cos_g"], st["c_gust"])
 
         tall = st["tall"]
         bend = (1.0 - tall) * fast + tall * st["slow_ratio"] * slow
@@ -1879,7 +1895,8 @@ _LAYER_SPEC = {
     # wind through vegetation; needs a region mask (recipes supply 'flora')
     "sway":           {"amount": (0.0, 2.5), "cycles": (1, 8), "cycles_slow": (1, 4),
                        "gust_cycles": (1, 4), "slow_ratio": (0.0, 1.0),
-                       "droop": (0.0, 0.8), "ripple": (0.0, 6.0)},
+                       "droop": (0.0, 0.8), "ripple": (0.0, 6.0),
+                       "stiffness": (1.0, 4.0), "gust_depth": (0.0, 0.5)},
 }
 
 # Named colors for the color_glow layer, in BGR (the frame buffer is BGR).
