@@ -324,21 +324,34 @@ class MotionCompositor:
         # wildflower from the rock behind it, so without a region (a recipe's
         # derived flora mask, or a painted one) the layer has nothing to move and
         # says so rather than warping the whole frame.
-        sway_cfg = _find(layers, "sway")
-        sway_idx = layer_idx("sway")
-        sway_mask = mask_for(sway_idx)
-        sway_state = None
-        if sway_cfg is not None:
-            if sway_mask is None:
-                status("sway: no region mask — layer skipped")
-            else:
-                sway_state = self._make_sway(W, H, sway_cfg, sway_mask)
-                if sway_state is None:
-                    status("sway: region mask is empty — layer skipped")
-                else:
-                    status(f"sway: {sway_state['n_cols']} columns of plants, "
-                           f"{sway_state['span_px']:.0f}px tallest stand, "
-                           f"{sway_state['amp']:.1f}px peak lean")
+        #
+        # Multiple sway layers per scene is the normal case, not the exception: a
+        # sail hangs on its own frequency, the robes below it on another, and the
+        # scrub on the cliff on a third. Resolve every occurrence by index the way
+        # particles do -- taking only the first one silently animated the wrong
+        # region (cliff scrub) while the cloth the recipe named sat frozen.
+        sway_states: list[dict] = []
+        seen_sway = 0
+        for l in layers:
+            if l.get("type") != "sway":
+                continue
+            idx = layer_idx("sway", seen_sway)
+            seen_sway += 1
+            # Recipe layers carry their region on the wrapper, not the layer dict,
+            # so fall back to the index rather than printing three identical lines.
+            label = f"sway[{l.get('region') or f'layer {idx}'}]"
+            mask = mask_for(idx)
+            if mask is None:
+                status(f"{label}: no region mask — layer skipped")
+                continue
+            st = self._make_sway(W, H, l, mask)
+            if st is None:
+                status(f"{label}: region mask is empty — layer skipped")
+                continue
+            sway_states.append(st)
+            status(f"{label}: {st['n_cols']} columns, "
+                   f"{st['span_px']:.0f}px tallest span, "
+                   f"{st['amp']:.1f}px peak lean")
 
         wave_state = None
         if wave_cfg is not None:
@@ -423,8 +436,8 @@ class MotionCompositor:
                 # After the wave, before the light layers: the plants must bend
                 # against water that has already moved this frame, or the sea
                 # shows through the gaps in the stand one frame stale.
-                if sway_state is not None:
-                    self._apply_sway(frame, sway_state, t)
+                for st in sway_states:
+                    self._apply_sway(frame, st, t)
 
                 if fire_state is not None:
                     pre = frame.copy() if fire_user_mask is not None else None
@@ -1642,9 +1655,23 @@ class MotionCompositor:
             a = (-TWO_PI * xx / max(wavelength, 8.0)).astype(np.float32)
             return np.sin(a), np.cos(a)
 
-        sin_f, cos_f = phase(W / 2.5)
-        sin_s, cos_s = phase(W / 1.2)
-        sin_g, cos_g = phase(W / 0.9)
+        # Spatial wavelength. The default is frame-scaled, which is right for a
+        # stand of flowers spread across the shot. It is wrong for a small region:
+        # a 270px sail inside a 580px wave is under half a crest wide, so every
+        # panel moves in unison and the sail translates instead of luffing.
+        # `ripple` = crests across the region's own width, which is what makes
+        # cloth read as cloth.
+        ripple = float(cfg.get("ripple", 0.0) or 0.0)
+        if ripple > 0.0:
+            region_w = float(cols.max() - cols.min() + 1)
+            base = max(region_w / ripple, 8.0)
+            sin_f, cos_f = phase(base)
+            sin_s, cos_s = phase(base * 2.1)
+            sin_g, cos_g = phase(base * 2.8)
+        else:
+            sin_f, cos_f = phase(W / 2.5)
+            sin_s, cos_s = phase(W / 1.2)
+            sin_g, cos_g = phase(W / 0.9)
 
         return dict(
             mask=m, profile=profile.astype(np.float32), tall=tall.astype(np.float32),
@@ -1850,9 +1877,9 @@ _LAYER_SPEC = {
                        "shore_band": (0.01, 0.4)},
     "cloud_drift":    {"amount": (0.0, 1.0), "speed": (0.1, 2.0)},  # sky-masked drifting cloud bank
     # wind through vegetation; needs a region mask (recipes supply 'flora')
-    "sway":           {"amount": (0.0, 1.2), "cycles": (1, 8), "cycles_slow": (1, 4),
+    "sway":           {"amount": (0.0, 2.5), "cycles": (1, 8), "cycles_slow": (1, 4),
                        "gust_cycles": (1, 4), "slow_ratio": (0.0, 1.0),
-                       "droop": (0.0, 0.8)},
+                       "droop": (0.0, 0.8), "ripple": (0.0, 6.0)},
 }
 
 # Named colors for the color_glow layer, in BGR (the frame buffer is BGR).
