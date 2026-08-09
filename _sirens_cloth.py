@@ -32,6 +32,10 @@ def boxed_bright(x0, y0, x1, y1, thresh, grow=3, blur=2.5):
 
 # sail: pale canvas between the cliffs; robes: white gowns left foreground
 sail = boxed_bright(560, 225, 830, 440, 70)
+# The mast is bright enough to fall inside the canvas mask, so the sway bent it
+# like a reed. Carve the spar out (found at x=725-734 by column-darkness against
+# the canvas) and the timber stays rigid while the cloth moves around it.
+sail[:, 718:742] = 0.0
 robes = boxed_bright(0, 360, 370, 816, 95)
 print("sail cov:", round(float((sail > 0.5).mean()), 4),
       " robes cov:", round(float((robes > 0.5).mean()), 4))
@@ -49,18 +53,21 @@ for name in ("foreground", "static"):
 
 recipe = json.loads(json.dumps(ls.RECIPES["moonlit_shore"]))
 recipe["layers"] += [
-    # The sail is the loudest cloth in the frame: big amplitude, ~1.5 crests
-    # across its own width so the canvas luffs across the panels, slow.
+    # The sail is the loudest cloth in the frame: ~1.5 crests across its own
+    # width so the canvas luffs across the panels. Amplitude is down from the
+    # v6 pass and the gust is shallow and doubled — v6 held still early and
+    # lurched at 17s, and warping smears wherever it lurches.
     {"region": "sail",
-     "layer": {"type": "sway", "anchor": "top", "amount": 1.9, "ripple": 1.5,
-               "cycles": 2, "cycles_slow": 1, "gust_cycles": 1,
-               "slow_ratio": 0.8, "droop": 0.3}},
-    # Robes: four separate figures, so more crests across the group — each gown
-    # catches the gust at a slightly different moment instead of moving as a wall.
+     "layer": {"type": "sway", "anchor": "top", "amount": 1.25, "ripple": 1.5,
+               "cycles": 2, "cycles_slow": 1, "gust_cycles": 2, "gust_depth": 0.18,
+               "slow_ratio": 0.8, "droop": 0.3, "stiffness": 1.8}},
+    # Robes: four separate figures under one mask, so the smoothed per-column
+    # shoulder line is wrong at the seams between them. Stiff profile parks the
+    # travel in the bottom third — hems stir, shoulders hold.
     {"region": "robes",
-     "layer": {"type": "sway", "anchor": "top", "amount": 1.0, "ripple": 3.0,
-               "cycles": 3, "cycles_slow": 1, "gust_cycles": 1,
-               "slow_ratio": 0.5, "droop": 0.25}},
+     "layer": {"type": "sway", "anchor": "top", "amount": 0.85, "ripple": 3.0,
+               "cycles": 3, "cycles_slow": 1, "gust_cycles": 2, "gust_depth": 0.15,
+               "slow_ratio": 0.5, "droop": 0.25, "stiffness": 3.2}},
 ]
 
 out, report = ls.render_recipe(IMG, "moonlit_shore", OUT,
