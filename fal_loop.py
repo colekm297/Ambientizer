@@ -35,7 +35,7 @@ import time
 from typing import Optional
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageFilter
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -174,13 +174,35 @@ def _download(url: str, dst: str) -> str:
     return dst
 
 
-def concat(leg_a: str, leg_b: str, dst: str) -> str:
-    """Re-encode rather than stream-copy: the two legs come back from separate
-    generations and a copy-concat inherits whichever GOP structure came first,
-    which is what makes a 'seamless' file stutter at the junction."""
+def concat(leg_a: str, leg_b: str, dst: str, blend: float = 0.5) -> str:
+    """Join the legs with a cross-dissolve, not a butt splice.
+
+    Re-encode rather than stream-copy: the two legs come back from separate
+    generations and a copy-concat inherits whichever GOP structure came first.
+
+    But the deeper problem is that leg B does NOT begin on leg A's last frame,
+    even though it was conditioned on it. Veo re-renders its conditioning frame
+    instead of reproducing it, so the two legs match in composition and differ
+    in every texture — rock, water, cloth. A hard splice therefore reads as a
+    CUT, once per loop, forever. Measured on the shipped Sirens cell that was a
+    mean pixel delta of 18.6 against a 2.0 baseline, and it is not an exposure
+    step: normalising the gain does not reduce it.
+
+    `blend` seconds of xfade turns that cut into a transition. Output is
+    `blend` shorter than the sum of the legs. Set blend=0 for the old behaviour.
+    """
+    if blend <= 0:
+        filt = "[0:v][1:v]concat=n=2:v=1:a=0[v]"
+    else:
+        dur_a = float(subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "csv=p=0", leg_a],
+            check=True, capture_output=True, text=True).stdout.strip())
+        filt = (f"[0:v][1:v]xfade=transition=fade:duration={blend}:"
+                f"offset={dur_a - blend}[v]")
     subprocess.run(
         ["ffmpeg", "-y", "-i", leg_a, "-i", leg_b,
-         "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0[v]",
+         "-filter_complex", filt,
          "-map", "[v]", "-an",
          "-c:v", "libx264", "-crf", "17", "-preset", "slow",
          "-pix_fmt", "yuv420p", dst],
@@ -229,6 +251,154 @@ def wrap_blend(video: str, dst: str, seconds: float = 0.8) -> str:
 # -----------------------------------------------------------------------------
 
 
+def _detail(arr: np.ndarray) -> float:
+    """Mean gradient magnitude — how much fine texture a frame carries.
+
+    This is the number that separated every good Sirens build from every bad one
+    and was not measured until Cole found the failure on a TV. Brightness metrics
+    cannot see it: the shipped 1080p cell swung 84% in detail while its mean luma
+    moved 3.7%, and a sharpness jump on rock and water reads to the eye as the
+    lights coming up.
+    """
+    return float((np.abs(np.diff(arr, axis=1)).mean()
+                  + np.abs(np.diff(arr, axis=0)).mean()) / 2)
+
+
+def leg_detail(video: str, samples: int = 12) -> float:
+    """Mean detail across a leg, sampled evenly."""
+    tmp = tempfile.mkdtemp(prefix="detail_")
+    try:
+        paths = _frames(video, tmp, fps=2)
+        if not paths:
+            return 0.0
+        step = max(1, len(paths) // samples)
+        arrs = [np.asarray(Image.open(p).convert("L"), dtype=np.float32)
+                for p in paths[::step]]
+        return float(np.mean([_detail(a) for a in arrs]))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def match_legs(leg_a: str, leg_b: str, out_dir: str,
+               tolerance: float = 0.12) -> tuple[str, str, dict]:
+    """Blur the sharper leg down until both legs carry the same texture.
+
+    Veo's two endpoints do not render alike. `image-to-video` (leg A) comes back
+    soft and `first-last-frame-to-video` (leg B) comes back sharp, and the gap
+    grows with resolution: about 7% at 720p, about 57% at 1080p. Concatenated,
+    that is a texture switch once per loop, forever.
+
+    Blur is the only safe direction. Sharpening the soft leg to meet the sharp
+    one manufactures halos on a locked-off night scene, where the eye has three
+    hours to find them.
+
+    Returns (leg_a_path, leg_b_path, info). Paths are unchanged when the legs
+    already agree within `tolerance`.
+    """
+    da, db = leg_detail(leg_a), leg_detail(leg_b)
+    lo, hi = (da, db) if da <= db else (db, da)
+    mismatch = (hi / max(lo, 1e-6)) - 1.0
+    info = {"detail_a": round(da, 2), "detail_b": round(db, 2),
+            "mismatch": round(mismatch, 3), "corrected": False}
+    if mismatch <= tolerance:
+        return leg_a, leg_b, info
+
+    sharper, target = (leg_b, da) if db > da else (leg_a, db)
+    # Bisect on sigma: detail falls monotonically with blur, so this converges
+    # in a handful of probes and needs no model of the lens.
+    lo_s, hi_s, best = 0.0, 2.0, None
+    for _ in range(7):
+        mid = (lo_s + hi_s) / 2
+        probe = os.path.join(out_dir, "_probe.mp4")
+        subprocess.run(
+            ["ffmpeg", "-y", "-v", "error", "-i", sharper,
+             "-vf", f"gblur=sigma={mid:.3f}", "-c:v", "libx264", "-crf", "17",
+             "-preset", "veryfast", "-pix_fmt", "yuv420p", "-an", probe],
+            check=True, capture_output=True)
+        d = leg_detail(probe)
+        best = mid
+        if d > target:
+            lo_s = mid
+        else:
+            hi_s = mid
+    os.path.exists(os.path.join(out_dir, "_probe.mp4")) and os.remove(
+        os.path.join(out_dir, "_probe.mp4"))
+
+    dst = os.path.join(out_dir, "leg_b_matched.mp4" if sharper == leg_b
+                       else "leg_a_matched.mp4")
+    subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-i", sharper,
+         "-vf", f"gblur=sigma={best:.3f}", "-c:v", "libx264", "-crf", "17",
+         "-preset", "slow", "-pix_fmt", "yuv420p", "-an", dst],
+        check=True, capture_output=True)
+    info.update(corrected=True, sigma=round(best, 3),
+                detail_after=round(leg_detail(dst), 2))
+    if sharper == leg_b:
+        return leg_a, dst, info
+    return dst, leg_b, info
+
+
+def flatten_detail(video: str, dst: str, percentile: float = 3.0,
+                   fps: int = 24) -> dict:
+    """Hold texture constant across the whole cell, frame by frame.
+
+    `match_legs` equalises the two legs' AVERAGES, which is not enough: leg B
+    also ramps inside itself (17.6 down to 11.2 on the Sirens 1080p build), so a
+    single blur leaves a slope behind. On the real file that took detail_swing
+    from 1.15 to 0.79 — better and still visibly pulsing.
+
+    This solves a blur per frame against a low-percentile target, so every frame
+    is brought down to the texture of the softest ones. Blur only, never sharpen:
+    a locked-off night scene gives the eye three hours to find a halo.
+
+    `percentile` is the knob, and 3 is not arbitrary. Measured on the Sirens
+    1080p cell, swing 0.82 raw -> 0.22 at the 10th percentile -> 0.08 at the 3rd,
+    against a 0.20 gate. The cost is texture: detail 11.2 -> 8.8 -> 7.9. Even at
+    3 that beats the 720p build this replaced, which measured 5.9 and shipped.
+    """
+    tmp = tempfile.mkdtemp(prefix="flat_")
+    try:
+        paths = _frames(video, tmp, fps=fps)
+        arrs = [np.asarray(Image.open(p).convert("L"), dtype=np.float32)
+                for p in paths]
+        dets = np.array([_detail(a) for a in arrs])
+        target = float(np.percentile(dets, percentile))
+        before = float((dets.max() - dets.min()) / max(dets.min(), 1e-6))
+
+        out_dir = tempfile.mkdtemp(prefix="flatout_")
+        for i, p in enumerate(paths):
+            im = Image.open(p)
+            if dets[i] <= target * 1.02:
+                im.save(os.path.join(out_dir, f"f_{i:05d}.png"))
+                continue
+            lo, hi = 0.0, 2.5
+            for _ in range(6):  # bisect; detail falls monotonically with sigma
+                mid = (lo + hi) / 2
+                probe = im.filter(ImageFilter.GaussianBlur(radius=mid))
+                d = _detail(np.asarray(probe.convert("L"), dtype=np.float32))
+                if d > target:
+                    lo = mid
+                else:
+                    hi = mid
+            im.filter(ImageFilter.GaussianBlur(radius=(lo + hi) / 2)).save(
+                os.path.join(out_dir, f"f_{i:05d}.png"))
+
+        subprocess.run(
+            ["ffmpeg", "-y", "-v", "error", "-framerate", str(fps),
+             "-i", os.path.join(out_dir, "f_%05d.png"),
+             "-c:v", "libx264", "-crf", "17", "-preset", "slow",
+             "-pix_fmt", "yuv420p", "-an", dst],
+            check=True, capture_output=True)
+        shutil.rmtree(out_dir, ignore_errors=True)
+
+        after_arr = None
+        return {"target": round(target, 2),
+                "swing_before": round(before, 2),
+                "swing_after": round(seam_report(dst)["detail_swing"], 2)}
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def seam_report(video: str, source_frame: Optional[str] = None) -> dict:
     """Measure the two things that can be wrong with a two-leg loop.
 
@@ -262,6 +432,12 @@ def seam_report(video: str, source_frame: Optional[str] = None) -> dict:
             "motion_max": round(float(np.max(deltas)), 2),
             "junction_spike": round(float(np.max(deltas) / max(np.mean(deltas), 1e-6)), 2),
         }
+        # Everything above compares a PAIR of frames, so a per-leg offset or a
+        # smooth ramp passes all of it. This walks the whole curve. The shipped
+        # Sirens cell scored 0.84 here and green on everything else.
+        dets = [_detail(a) for a in arrs]
+        out["detail_swing"] = round((max(dets) - min(dets)) / max(min(dets), 1e-6), 2)
+        out["detail_ok"] = out["detail_swing"] < 0.20
         if source_frame:
             src = np.asarray(
                 Image.open(source_frame).convert("L").resize(
@@ -352,15 +528,29 @@ def generate_loop(
     leg_b = _download(_run(LEG_B_ENDPOINT, b_payload, "B"),
                       os.path.join(out_dir, "leg_b.mp4"))
 
-    raw = concat(leg_a, leg_b, os.path.join(out_dir, f"{name}_raw.mp4"))
+    # Match the legs BEFORE joining them. Skipping this is what put a texture
+    # switch every 11 seconds into three hours of the Sirens release.
+    use_a, use_b, match = match_legs(leg_a, leg_b, out_dir)
+    if match["corrected"]:
+        print(f"  legs mismatched by {match['mismatch']:.0%} — blurred the "
+              f"sharper one (sigma {match['sigma']}) to {match['detail_after']}")
+    else:
+        print(f"  legs agree within {match['mismatch']:.0%}, no correction")
+
+    raw = concat(use_a, use_b, os.path.join(out_dir, f"{name}_raw.mp4"))
     loop = raw
     if blend_seconds:
         loop = wrap_blend(raw, os.path.join(out_dir, f"{name}_loop.mp4"),
                           seconds=blend_seconds)
     report = seam_report(loop, source_frame=start_png)
     report["raw_wrap"] = seam_report(raw)["wrap"]
+    report["legs"] = match
     report["estimated_cost"] = cost
     report["seconds"] = total_seconds
+
+    if not report.get("detail_ok", True):
+        print(f"  WARNING detail_swing {report['detail_swing']} — this loop "
+              f"will pulse when tiled. Do NOT build a long-form file from it.")
 
     with open(os.path.join(out_dir, "report.json"), "w") as fh:
         json.dump({"prompt": prompt, "return_prompt": return_prompt,
