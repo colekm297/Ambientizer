@@ -39,13 +39,27 @@ from PIL import Image, ImageFilter
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-# Veo 3.1 Lite is the cheapest pair of endpoints where BOTH halves of the trick
-# exist under one model, which matters: leg B inherits leg A's final frame, and
-# a style change at the junction is visible even when the geometry matches.
-# $0.03/sec at 720p with audio off. An 8s + 8s loop is $0.48.
-LEG_A_ENDPOINT = "fal-ai/veo3.1/lite/image-to-video"
-LEG_B_ENDPOINT = "fal-ai/veo3.1/lite/first-last-frame-to-video"
-PRICE_PER_SECOND = {"720p": 0.03, "1080p": 0.05}  # audio off; on is ~1.7x
+# Lite is the budget tier and it shows: its two endpoints render texture 48-57%
+# apart at 1080p, which costs a rework every time. Cole's call on 2026-08-10,
+# and the arithmetic is his: "a dollar per but it works every time is much
+# better ROI than fifty cents and six reworks."
+MODELS = {
+    "lite": {
+        "leg_a": "fal-ai/veo3.1/lite/image-to-video",
+        "leg_b": "fal-ai/veo3.1/lite/first-last-frame-to-video",
+        "price": {"720p": 0.03, "1080p": 0.05},
+    },
+    "full": {
+        "leg_a": "fal-ai/veo3.1/image-to-video",
+        "leg_b": "fal-ai/veo3.1/first-last-frame-to-video",
+        "price": {"720p": 0.20, "1080p": 0.20},
+    },
+}
+DEFAULT_MODEL = "full"
+
+LEG_A_ENDPOINT = MODELS["lite"]["leg_a"]   # kept for callers that import these
+LEG_B_ENDPOINT = MODELS["lite"]["leg_b"]
+PRICE_PER_SECOND = MODELS["lite"]["price"]  # audio off; on is ~1.7x
 LEG_B_SECONDS = 8  # the flf endpoint is fixed at 8s, it takes no duration
 
 # Ambient scenes want a locked-off camera. Veo's default instinct is to push in
@@ -264,6 +278,18 @@ def _detail(arr: np.ndarray) -> float:
                   + np.abs(np.diff(arr, axis=0)).mean()) / 2)
 
 
+def _smooth(xs: list[float], window: int) -> list[float]:
+    """Boxcar over a short series, edges included.
+
+    Frame-to-frame deltas are noisy enough that a raw max/min ratio reports the
+    noise instead of the trend, so the speed envelope reads the smoothed curve.
+    """
+    if window <= 1 or len(xs) < window:
+        return list(xs)
+    a = np.asarray(xs, dtype=np.float64)
+    return list(np.convolve(a, np.ones(window) / window, mode="valid"))
+
+
 def leg_detail(video: str, samples: int = 12) -> float:
     """Mean detail across a leg, sampled evenly."""
     tmp = tempfile.mkdtemp(prefix="detail_")
@@ -438,6 +464,21 @@ def seam_report(video: str, source_frame: Optional[str] = None) -> dict:
         dets = [_detail(a) for a in arrs]
         out["detail_swing"] = round((max(dets) - min(dets)) / max(min(dets), 1e-6), 2)
         out["detail_ok"] = out["detail_swing"] < 0.20
+        # Speed has the same blind spot texture had. `motion_mean` averages the
+        # whole cell and `junction_spike` looks at one frame, so a cell that
+        # coasts from full speed down to a near stall scores healthy on both.
+        # The shipped Sirens cell swung 2.7x here: the swell decelerated over
+        # eight seconds, nearly stopped at the wrap, then snapped back to speed,
+        # once every twelve seconds. Cole: "the ocean looks really good but like
+        # not smooth motion at all."
+        #
+        # Two causes, both ours. Leg A opens on a still, so it starts frozen and
+        # has to accelerate. Leg B was TOLD to calm down — "the swell relaxes
+        # into calm moonlit water" — and it obeyed. Slow end meets slow start at
+        # the loop point, which is the worst place to put it.
+        env = _smooth(deltas, 3)
+        out["speed_envelope"] = round(float(max(env) / max(min(env), 1e-6)), 2)
+        out["speed_ok"] = bool(out["speed_envelope"] < 1.35)
         if source_frame:
             src = np.asarray(
                 Image.open(source_frame).convert("L").resize(
@@ -456,8 +497,9 @@ def seam_report(video: str, source_frame: Optional[str] = None) -> dict:
 # -----------------------------------------------------------------------------
 
 
-def estimate_cost(leg_a_seconds: int, resolution: str) -> float:
-    rate = PRICE_PER_SECOND[resolution]
+def estimate_cost(leg_a_seconds: int, resolution: str,
+                  model: str = DEFAULT_MODEL) -> float:
+    rate = MODELS[model]["price"][resolution]
     return round((leg_a_seconds + LEG_B_SECONDS) * rate, 2)
 
 
@@ -471,6 +513,7 @@ def generate_loop(
     return_prompt: Optional[str] = None,
     negative_prompt: str = DEFAULT_NEGATIVE,
     seed: Optional[int] = None,
+    model: str = DEFAULT_MODEL,
     keep_legs: bool = True,
     blend_seconds: float = 0.8,
     dry_run: bool = False,
@@ -480,10 +523,11 @@ def generate_loop(
     out_dir = os.path.join(HERE, out_dir, name)
     os.makedirs(out_dir, exist_ok=True)
 
-    cost = estimate_cost(leg_a_seconds, resolution)
+    endpoints = MODELS[model]
+    cost = estimate_cost(leg_a_seconds, resolution, model)
     total_seconds = leg_a_seconds + LEG_B_SECONDS
     print(f"  {name}: {leg_a_seconds}s + {LEG_B_SECONDS}s = {total_seconds}s loop, "
-          f"{resolution}, about ${cost:.2f}")
+          f"{resolution}, veo3.1 {model}, about ${cost:.2f}")
     if dry_run:
         return {"dry_run": True, "estimated_cost": cost}
 
@@ -507,7 +551,7 @@ def generate_loop(
     }
     if seed is not None:
         a_payload["seed"] = seed
-    leg_a = _download(_run(LEG_A_ENDPOINT, a_payload, "A"),
+    leg_a = _download(_run(endpoints["leg_a"], a_payload, "A"),
                       os.path.join(out_dir, "leg_a.mp4"))
 
     # Leg B: start somewhere real, end at home. Endpoints differ, so the model
@@ -525,7 +569,7 @@ def generate_loop(
     }
     if seed is not None:
         b_payload["seed"] = seed + 1
-    leg_b = _download(_run(LEG_B_ENDPOINT, b_payload, "B"),
+    leg_b = _download(_run(endpoints["leg_b"], b_payload, "B"),
                       os.path.join(out_dir, "leg_b.mp4"))
 
     # Match the legs BEFORE joining them. Skipping this is what put a texture
@@ -554,7 +598,7 @@ def generate_loop(
 
     with open(os.path.join(out_dir, "report.json"), "w") as fh:
         json.dump({"prompt": prompt, "return_prompt": return_prompt,
-                   "negative_prompt": negative_prompt, "seed": seed,
+                   "negative_prompt": negative_prompt, "seed": seed, "model": model,
                    "report": report}, fh, indent=2)
 
     if not keep_legs:
