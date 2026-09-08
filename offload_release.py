@@ -88,6 +88,12 @@ def main() -> None:
         if not a.apply or not todo:
             continue
         for p, st, sz in todo:
+            # Already in the bucket with a matching hash (pushed by hand)?
+            # Record it and move on instead of re-sending the bytes.
+            key = store.adopt(str(p))
+            if key:
+                print(f"  adopted {key} (already in R2, hash matches)", flush=True)
+                continue
             print(f"  uploading {p.name} ({sz/1e9:.2f} GB) ...", flush=True)
             key = store.upload(str(p), verify=True)
             if key is None:
