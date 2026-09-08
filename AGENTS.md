@@ -103,3 +103,8 @@ When you are a **Cloud Agent** (running in Cursor's cloud VM, not on Cole's Mac)
    nothing, so the Aug 9 2026 Sirens masters vanished from local disk with no cloud copy. Every
    release build ends with `python offload_release.py <name> --apply` (verified round-trip hash,
    idempotent). `python offload_release.py --check` exits 1 if any release is not fully in R2.
+   Known dead key, leave it (ruled 2026-09-08): `external/sirens_3h_v2.mp4` is a byte-identical
+   duplicate of `output/release/sirens/sirens_3h_v2.mp4` (sha256 5854a58e…5703b1, 7.05 GB). It
+   landed under `external/` because the Aug 10 build ran from a session scratchpad, so `relkey()`
+   had no project-relative path. Costs ~$0.11/month; not worth a delete decision. Do not
+   "rediscover" it, and never build a release outside `output/release/`.
