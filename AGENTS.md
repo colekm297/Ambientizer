@@ -98,3 +98,8 @@ When you are a **Cloud Agent** (running in Cursor's cloud VM, not on Cole's Mac)
 5. **Code changes need a launchd restart** (see Run it) — the service holds Python in memory.
 6. **Visuals motion** must loop seamlessly (16-32s loop tiled to fill an hour); camera uses
    sub-pixel sampling (integer crop offsets caused jitter). Keep effects seamless (integer cycles).
+7. **Release masters are NOT offloaded automatically.** `migrate_media.py` only picks up files a
+   `saved_jobs/*.json` references, and only after 14 days; `output/release/<name>/` is referenced by
+   nothing, so the Aug 9 2026 Sirens masters vanished from local disk with no cloud copy. Every
+   release build ends with `python offload_release.py <name> --apply` (verified round-trip hash,
+   idempotent). `python offload_release.py --check` exits 1 if any release is not fully in R2.
