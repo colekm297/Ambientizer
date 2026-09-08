@@ -123,6 +123,33 @@ class MediaStore:
         self._save_manifest()
         return key
 
+    def adopt(self, path: str) -> Optional[str]:
+        """Record an object that is ALREADY in the bucket, without re-uploading.
+
+        Files pushed by hand (the Aug 23 2026 Sirens recovery) exist remotely
+        but the manifest never learns of them, so every later check reports
+        them missing and every offload re-sends gigabytes. Adopt only when the
+        remote sha256 metadata matches the local file; otherwise return None
+        and let the caller upload for real."""
+        if not self.enabled or not os.path.exists(path):
+            return None
+        key = self.relkey(path)
+        try:
+            head = self.client.head_object(Bucket=self.bucket, Key=key)
+        except Exception:
+            return None
+        digest = _sha256(path)
+        size = os.path.getsize(path)
+        if head["ContentLength"] != size or head.get("Metadata", {}).get("sha256") != digest:
+            return None
+        m = self.manifest()
+        m[key] = {"size": size, "sha256": digest,
+                  "uploaded_at": head["LastModified"].strftime("%Y-%m-%dT%H:%M:%S"),
+                  "local_path": str(Path(path).resolve()), "evicted": False,
+                  "adopted": True}
+        self._save_manifest()
+        return key
+
     def evict(self, path: str) -> bool:
         """Delete the LOCAL copy of a file the manifest shows verified-uploaded."""
         key = self.relkey(path)
