@@ -1,3 +1,5 @@
+> SNAPSHOT as of 2026-08-09 12:10. Anything newer — git commits, file mtimes, or your own conversation — outranks this file. Verify before acting.
+
 # Thread tail — open with this
 
 **Live question:** the Sirens release is fully built and staged at

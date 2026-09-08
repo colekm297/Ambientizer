@@ -79,6 +79,58 @@ class VisualGenerator:
         )
         return output_path
 
+    @staticmethod
+    def _to_data_uri(path: str) -> str:
+        import mimetypes
+        mime = mimetypes.guess_type(path)[0] or "image/png"
+        with open(path, "rb") as f:
+            return f"data:{mime};base64,{base64.b64encode(f.read()).decode()}"
+
+    def edit_image(
+        self,
+        prompt: str,
+        image_paths: list[str],
+        model: str = "grok-imagine-image-quality",
+        output_path: Optional[str] = None,
+        resolution: str = "2k",
+        aspect_ratio: str = "16:9",
+    ) -> str:
+        """Image-to-image / multi-image edit via Grok's /v1/images/edits endpoint.
+        Pass one or more reference images (local paths or http URLs) — Grok keeps
+        their content (e.g. an accurate Rocky) while applying the prompt. Returns
+        the saved path."""
+        if not output_path:
+            safe = "".join(c if c.isalnum() or c in " -_" else "" for c in prompt[:40])
+            output_path = str(self.output_dir / f"{safe}_edit.png")
+
+        def as_ref(p):
+            url = p if p.startswith(("http://", "https://")) else self._to_data_uri(p)
+            return {"type": "image_url", "url": url}
+
+        images = [as_ref(p) for p in image_paths]
+        payload = {
+            "model": model,
+            "prompt": prompt,
+            # Single image → object; multiple → list (multi-image combine).
+            "image": images[0] if len(images) == 1 else images,
+            "n": 1,
+            "resolution": resolution,
+            "aspect_ratio": aspect_ratio,
+            "response_format": "b64_json",
+        }
+        response = requests.post(
+            "https://api.x.ai/v1/images/edits",
+            headers=self._auth_headers(), json=payload, timeout=180,
+        )
+        if not response.ok:
+            raise RuntimeError(f"edit_image failed {response.status_code}: {response.text[:300]}")
+        data = response.json()
+        image_bytes = base64.b64decode(data["data"][0]["b64_json"])
+        with open(output_path, "wb") as f:
+            f.write(image_bytes)
+        print(f"  Edited image: {output_path} ({len(image_bytes)/1024:.0f} KB, {len(images)} ref(s))")
+        return output_path
+
     # ── AI Video (Grok Imagine Video) ─────────────────────
 
     def animate_image(

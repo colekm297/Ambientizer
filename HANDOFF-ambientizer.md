@@ -1,3 +1,5 @@
+> SNAPSHOT as of 2026-08-09 12:09. Anything newer — git commits, file mtimes, or your own conversation — outranks this file. Verify before acting.
+
 # Handoff — Ambientizer / Odyssey release work (2026-08-09)
 
 Supersedes the 2026-08-08 entry. The big change since then: **living stills are no
