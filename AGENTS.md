@@ -108,3 +108,23 @@ When you are a **Cloud Agent** (running in Cursor's cloud VM, not on Cole's Mac)
    landed under `external/` because the Aug 10 build ran from a session scratchpad, so `relkey()`
    had no project-relative path. Costs ~$0.11/month; not worth a delete decision. Do not
    "rediscover" it, and never build a release outside `output/release/`.
+8. **Editing a published video needs `youtube.force-ssl`.** `youtube.upload` can create and set
+   thumbnails but `videos.update` (title/description) returns 403 insufficientPermissions. SCOPES
+   requests force-ssl since 73390bd; any token minted before that must be re-consented once via
+   `POST /api/youtube/connect` (open the URL on the Mac; the callback is localhost:5050).
+9. **Seedance turns "wind lifts sand" into an event.** Asked for constant thin veils, it renders a
+   plume that peaks at second 5 and dies by 11, so a 12 s tile gusts once per loop (speed envelope
+   5.4; a harder "no gust" prompt still 3.9). Ask for heat shimmer only and nothing else moving.
+   Also: `wrap_ratio` divides by motion, so a near-static loop scores badly on it while its
+   absolute `wrap` is the cleanest on the channel — judge calm loops on `wrap` (< 2 reads clean).
+10. **Grok's image key is blocked on xAI's side** (403 "API key is currently blocked", 2026-09-08).
+   Stills come from `fal-ai/flux-pro/v1.1-ultra` (2752x1536, ~$0.06); `fal_loop.prep_frame` crops
+   them to 16:9 at 1080. `visual_generator.py` still points at Grok and will fail until re-keyed.
+11. **Avatars are judged at 48 px, not 800.** The 60-bar aperture mark turns into a gear icon at
+   comment size; the 28-bar bold cut (`brand/out/avatar_aperture_bold_v2.png`) survives. Always
+   render `avatar_compare_sizes.png` (176/88/48) before proposing a channel avatar.
+12. **Retention curves are the planning input.** `yt_analytics_pull.py --retention` → 100 points,
+   36 s each on a 1-hour video. Keepers hold ~25-38% for the full hour (Dawn Over Arrakis, A Small
+   Light in the Dark); pullers lose 70-80% in the first minute yet recruit subs (Temples, Calypso).
+   A curve that starts below 100% means viewers arrive mid-video (autoplay/playlist). Bought views
+   (Calypso: 1,900 of 2,005 tagged advertising) bounce inside 36 s and mean nothing.

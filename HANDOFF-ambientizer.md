@@ -1,122 +1,56 @@
-> SNAPSHOT as of 2026-08-09 12:09. Anything newer — git commits, file mtimes, or your own conversation — outranks this file. Verify before acting.
+> SNAPSHOT as of 2026-09-13 09:30. Anything newer — git commits, file mtimes, or your own conversation — outranks this file. Verify before acting.
 
-# Handoff — Ambientizer / Odyssey release work (2026-08-09)
+# Handoff — Ambientizer (2026-09-13)
 
-Supersedes the 2026-08-08 entry. The big change since then: **living stills are no
-longer procedural.** Cole's words on seeing the first clean generative loop:
-"Bro that looks phenomenal. Theres no way! We cracked it!"
+Supersedes the 2026-08-09 entry entirely. That one described a Sirens release
+waiting on review and a Fair Wind that "had none of this treatment." Both have
+shipped since, Veo has been replaced, and the channel now has a retention method.
 
 ## Cold-start reading order
 
-1. `AGENTS.md` — project source of truth (architecture, run/restart, multi-agent rules)
-2. `fal_loop.py` — the new loop pipeline; read its module docstring first
-3. `HANDOFF-TAIL-ambientizer.md` (beside this file) — the live conversation thread; open with it
+1. `AGENTS.md` — source of truth; gotchas 7-11 were written this session
+2. `HANDOFF-TAIL-ambientizer.md` — the live thread; open with it
+3. Memory index (`~/.claude/projects/-Users-colemonroe-Projects-Ambientizer/memory/MEMORY.md`) — one-line pointers to every lesson below
 
-## What changed today
+## What changed since 2026-08-09 (commits fd265be..73390bd on `living-still-harden`)
 
-**The loop problem is solved.** Commits `ae8717c` and `017f5a8` on
-`living-still-harden`.
-
-The wall was real and not a settings problem: hand a video model the same image as
-first and last frame and it collapses to a still, because the endpoint constraint
-lives in latent space while the motion prompt is only a suggestion. The way around
-it is **two legs, neither with matching endpoints** — leg A runs free from the
-still, leg B starts on leg A's true last frame and ends on the still. That is
-`fal_loop.py`.
-
-Three things that cost real attempts, all now encoded in the module:
-
-- **Veo ignores camera instructions in the negative prompt.** "no camera movement"
-  as a negative did nothing; the same words as the OPENING clause of the positive
-  prompt locked the camera completely. The first render pushed in across both legs
-  and therefore could never land home. Cole saw it instantly: "V1 doesnt loop it
-  boomerangs."
-- **Leg B lands the framing but never the water.** A generative model has no
-  periodic function underneath it, so the last frame's wave pattern is simply a
-  different pattern. `wrap_blend` folds the clip's own tail over its head with a
-  rising alpha. Time runs one direction throughout, so `feedback-never-boomerang`
-  is not violated.
-- **Judge the seam with `wrap_ratio`, never raw `wrap`.** Raw wrap is an absolute
-  pixel delta, so 1080p inflates it and a 720p comparison reads as a regression
-  that is not there. Under 1.0 means the loop point is a smaller step than an
-  ordinary frame. The shipped master is 0.82.
-
-Endpoints: `fal-ai/veo3.1/lite/image-to-video` and
-`fal-ai/veo3.1/lite/first-last-frame-to-video`. $0.03/sec at 720p with audio off,
-$0.05 at 1080p. About $0.36 per 720p attempt, ~90s. Cole funded $10 of fal credits
-on 2026-08-08; **$2.24 spent, ~$7.76 left**. `FAL_KEY` is in `.env`.
-
-Also: **Chrome control works in CLI sessions.** The previous home-dir session told
-Cole it did not have it and was wrong. That mistake is what cost a day.
+- **Fair Wind Home shipped.** Cole published it 2026-09-07: https://www.youtube.com/watch?v=HvumlX9trg0. 1 hour, Seedance 1.5 Pro loop, audio take `2bacadbf` with the track's natural lead-in. Two earlier private uploads are dead (`1Eolx51Xr60` loud-start audio bug, `xpuDzlkZYRA` stuck in YouTube processing for a week) and await his delete verdict via Chief.
+- **Dusk Over Arrakis shipped.** Built 2026-09-08 on Chief's default as the keeper-vs-puller test; Cole published it himself 2026-09-11 22:02Z: https://www.youtube.com/watch?v=y6YS18A8hYY. Files in `output/release/dusk_arrakis/`.
+- **Veo is gone from the pipeline.** `fal-ai/bytedance/seedance/v1.5/pro/image-to-video` with `end_image_url` = start still and `camera_fixed: True`; the raw output ships with no fold and no flatten. See `_build_dusk_master.py` for the reusable 1-hour build (natural-head audio timeline, acrossfade middle-segment cell, sting + tiles, join and loudness checks).
+- **Release masters now reach R2 on build.** `offload_release.py <name> --apply`; `--check` is green for fairwind, sirens, dusk_arrakis. Root cause of the Aug 9 Sirens loss documented in AGENTS.md gotcha 7.
+- **Retention method exists.** `yt_analytics_pull.py --retention` gives 100-point curves (36 s each on a 1-hour video). Read: keepers (Dawn Over Arrakis, A Small Light in the Dark) hold 24-38% for the full hour; pullers (Temples, Calypso) lose 70-80% inside the first minute but recruit subs. Proposal built on it became Dusk Over Arrakis.
+- **Fair Wind door fix, half done.** 1% CTR at 31% retention. New IP-first thumbnail is LIVE on the video (Cole: "swap it", 2026-09-12). The matching title change failed on scope; see In flight.
+- **Channel avatar candidates** in `brand/out/avatar_*_v2.png` + `avatar_compare_sizes.png`. Recommended: `avatar_aperture_bold_v2.png`.
+- **youtube_publisher SCOPES** now request `youtube.force-ssl` (73390bd); the stored token does not have it yet.
 
 ## Where things are
 
-**The Sirens release is BUILT and STAGED in `output/release/sirens/`:**
-
-- `sirens_strait_3h_intro.mp4` — the upload candidate. 3:00:00 exactly, 1920x1080
-  at 24fps, AAC 384k, silver aperture sting on the front, 17.5GB
-- `sirens_strait_3h.mp4` — identical without the sting
-- `thumbnail.png` — Nolan style, cool grey accent (`#c9d8e4`), hook "THE SIRENS'
-  STRAIT", subtitle "3 HOURS"
-- `copy.md` — title, description, tags, two alternate titles
-- `cell.mp4` (11.2s video loop, CRF 18) and `audio_cell.wav` (1135s) — everything
-  is tiled from these two
-- `intro_preview.mp4`, `seam_sampler.mp4`, `seam_sampler.mp3` — review cuts
-
-**Audio take: `eec20d97`, "The Sirens' Strait", Cole's 3-star, B minor.** He picked
-it as "literally the first one siren we generated 3 star rating" — it is both.
-
-**A defect found and fixed that would have shipped:** the mastered wav is 1175s,
-which looks like a prepared loop cell (1200 minus the 25s crossfade), but its end
-does not meet its start. Tiling it put an audible click and a 3dB level step every
-19m35s. `audio_cell.wav` is the real seamless cell, built by crossfading the
-track's tail over its own head with a 40s `acrossfade`. Verified at three
-boundaries in the final encode: edge jump below the track's own 99.9th-percentile
-sample jump. **Any future export must use `audio_cell.wav`, not the raw mastered
-wav.**
-
-Verified, not assumed: frame at 2:45:00 intact, duration exactly 10800s, all
-sampled audio joins clean.
+- Live public: Fair Wind Home (new thumbnail, old title), Dusk Over Arrakis.
+- Private, dead, awaiting delete word: 1Eolx51Xr60, xpuDzlkZYRA.
+- Local + R2: `output/release/{fairwind,sirens,dusk_arrakis}/`.
+- fal balance ~ $25 (Cole's $30 top-up 2026-08-28 minus ~$4.80 across Fair Wind tests and Dusk).
+- Grok image API: key blocked on xAI's side (403 "API key is currently blocked"). Stills now come from `fal-ai/flux-pro/v1.1-ultra`.
+- Gemini: this project DOES call Gemini (audio_critic, motion_critic, theme_interpreter, reference_analyzer, orchestrator; rate-limited by gemini_limiter.py) on the single `GEMINI_API_KEY` in `.env`. That answers Chief's billing-notice question.
 
 ## In flight at retirement
 
-- **Cole has not watched the 3-hour file yet.** That is the only thing between this
-  and an upload. NOTHING POSTS BEFORE HE REVIEWS.
-- **Unresolved: he reports hearing no audio on delivered clips.** The files measure
-  fine — AAC-LC stereo, start_time 0.000, -16.8 dBFS RMS, 0.64 peak — and he
-  confirmed his player was unmuted with a screenshot. Never settled whether it is
-  the phone's inline video player. Every clip sent before `seam_sampler.mp4` was
-  deliberately silent (`-an`), so nothing earlier would have revealed it. An mp3 of
-  the same 60 seconds was sent last; his verdict on it never came.
-- He got impatient with being asked to choose: "Whatever you think just stop asking
-  and lets move this forward for gods sakes." Decide and report. Do not queue up
-  questions.
+- **Fair Wind retitle waiting on one click from Cole.** Target title: `The Odyssey | Fair Wind Home | 1 Hour Warm Ambient for Deep Work`. Blocked because `videos.update` needs `youtube.force-ssl` and `youtube_token.json` carries only upload+readonly. He was given the consent URL (from `POST /api/youtube/connect`, must be opened on the Mac since the callback is localhost:5050). **Successor: re-arm the watcher** — poll `youtube_token.json` for the string `youtube.force-ssl`, then `videos.update` with the new title and the existing description/tags/categoryId (the code is in the 2026-09-12 transcript; it is eight lines).
+- **Dusk retention pull due 2026-09-18** (Chief's standing move): `yt_analytics_pull.py --retention`, then send chief-f1 the read against Dawn Over Arrakis and Temples: hold or bounce, the minute, subs gained. Nothing else publishes before then.
+- **Avatar decision open.** Setting the channel avatar is an account setting: his word, then upload `brand/out/avatar_aperture_bold_v2.png` in Studio (or via API if he says do it).
 
-## Open questions for Cole
+## Open questions for Cole (one line each)
 
-1. Does the 3-hour file pass on your TV?
-2. Any redlines on the title and description in `copy.md`?
-3. Do you hear audio on the mp3 I sent, or is your player eating it?
+1. Approve the re-consent click so the Fair Wind title can change?
+2. Set the bold aperture as the channel avatar?
+3. Delete the two dead private uploads? (Chief holds this one.)
 
 ## Promised and not delivered
 
-- Nothing outstanding on the Sirens release itself; it is built.
-- **Fair Wind / Ithaca has had none of this treatment.** `inputs/ithaca_dawn2.png`
-  is approved and its audio take is still unpicked (drum-free lineage, job
-  `2bacadbf` was the latest). It is now a $0.36 loop plus an export away.
-- Cole floated mermaid-style sirens ("theres no way they are quite hitting the
-  sirens from the movie") — a new Midjourney still plus a loop, about 4 minutes and
-  $0.36. Parked deliberately in favor of shipping.
-- Generator rebuild: bake standing exclusions (no drums/cymbals/electric
-  guitar/arpeggios, everything sustains) into every music generation. Still just
-  discussed.
+- The Fair Wind title swap (blocked on his click, above).
+- Nothing else. The sietch-interior still (`output/release/dusk_arrakis/still_sietch_dusk.png`) is an unused candidate, not a promise.
 
 ## Notes
 
-- `boomerang_check.py` was written today and DELETED, not committed. Its flow test
-  returns zeros on a locked camera and it produced two wrong readings. Do not
-  resurrect it without rebuilding the measurement.
-- The old procedural sway engine still works and is still committed. It is simply
-  no longer what carries a scene.
-- Stray uncommitted edits remain in `segmenter.py` and `visual_generator.py`, plus
-  the untracked `_batch*.py` scratch scripts — another session's, leave them.
+- Untracked and deliberately not committed: `inputs/`, `saved_stills/`, `brand/out/sting_silver.mp4`.
+- Known dead R2 key `external/sirens_3h_v2.mp4` — leave it (AGENTS.md gotcha 7).
+- Long jobs: launch as `( trap '' HUP; exec nohup <cmd> > <durable-log> 2>&1 < /dev/null ) & disown`, log under the project. A session restart kills plain nohup children and wipes the scratchpad.
