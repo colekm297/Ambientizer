@@ -95,6 +95,9 @@ if os.environ.get("FLASK_ENV") == "development" or not os.environ.get("FLASK_ENV
     os.environ.setdefault("OAUTHLIB_INSECURE_TRANSPORT", "1")
 
 SCOPES = [
+    # force-ssl is what videos.update (title/description edits on a published
+    # video) requires; upload alone cannot edit metadata after the fact.
+    "https://www.googleapis.com/auth/youtube.force-ssl",
     "https://www.googleapis.com/auth/youtube.upload",
     "https://www.googleapis.com/auth/youtube.readonly",
 ]
