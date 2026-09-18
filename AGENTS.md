@@ -135,6 +135,8 @@ When you are a **Cloud Agent** (running in Cursor's cloud VM, not on Cole's Mac)
    menu exists, or clicks batched before the page settles are lost. Studio's Save on the video
    details page resubmits the title/description it loaded, so API edits and a Studio session on the
    same video must be sequenced, not run in parallel (2026-09-18).
+   Editing a pinned comment with `comments.update` UNPINS it (both videos lost their pins on
+   2026-09-18 and Chief re-pinned in Studio): batch wording changes, then re-pin.
 14. **Baking a CTA card into a live master is a new upload.** Replacing the file means a new video
    ID and reset views/comments, so live videos get end screens + pinned comment + description
    line + watermark; cards get baked only into new releases (`_cta_cards.py` has the mockups).
