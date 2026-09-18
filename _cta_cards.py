@@ -38,7 +38,7 @@ def intro_card(frame, out, headline, line2):
     im.convert("RGB").save(out, quality=94)
 
 def end_card(frame, out, next_title, next_thumb):
-    """Last 25 s: frame darkens 40%, mark + channel name centre-top, 'next room' tile right, subscribe/like left."""
+    """Last 25 s: frame darkens 40%, mark + channel name centre-top, 'more like this' tile right, subscribe/like left."""
     im = Image.open(frame).convert("RGB")
     im = Image.blend(im, Image.new("RGB", (W, H), (6, 5, 8)), 0.45).convert("RGBA")
     mk = mark(150); im.alpha_composite(mk, (W//2 - 75, 110))
@@ -51,7 +51,7 @@ def end_card(frame, out, next_title, next_thumb):
     d.rounded_rectangle((420, 710, 700, 768), radius=10, fill=(204, 0, 0))
     d.text((560, 739), "SUBSCRIBE", font=ImageFont.truetype(ARCH, 26), fill=(255, 255, 255), anchor="mm")
     shadow_text(d, (560, 800), "like and subscribe", ImageFont.truetype(OSW, 26), DIM, anchor="mm")
-    # right: next room tile (YouTube's video element goes here; painted placeholder under it)
+    # right: more-like-this tile (YouTube's video element goes here; painted placeholder under it)
     tile = Image.open(next_thumb).convert("RGB").resize((560, 315), Image.LANCZOS)
     d.rounded_rectangle((1090, 470, 1680, 820), radius=24, fill=(14, 12, 16, 170))
     im.paste(tile, (1105, 485)); d = ImageDraw.Draw(im)
