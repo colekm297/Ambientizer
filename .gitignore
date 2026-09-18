@@ -39,3 +39,4 @@ test_assets/
 web/static/warp_tests/
 .cleanup_quarantine/
 yt_analytics_token.json
+logs/
