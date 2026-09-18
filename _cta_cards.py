@@ -34,7 +34,7 @@ def intro_card(frame, out, headline, line2):
     # glyph row: thumbs-up + bell + SUBSCRIBE chip, deliberately small
     d.rounded_rectangle((250, 945, 470, 993), radius=8, fill=(204, 0, 0))
     d.text((360, 969), "SUBSCRIBE", font=ImageFont.truetype(ARCH, 22), fill=(255, 255, 255), anchor="mm")
-    d.text((500, 969), "and a like, if it holds you", font=ImageFont.truetype(OSW, 28), fill=DIM, anchor="lm")
+    d.text((500, 969), "a like helps a lot too", font=ImageFont.truetype(OSW, 28), fill=DIM, anchor="lm")
     im.convert("RGB").save(out, quality=94)
 
 def end_card(frame, out, next_title, next_thumb):
@@ -44,26 +44,26 @@ def end_card(frame, out, next_title, next_thumb):
     mk = mark(150); im.alpha_composite(mk, (W//2 - 75, 110))
     d = ImageDraw.Draw(im)
     shadow_text(d, (W//2, 300), "THE SPACE OF SOUND", ImageFont.truetype(ARCH, 40), CREAM, anchor="mm")
-    shadow_text(d, (W//2, 356), "a new room every few weeks", ImageFont.truetype(OSW, 32), DIM, anchor="mm")
+    shadow_text(d, (W//2, 356), "new music every week", ImageFont.truetype(OSW, 32), DIM, anchor="mm")
     # left: subscribe + like block (YouTube's end-screen subscribe element sits here; this is the painted version)
     d.rounded_rectangle((300, 470, 820, 820), radius=24, fill=(14, 12, 16, 170))
     d.ellipse((470, 500, 650, 680), fill=(0, 0, 0)); im.alpha_composite(mark(140), (490, 520)); d = ImageDraw.Draw(im)
     d.rounded_rectangle((420, 710, 700, 768), radius=10, fill=(204, 0, 0))
     d.text((560, 739), "SUBSCRIBE", font=ImageFont.truetype(ARCH, 26), fill=(255, 255, 255), anchor="mm")
-    shadow_text(d, (560, 800), "and a like, if it held you", ImageFont.truetype(OSW, 26), DIM, anchor="mm")
+    shadow_text(d, (560, 800), "like and subscribe", ImageFont.truetype(OSW, 26), DIM, anchor="mm")
     # right: next room tile (YouTube's video element goes here; painted placeholder under it)
     tile = Image.open(next_thumb).convert("RGB").resize((560, 315), Image.LANCZOS)
     d.rounded_rectangle((1090, 470, 1680, 820), radius=24, fill=(14, 12, 16, 170))
     im.paste(tile, (1105, 485)); d = ImageDraw.Draw(im)
-    shadow_text(d, (1385, 830), "NEXT ROOM", ImageFont.truetype(ARCH, 22), AMBER, anchor="mm")
+    shadow_text(d, (1385, 830), "MORE LIKE THIS", ImageFont.truetype(ARCH, 22), AMBER, anchor="mm")
     shadow_text(d, (1385, 866), next_title, ImageFont.truetype(OSW, 26), CREAM, anchor="mm")
     im.convert("RGB").save(out, quality=94)
 
 if __name__ == "__main__":
     intro_card("brand/ref/frames/dusk_8.png", f"{OUT}/intro_dusk.png",
-               "Subscribe for the next room.", "One hour, no drums, nothing that resolves.")
+               "If you liked this track, please like and subscribe.", "New music every week.")
     intro_card("brand/ref/frames/fw_8.png", f"{OUT}/intro_fairwind.png",
-               "Subscribe for the next room.", "One hour, no drums, nothing that resolves.")
+               "If you liked this track, please like and subscribe.", "New music every week.")
     end_card("brand/ref/frames/dusk_end.png", f"{OUT}/end_dusk.png", "Dawn Over Arrakis", "brand/ref/dawn_kg-RRBuGsuQ.jpg")
     # watermark asset: YouTube wants square, transparent PNG, 150x150 min, 1 MB max
     wm = mark(400, (255, 255, 255)); wm.save(f"{OUT}/watermark_aperture_400.png")
