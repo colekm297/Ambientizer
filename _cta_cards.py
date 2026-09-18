@@ -21,20 +21,23 @@ def shadow_text(d, xy, s, font, fill, anchor="la"):
     d.text((x, y), s, font=font, fill=fill, anchor=anchor)
 
 def intro_card(frame, out, headline, line2):
-    """Lower-left card, 10 s after the sting: small mark, two lines, a like + subscribe glyph row."""
+    """Lower-left card, 10 s after the sting: small mark, two lines, subscribe chip. Plate is sized to the text."""
     im = Image.open(frame).convert("RGBA")
-    # soft dark plate so it reads on a bright sky or a bright sea
+    f1, f2, f3 = ImageFont.truetype(OSW, 46), ImageFont.truetype(OSW, 32), ImageFont.truetype(OSW, 26)
+    d0 = ImageDraw.Draw(im)
+    tx = 100 + 120 + 40                      # plate left + mark + gap
+    w_text = max(d0.textlength(headline, font=f1), d0.textlength(line2, font=f2), 220 + 30 + d0.textlength("a like helps a lot too", font=f3))
+    x0, y0 = 72, 790; x1 = int(tx + w_text + 48); y1 = 1010
     plate = Image.new("RGBA", (W, H), (0, 0, 0, 0)); pd = ImageDraw.Draw(plate)
-    pd.rounded_rectangle((72, 790, 1010, 1010), radius=22, fill=(10, 8, 12, 150))
-    plate = plate.filter(ImageFilter.GaussianBlur(1.5)); im = Image.alpha_composite(im, plate)
-    mk = mark(120); im.alpha_composite(mk, (100, 835))
+    pd.rounded_rectangle((x0, y0, x1, y1), radius=22, fill=(10, 8, 12, 165))
+    im = Image.alpha_composite(im, plate.filter(ImageFilter.GaussianBlur(1.5)))
+    im.alpha_composite(mark(120), (100, 840))
     d = ImageDraw.Draw(im)
-    shadow_text(d, (250, 822), headline, ImageFont.truetype(OSW, 50), CREAM)
-    shadow_text(d, (250, 890), line2, ImageFont.truetype(OSW, 34), DIM)
-    # glyph row: thumbs-up + bell + SUBSCRIBE chip, deliberately small
-    d.rounded_rectangle((250, 945, 470, 993), radius=8, fill=(204, 0, 0))
-    d.text((360, 969), "SUBSCRIBE", font=ImageFont.truetype(ARCH, 22), fill=(255, 255, 255), anchor="mm")
-    d.text((500, 969), "a like helps a lot too", font=ImageFont.truetype(OSW, 28), fill=DIM, anchor="lm")
+    shadow_text(d, (tx, 822), headline, f1, CREAM)
+    shadow_text(d, (tx, 886), line2, f2, DIM)
+    d.rounded_rectangle((tx, 940, tx + 220, 988), radius=8, fill=(204, 0, 0))
+    d.text((tx + 110, 964), "SUBSCRIBE", font=ImageFont.truetype(ARCH, 22), fill=(255, 255, 255), anchor="mm")
+    d.text((tx + 250, 964), "a like helps a lot too", font=f3, fill=DIM, anchor="lm")
     im.convert("RGB").save(out, quality=94)
 
 def end_card(frame, out, next_title, next_thumb):
