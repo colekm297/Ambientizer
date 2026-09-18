@@ -128,3 +128,13 @@ When you are a **Cloud Agent** (running in Cursor's cloud VM, not on Cole's Mac)
    Light in the Dark); pullers lose 70-80% in the first minute yet recruit subs (Temples, Calypso).
    A curve that starts below 100% means viewers arrive mid-video (autoplay/playlist). Bought views
    (Calypso: 1,900 of 2,005 tagged advertising) bounce inside 36 s and mean nothing.
+13. **The Data API cannot pin a comment, and Studio hides the channel's own.** `commentThreads.insert`
+   posts as the channel; pinning is a Studio click only. Studio's comments page defaults to the
+   "Response status: Unresponded" chip, which hides the channel's own comments: clear it first.
+   Studio pages settle slowly: wait ~5 s after navigation and hover the row before the three-dot
+   menu exists, or clicks batched before the page settles are lost. Studio's Save on the video
+   details page resubmits the title/description it loaded, so API edits and a Studio session on the
+   same video must be sequenced, not run in parallel (2026-09-18).
+14. **Baking a CTA card into a live master is a new upload.** Replacing the file means a new video
+   ID and reset views/comments, so live videos get end screens + pinned comment + description
+   line + watermark; cards get baked only into new releases (`_cta_cards.py` has the mockups).
