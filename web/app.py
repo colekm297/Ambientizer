@@ -5004,11 +5004,21 @@ def oauth_callback():
     if not code:
         return "Authorization failed — no code received.", 400
 
+    # Prefer the pending flow whose CSRF state matches this callback; a stale
+    # flow from an earlier Connect click otherwise gets popped first and fails
+    # with mismatching_state (seen 2026-09-18).
+    state = request.args.get("state")
     flow = None
     for fid, f in list(_pending_yt_flows.items()):
-        flow = f
-        del _pending_yt_flows[fid]
-        break
+        if state and getattr(f, "oauth2session", None) is not None and getattr(f.oauth2session, "_state", None) == state:
+            flow = f
+            del _pending_yt_flows[fid]
+            break
+    if flow is None:
+        for fid, f in list(_pending_yt_flows.items()):
+            flow = f
+            del _pending_yt_flows[fid]
+            break
 
     if not flow:
         return "OAuth session expired. Go back and try Connect again.", 400

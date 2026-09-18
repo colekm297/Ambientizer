@@ -213,6 +213,10 @@ class YouTubePublisher:
 
     def complete_auth(self, flow, authorization_response: str = None, code: str = None):
         """Exchange authorization code for tokens and save them."""
+        # Google returns the union of every scope this account has granted the app
+        # (include_granted_scopes=true), e.g. yt-analytics.readonly from the analytics
+        # tool. oauthlib treats any extra scope as an error unless told to relax.
+        os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")
         if authorization_response:
             flow.fetch_token(authorization_response=authorization_response)
         else:
