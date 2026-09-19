@@ -46,7 +46,7 @@ def intro_overlay(path):
 def end_overlay(path):
     im = Image.new("RGBA", (W, H), (6, 5, 8, 115)); im.alpha_composite(mark(150), (W//2 - 75, 110)); d = ImageDraw.Draw(im)
     stext(d, (W//2, 300), "THE SPACE OF SOUND", ImageFont.truetype(ARCH, 40), CREAM, "mm")
-    stext(d, (W//2, 356), CTA2.lower().rstrip("."), ImageFont.truetype(OSW, 32), DIM, "mm")
+    stext(d, (W//2, 356), CTA2.rstrip("."), ImageFont.truetype(OSW, 32), DIM, "mm")
     d.rounded_rectangle((300, 470, 820, 820), radius=24, fill=(14, 12, 16, 200)); d.ellipse((470, 500, 650, 680), fill=(0, 0, 0, 255))
     im.alpha_composite(mark(140), (490, 520)); d = ImageDraw.Draw(im)
     d.rounded_rectangle((420, 710, 700, 768), radius=10, fill=(204, 0, 0, 255))
@@ -78,27 +78,37 @@ audio = f"{D}/_audio_final.wav"
 sh(["ffmpeg","-y","-v","error","-f","concat","-safe","0","-i",alst,"-af",f"afade=t=in:st=0:d=3,afade=t=out:st={TOTAL-6}:d=6",
     "-t",str(TOTAL),"-c:a","pcm_s16le",audio])
 
-# 2. video: sting + tiles, concat-copy, then ONE re-encode pass for the two card overlays
+# 2. video. Re-encoding the whole hour for two overlays took >1 h, so only the segments that carry a
+# card are re-encoded: seg1 = sting + 2 tiles (intro card), mid = 294 tiles concat-copied, tail = 3 tiles
+# (end card). All three use the same ENC params so the final concat is a stream copy.
 ENC = ["-c:v","libx264","-crf","16","-preset","slow","-pix_fmt","yuv420p","-r","24","-video_track_timescale","24000","-an"]
 cell_v, sting_v = f"{D}/_cell_enc.mp4", f"{D}/_sting_enc.mp4"
 sh(["ffmpeg","-y","-v","error","-i",SRC_VIDEO]+ENC+[cell_v])
 sh(["ffmpeg","-y","-v","error","-i",STING,"-vf","fps=24,scale=1920:1080"]+ENC[:-1]+[sting_v])
-sting_dur, cv = dur(sting_v), dur(cell_v); n_tiles = math.ceil((TOTAL - sting_dur)/cv)
-print(f"2. sting {sting_dur:.2f}s, cell {cv:.4f}s, {n_tiles} tiles", flush=True)
-vlst = f"{D}/_video.txt"
-with open(vlst,"w") as fh:
-    fh.write(f"file '{sting_v}'\n"); [fh.write(f"file '{cell_v}'\n") for _ in range(n_tiles)]
-vfull = f"{D}/_video_full.mp4"
-sh(["ffmpeg","-y","-v","error","-f","concat","-safe","0","-i",vlst,"-c","copy",vfull])
-# overlay pass: intro fades 1 s in/out; end card fades in over 2 s and holds to the end
-t0, t1, te = INTRO_IN, INTRO_OUT, TOTAL - END_LEN
-fc = (f"[1:v]format=rgba,fade=t=in:st={t0}:d=1:alpha=1,fade=t=out:st={t1-1}:d=1:alpha=1[i];"
-      f"[2:v]format=rgba,fade=t=in:st={te}:d=2:alpha=1[e];"
-      f"[0:v][i]overlay=0:0:enable='between(t,{t0},{t1})'[v1];[v1][e]overlay=0:0:enable='gte(t,{te})'[v]")
+sting_dur, cv = dur(sting_v), dur(cell_v)
+N_SEG1, N_TAIL = 2, 3
+n_mid = math.ceil((TOTAL - sting_dur - (N_SEG1 + N_TAIL) * cv) / cv)
+print(f"2. sting {sting_dur:.2f}s, cell {cv:.4f}s, tiles {N_SEG1}+{n_mid}+{N_TAIL}", flush=True)
+def concat_list(path, files):
+    with open(path, "w") as fh: [fh.write(f"file '{f}'\n") for f in files]
+seg1_src, mid_v, tail_src = f"{D}/_seg1_src.mp4", f"{D}/_mid.mp4", f"{D}/_tail_src.mp4"
+concat_list(f"{D}/_l1.txt", [sting_v] + [cell_v]*N_SEG1); sh(["ffmpeg","-y","-v","error","-f","concat","-safe","0","-i",f"{D}/_l1.txt","-c","copy",seg1_src])
+concat_list(f"{D}/_l2.txt", [cell_v]*n_mid);            sh(["ffmpeg","-y","-v","error","-f","concat","-safe","0","-i",f"{D}/_l2.txt","-c","copy",mid_v])
+concat_list(f"{D}/_l3.txt", [cell_v]*N_TAIL);           sh(["ffmpeg","-y","-v","error","-f","concat","-safe","0","-i",f"{D}/_l3.txt","-c","copy",tail_src])
+seg1_dur, mid_dur = dur(seg1_src), dur(mid_v); tail_start = seg1_dur + mid_dur
+t0, t1 = INTRO_IN, INTRO_OUT; te_rel = (TOTAL - END_LEN) - tail_start
+assert t1 < seg1_dur and te_rel > 2, (seg1_dur, te_rel)
+seg1_v, tail_v = f"{D}/_seg1.mp4", f"{D}/_tail.mp4"
+sh(["ffmpeg","-y","-v","error","-i",seg1_src,"-loop","1","-i",intro_png,"-filter_complex",
+    f"[1:v]format=rgba,fade=t=in:st={t0}:d=1:alpha=1,fade=t=out:st={t1-1}:d=1:alpha=1[i];[0:v][i]overlay=0:0:enable='between(t,{t0},{t1})'[v]",
+    "-map","[v]","-t",str(seg1_dur)]+ENC+[seg1_v])
+sh(["ffmpeg","-y","-v","error","-i",tail_src,"-loop","1","-i",end_png,"-filter_complex",
+    f"[1:v]format=rgba,fade=t=in:st={te_rel}:d=2:alpha=1[e];[0:v][e]overlay=0:0:enable='gte(t,{te_rel})'[v]",
+    "-map","[v]","-t",str(TOTAL - tail_start)]+ENC+[tail_v])
+concat_list(f"{D}/_l4.txt", [seg1_v, mid_v, tail_v])
 vcards = f"{D}/_video_cards.mp4"
-sh(["ffmpeg","-y","-v","error","-i",vfull,"-loop","1","-i",intro_png,"-loop","1","-i",end_png,
-    "-filter_complex",fc,"-map","[v]","-t",str(TOTAL)]+ENC+[vcards])
-print("2b. cards overlaid", flush=True)
+sh(["ffmpeg","-y","-v","error","-f","concat","-safe","0","-i",f"{D}/_l4.txt","-c","copy",vcards])
+print(f"2b. cards overlaid: seg1 {seg1_dur:.3f}s, mid {mid_dur:.3f}s, tail from {tail_start:.3f}s, end card at {tail_start+te_rel:.3f}s", flush=True)
 
 # 3. mux
 master = f"{D}/hailmary_tauceti_1h.mp4"
@@ -117,5 +127,6 @@ print(f"4. joins {np.mean(jv):.5f} vs controls {np.mean(cvv):.5f} -> {'CLEAN' if
 lo = subprocess.run(["ffmpeg","-v","info","-i",master,"-vn","-af","ebur128=peak=true","-f","null","-"],capture_output=True,text=True).stderr
 tail = lo[lo.rfind("Integrated loudness"):] if "Integrated loudness" in lo else lo[-600:]
 print("5. LOUDNESS", " ".join(tail.split())[:300], flush=True)
-for f in (big, head, audio, cell_v, sting_v, vfull, vcards, alst, vlst): os.path.exists(f) and os.remove(f)
+import glob
+for f in [big, head, audio, cell_v, sting_v, vcards, alst, seg1_src, mid_v, tail_src, seg1_v, tail_v] + glob.glob(f"{D}/_l?.txt"): os.path.exists(f) and os.remove(f)
 print("DONE", flush=True)
