@@ -687,7 +687,7 @@ def run_generation(
     try:
         agent = create_orchestrator(mastering=mastering)
         # Pick the ElevenLabs Music model for this job (v1 default / v2 opt-in).
-        if getattr(agent, "generator", None) and music_model in ("music_v1", "music_v2"):
+        if getattr(agent, "generator", None) and music_model in ("music_v1", "music_v2", "music_v2_5"):
             agent.generator.music_model = music_model
         gen_mode = GenerationMode(mode) if mode in ("ambient", "musical") else GenerationMode.AMBIENT
         result = agent.generate(
@@ -1652,7 +1652,7 @@ def api_generate():
     except (TypeError, ValueError):
         stitch_cell_sec = 0
     music_model = data.get("music_model", "music_v1")
-    if music_model not in ("music_v1", "music_v2"):
+    if music_model not in ("music_v1", "music_v2", "music_v2_5"):
         music_model = "music_v1"
     composition_plan = data.get("composition_plan")  # optional, edited in the UI
 

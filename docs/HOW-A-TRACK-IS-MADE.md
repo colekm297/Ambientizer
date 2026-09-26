@@ -84,3 +84,27 @@ attachments.
 - **ElevenLabs sometimes returns less than asked.** The log line `PCM: ... (expected ~600s)` shows it:
   the non-raw attempts that day came back 60 s, 405 s, 408 s. Check the generated length before
   showing Cole a take, and regenerate if it is short.
+
+## What Cole's 3-star prompts have in common (read before writing one)
+
+From every job he rated 3 (Calypso a38b5c83, Dawn 10919aaa, observatory 94b60fc9, Fair Wind 324a1f7b and
+1af58c0f, Sirens eec20d97):
+
+- **A known world and a specific moment in it** (Calypso's shore, dawn over Arrakis, the ship heading
+  home, the sirens' strait).
+- **A pulse.** Most have a soft frame drum "like a distant heartbeat" or oars keeping rowing time. That
+  pulse is what makes a track feel like it is going somewhere. Agent prompts banned all percussion; that
+  is a large part of why they were boring.
+- **A hook.** Sirens: "a wordless female vocal carries an achingly sweet three-note descending call."
+  Fair Wind: a lyre tracing "slow yearning figures", flute "homeward phrases". One recognizable idea.
+- **A journey across the 10 minutes**, written out: "opens with wind, heartbeat pulse and pedal; strings
+  and horns gradually fill like the day turning gold; at its fullest the music becomes closer and
+  warmer", or "the call grows slowly nearer, peaks past the midpoint, then recedes as the ship passes."
+- **Named parts** (THE WIND / THE SHIP / HOME AHEAD; THE LURE / THE PERIL / THE SHIP), each with a job.
+- **Diegetic sound** from the scene: rope and hull creaks, waves at the bow, wind in a sail.
+- Specific harmony (a named progression over a pedal), and specific bans only where a real problem was
+  heard (no cymbals, no electric guitar).
+
+What agent prompts did instead, and must stop doing: "nothing resolves", "no builds", "no percussion",
+"keep it gentle the whole way through". Those instructions produce exactly what Cole called boring
+tracks that go nowhere.
