@@ -27,7 +27,9 @@ Grok visuals / procedural motion → ffmpeg → YouTube publish. Public repo.
 
 - App: `web/app.py` on **port 5050** (5000 is taken by macOS AirPlay), in `.venv`.
 - Reachable from any of Cole's devices over Tailscale at **http://ambientizer-mac.tail07d072.ts.net:5050**
-  (`tailscale serve`, daemon socket `~/.tailscale/tailscaled.sock`; pass `--socket` to the brew CLI). Anything
+  (`tailscale serve` on the brew userspace daemon, socket `~/.tailscale/tailscaled.sock`; pass `--socket` to the
+  brew CLI). The Mac itself resolves that name only because the Tailscale Mac app is ALSO installed (node
+  `macbook-pro`, 2026-09-26); the userspace daemon alone cannot resolve `.ts.net` locally. Keep both. Anything
   Cole should listen to or look at goes THERE (the app's history list), never as file attachments.
 - It runs as a **launchd service** (persists across reboot). After editing code you MUST restart:
   ```
