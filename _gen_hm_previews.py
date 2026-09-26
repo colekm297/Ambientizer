@@ -13,7 +13,8 @@ TAKES = {
     "wordless choir 'ah' and gentle guitar harmonics, with a faint warm pad and distant starlight shimmer. Like a lullaby sung to the "
     "stars, quiet and kind. STRICT: no drums, no percussion, no low ominous drones, no dissonance, no dread; unhurried, nothing resolves.",
 }
-for name, prompt in TAKES.items():
+if __name__ == "__main__":
+  for name, prompt in TAKES.items():
     g = requests.post(f"{BASE}/api/generate", json={"prompt": prompt, "mode": "musical", "approach": "unified", "music_length": 1,
          "duration": 1, "planner_mode": "claude", "music_generation_mode": "text", "music_model": "music_v1", "mastering": True}, timeout=60).json()
     jid = g.get("job_id"); print(name, "JOB", jid, flush=True)
@@ -25,4 +26,4 @@ for name, prompt in TAKES.items():
     if wav and os.path.exists(wav):
         subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", wav, "-t", "62", "-af", "afade=t=out:st=58:d=4", "-c:a", "libmp3lame", "-b:a", "192k", f"{D}/{name}.mp3"], check=True)
         print(name, "MP3", f"{D}/{name}.mp3", flush=True)
-print("DONE", flush=True)
+  print("DONE", flush=True)

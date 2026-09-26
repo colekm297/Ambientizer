@@ -87,6 +87,11 @@ When you are a **Cloud Agent** (running in Cursor's cloud VM, not on Cole's Mac)
 - You push to a branch + open a PR; Cole reviews/merges from his phone. Keep commit messages clear
   (per "Multi-agent workflow") — they're how the local agents learn what you changed.
 
+## How a track is made
+
+**Read `docs/HOW-A-TRACK-IS-MADE.md` before generating music for a release.** One 10-minute text-mode
+take, heard as one loop in the app, looped to the hour. No stitching. Cole picks the music.
+
 ## CRITICAL GOTCHAS (these have bitten us — don't repeat)
 
 1. **launchd has a minimal PATH** (no Homebrew). ffmpeg/ffprobe live in `/opt/homebrew/bin`, so
