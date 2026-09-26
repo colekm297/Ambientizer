@@ -65,7 +65,7 @@ attachments.
 
 ## Rules for agent sessions
 
-1. Generate candidates the way Cole does: **text mode, 10 min, one take each**, his model. Not stitch,
+1. Generate candidates the way Cole does: **text mode, 10 min, one take each, `planner_mode: "raw"`**, his model. Not stitch,
    not 1-minute sketches (a 1-minute clip cannot show whether the loop holds, which is the whole
    question), not 30-minute assemblies.
 2. The music is Cole's pick. Put 2-3 candidate takes in the app, tell him (via Chief) the titles, stop.
@@ -74,3 +74,13 @@ attachments.
 4. Prompts: Cole's prompts are long and specific (key, tempo, harmonic motion, named instruments and
    what each does, what must never happen). Write candidates at that level, and never put "deep sub
    drone" or "never resolves" on a piece meant to feel hopeful; that is where Tau Ceti Vigil went dark.
+
+## Two traps found 2026-09-26
+
+- **Raw mode is `"planner_mode": "raw"`** in the `/api/generate` body (the UI's "Raw (no interpretation)"
+  checkbox sends exactly that). A `"raw": true` field is ignored, and then the interpreter rewrites the
+  prompt: it turned "D major, hopeful" into "Eb minor" on the first Three Knocks attempt. Fair Wind's
+  take was raw (its layer is named "Raw prompt"). Send candidates raw unless Cole wants interpretation.
+- **ElevenLabs sometimes returns less than asked.** The log line `PCM: ... (expected ~600s)` shows it:
+  the non-raw attempts that day came back 60 s, 405 s, 408 s. Check the generated length before
+  showing Cole a take, and regenerate if it is short.
