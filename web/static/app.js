@@ -1823,7 +1823,9 @@
     const label = document.getElementById("now-playing-label");
     if (!label) return;
     if (!data) { label.textContent = "No tracks yet"; return; }
-    const title = (data.title || data.prompt || "Untitled").trim();
+    const _h = (typeof _historyCache !== "undefined" && data.job_id) ? _historyCache.find((j) => j.job_id === data.job_id) : null;
+    const _w = (data.world || (_h && _h.world) || "");
+    const title = (_w ? _w.toUpperCase() + " \u00B7 " : "") + (data.title || (_h && _h.title) || data.prompt || "Untitled").trim();
     const rating = data.rating > 0 ? data.rating : (data.favorite ? 1 : 0);
     label.textContent = (rating > 0 ? "★".repeat(rating) + " " : "") + title;
   }
@@ -3445,7 +3447,7 @@
 
     if (q) {
       items = items.filter((j) => {
-        const hay = [j.title, j.seed_idea, j.prompt, j.mood, j.raw_seed]
+        const hay = [j.world, j.title, j.seed_idea, j.prompt, j.mood, j.raw_seed]
           .filter(Boolean).join(" ").toLowerCase();
         return hay.includes(q);
       });
@@ -3502,7 +3504,7 @@
       const modeTag = mode === "stitch" ? "Stitch" : mode === "composition_plan" ? "Plan" : "Text";
       const d = j.created_at ? new Date(j.created_at) : null;
       const dateStr = d ? d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
-      const title = (j.title || j.prompt || "Untitled").trim();
+      const title = (j.world ? j.world.toUpperCase() + " \u00B7 " : "") + (j.title || j.prompt || "Untitled").trim();
       const world = (j.seed_idea || "").trim();
       let visualBadge = "";
       if (j.youtube_url) visualBadge = `<span class="lib-visual lib-visual-published">Published</span>`;
@@ -3608,7 +3610,8 @@
       // Prefer the short evocative title; fall back to the prompt if absent.
       const label = (j.title && j.title.trim()) ? j.title.trim() : j.prompt;
       const shown = label.length > 60 ? label.slice(0, 57) + "..." : label;
-      opt.textContent = `${star}${dot} ${shown}  (${timeStr})`;
+      const world = j.world ? `${j.world.toUpperCase()} \u00B7 ` : "";
+      opt.textContent = `${star}${dot} ${world}${shown}  (${timeStr})`;
       // Full description on hover so identical titles are still distinguishable.
       opt.title = j.prompt || "";
 

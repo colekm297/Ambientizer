@@ -92,9 +92,9 @@ From every job he rated 3 (Calypso a38b5c83, Dawn 10919aaa, observatory 94b60fc9
 
 - **A known world and a specific moment in it** (Calypso's shore, dawn over Arrakis, the ship heading
   home, the sirens' strait).
-- **A pulse.** Most have a soft frame drum "like a distant heartbeat" or oars keeping rowing time. That
-  pulse is what makes a track feel like it is going somewhere. Agent prompts banned all percussion; that
-  is a large part of why they were boring.
+- **A pulse, but barely there.** Most have a frame drum "like a distant heartbeat", "very quiet", far back
+  in the mix. It gives motion without becoming a beat. Cole, 2026-09-27: percussion-heavy is NOT good. The
+  Three Knocks v2.5 try (steel drum + woodblock up front) overshot. Keep it one soft distant pulse.
 - **A hook.** Sirens: "a wordless female vocal carries an achingly sweet three-note descending call."
   Fair Wind: a lyre tracing "slow yearning figures", flute "homeward phrases". One recognizable idea.
 - **A journey across the 10 minutes**, written out: "opens with wind, heartbeat pulse and pedal; strings
@@ -115,3 +115,10 @@ tracks that go nowhere.
   was saved as garbled half-speed noise. It now decides from the samples (`_detect_pcm_channels`). The same
   day's first "v2.5" Three Knocks was a cache hit on the v2 file because the model was not in the cache
   key; it is now.
+
+## Finding songs in the app
+
+Every song in the list starts with its WORLD (DUNE / ODYSSEY / HAIL MARY / INTERSTELLAR), inferred from the
+prompt or set explicitly with `POST /api/job/<id>/meta {"title", "world"}`. Raw-mode takes get the first words
+of the prompt as a title, so give every candidate a real title with that endpoint before telling Cole about it,
+and tell him the title exactly as the list shows it.
