@@ -403,6 +403,7 @@ def _save_job(job_id: str):
         "stitch_cell_sec": job.get("stitch_cell_sec"),
         "raw_seed": job.get("raw_seed"),
         "seed_idea": job.get("seed_idea", ""),
+        "world": job.get("world", ""),
         "favorite": job.get("favorite", False),
         "rating": job.get("rating", 0),
         "ai_score": job.get("ai_score"),
@@ -472,6 +473,7 @@ def _load_saved_jobs():
                 "adjuster": None,
                 "feedback_history": data.get("feedback_history", []),
                 "error": data.get("error"),
+                "world": data.get("world", ""),
                 "created_at": data.get("created_at", ""),
                 "visual_image_path": data.get("visual_image_path"),
                 "visual_image_prompt": data.get("visual_image_prompt"),
@@ -3010,6 +3012,46 @@ def api_audio_extended(job_id: str):
     return send_media(path, mimetype="audio/wav", as_attachment=True)
 
 
+# World tags so the song list says at a glance which story a track belongs to (Cole, 2026-09-27).
+# An explicit job["world"] always wins; otherwise it is inferred from the title/prompt.
+_WORLD_KEYWORDS = [
+    ("Hail Mary", ("hail mary", "tau ceti", "rocky", "grace and rocky", "astrophage", "eridian")),
+    ("Odyssey", ("odyss", "ithaca", "siren", "calypso", "ogygia", "aeolus", "penelope", "homer",
+                 "wine-dark", "cyclops", "circe", "fair wind")),
+    ("Dune", ("dune", "arrakis", "sietch", "fremen", "caladan", "shai-hulud", "sandworm", "atreides")),
+    ("Interstellar", ("interstellar", "gargantua", "endurance", "cooper")),
+]
+
+
+def _infer_world(job) -> str:
+    if job.get("world"):
+        return job["world"]
+    cfg = job.get("config")
+    hay = " ".join(filter(None, [(getattr(cfg, "title", "") or "") if cfg else "", job.get("prompt") or "",
+                                 job.get("seed_idea") or "", job.get("raw_seed") or ""])).lower()
+    for world, keys in _WORLD_KEYWORDS:
+        if any(k in hay for k in keys):
+            return world
+    return ""
+
+
+@app.route("/api/job/<job_id>/meta", methods=["POST"])
+def set_job_meta(job_id: str):
+    """Set a job's display title and/or world. Body {"title": str, "world": str}."""
+    with jobs_lock:
+        job = jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+    data = request.get_json(silent=True) or {}
+    if "world" in data:
+        job["world"] = (data["world"] or "").strip()
+    if "title" in data and job.get("config") is not None:
+        job["config"].title = (data["title"] or "").strip()
+    _save_job(job_id)
+    return jsonify({"job_id": job_id, "world": job.get("world", ""),
+                    "title": getattr(job.get("config"), "title", "") if job.get("config") else ""})
+
+
 @app.route("/api/history")
 def api_history():
     """Return ALL generation jobs for the library search/filter/sort panel."""
@@ -3023,6 +3065,7 @@ def api_history():
             "prompt": j["prompt"],
             "raw_seed": j.get("raw_seed"),
             "seed_idea": j.get("seed_idea", ""),
+            "world": _infer_world(j),
             "title": (getattr(cfg, "title", "") or "").strip(),
             "mood": getattr(cfg, "mood", None) if cfg else None,
             "status": j["status"],
