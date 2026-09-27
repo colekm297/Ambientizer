@@ -227,7 +227,8 @@ class ElevenLabsSampleGenerator:
         plan_part = ""
         if music_mode == "composition_plan" and provided_plan:
             plan_part = "|plan=" + hashlib.sha256(json.dumps(provided_plan, sort_keys=True).encode()).hexdigest()[:10]
-        cache_key = hashlib.sha256(f"{api_tag}|{music_mode}|{prompt}|{duration}{seed_part}{plan_part}{stitch_part}".encode()).hexdigest()[:16]
+        model_part = f"|model={self.music_model}" if (is_musical and self.music_model != "music_v1") else ""
+        cache_key = hashlib.sha256(f"{api_tag}|{music_mode}|{prompt}|{duration}{seed_part}{plan_part}{stitch_part}{model_part}".encode()).hexdigest()[:16]
         wav_path = str(self.cache_dir / f"{cache_key}.wav")
 
         if os.path.exists(wav_path):
@@ -316,15 +317,7 @@ class ElevenLabsSampleGenerator:
         """Save raw PCM 16-bit LE bytes directly to WAV, auto-detecting channels."""
         import wave
         n_bytes = len(audio_bytes)
-        channels = 1
-        if expected_duration > 0:
-            mono_dur = n_bytes / (sample_rate * 2)
-            stereo_dur = n_bytes / (sample_rate * 4)
-            if abs(stereo_dur - expected_duration) < abs(mono_dur - expected_duration):
-                channels = 2
-        elif n_bytes > 0:
-            # No expected duration hint — assume stereo (ElevenLabs default)
-            channels = 2
+        channels = _detect_pcm_channels(audio_bytes, sample_rate, expected_duration)
 
         with wave.open(wav_path, "wb") as wf:
             wf.setnchannels(channels)
@@ -807,3 +800,32 @@ class ElevenLabsSampleGenerator:
             LayerType.DETAIL: 4.0,
         }
         return min(durations.get(layer_type, 5.0), HARD_MAX_SFX_SEC)
+
+def _detect_pcm_channels(audio_bytes: bytes, sample_rate: int = 44100, expected_duration: float = 0) -> int:
+    """Decide mono vs interleaved stereo from the samples themselves.
+
+    The old rule picked whichever reading landed closer to the REQUESTED length. Music v2.5 returns
+    less than asked (a 10-min request came back ~5.8 min of stereo), so the mono reading "won" and
+    the take was saved as garbled half-speed audio (2026-09-26). Real audio is smoother sample to
+    sample than two samples apart; interleaved stereo read as mono is the opposite (adjacent values
+    alternate L/R). Identical L/R pairs are also stereo.
+    """
+    import numpy as np
+    n = len(audio_bytes) // 2
+    if n < sample_rate:  # under ~1 s: fall back to the length rule
+        if expected_duration > 0:
+            mono_dur, stereo_dur = n / sample_rate, n / (2 * sample_rate)
+            return 2 if abs(stereo_dur - expected_duration) < abs(mono_dur - expected_duration) else 1
+        return 2
+    x = np.frombuffer(audio_bytes[: 2 * n], dtype="<i2").astype(np.float64)
+    mid = len(x) // 2
+    seg = x[max(0, mid - 441000): mid + 441000]  # ~10 s from the middle, away from fades
+    seg = seg[: len(seg) // 2 * 2]
+    if np.allclose(seg[0::2], seg[1::2], atol=2):
+        return 2
+    def lag(k):
+        a, b = seg[:-k], seg[k:]
+        if a.std() == 0 or b.std() == 0:
+            return 0.0
+        return float(np.corrcoef(a, b)[0, 1])
+    return 2 if lag(2) > lag(1) else 1

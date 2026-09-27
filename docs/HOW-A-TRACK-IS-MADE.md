@@ -108,3 +108,10 @@ From every job he rated 3 (Calypso a38b5c83, Dawn 10919aaa, observatory 94b60fc9
 What agent prompts did instead, and must stop doing: "nothing resolves", "no builds", "no percussion",
 "keep it gentle the whole way through". Those instructions produce exactly what Cole called boring
 tracks that go nowhere.
+- **Music v2.5 returns about 6 minutes, not 10** (asked 600 s, got 348 s and 375 s on 2026-09-26; the docs
+  now say a 5-minute max). On v2.5 the loop is ~6 min; on v2 it is the full 10.
+- **Channel detection bug, fixed 2026-09-26.** `_save_pcm_to_wav` used to pick mono vs stereo by whichever
+  reading landed nearer the REQUESTED length. A short v2.5 return made the mono reading win, and the take
+  was saved as garbled half-speed noise. It now decides from the samples (`_detect_pcm_channels`). The same
+  day's first "v2.5" Three Knocks was a cache hit on the v2 file because the model was not in the cache
+  key; it is now.
