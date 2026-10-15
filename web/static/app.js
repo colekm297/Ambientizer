@@ -1437,6 +1437,7 @@
   const mixerBadge = document.getElementById("mixer-badge");
 
   function formatTime(sec) {
+    if (!isFinite(sec)) return "--:--";  // first play streams while encoding: length unknown until cached
     const m = Math.floor(sec / 60);
     const s = Math.floor(sec % 60);
     return `${m}:${s.toString().padStart(2, "0")}`;
