@@ -3021,6 +3021,7 @@ _WORLD_KEYWORDS = [
                  "wine-dark", "cyclops", "circe", "fair wind")),
     ("Dune", ("dune", "arrakis", "sietch", "fremen", "caladan", "shai-hulud", "sandworm", "atreides")),
     ("Interstellar", ("interstellar", "gargantua", "endurance", "cooper")),
+    ("Lord of the Rings", ("lord of the rings", "middle-earth", "frodo", "gandalf", "the shire", "rivendell", "grey havens")),
 ]
 
 

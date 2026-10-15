@@ -5,7 +5,7 @@ Written by `daily_experiment.py`; ratings are read live from the app.
 
 | Week | Takes | Rated | Stars | Avg of rated |
 |---|---|---|---|---|
-| 2026-W42 | 1 | 0 | 0 | - |
+| 2026-W42 | 2 | 0 | 0 | - |
 
 ## What it has learned
 
@@ -44,3 +44,4 @@ Today's experiment: exploit of 10919aaa (Dawn Over Arrakis, 3 stars) changing ex
 | Date | Mode | World | Title | Testing | Stars |
 |---|---|---|---|---|---|
 | 2026-10-14 | - | Interstellar | The Endurance Passes Saturn | Whether the proven 3-star shape (named parts, one soft distant pulse, a sung hook, a bloom past the middle) still lands with a church pipe organ as the lead voice instead of the lyre/duduk/dulcimer folk palette. | - |
+| 2026-10-14 | explore | Lord of the Rings | Frodo Sails West | Whether the 3-star sea-voyage shape works in a new world (The Lord of the Rings), with a wordless female voice as the hook in a hopeful scene. The only sung hook he has rated before was in the perilous Sirens take. (Panel winner; judge fixes applied: less grief, no gulls, voice kept distant.) | - |
