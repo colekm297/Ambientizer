@@ -122,3 +122,11 @@ Every song in the list starts with its WORLD (DUNE / ODYSSEY / HAIL MARY / INTER
 prompt or set explicitly with `POST /api/job/<id>/meta {"title", "world"}`. Raw-mode takes get the first words
 of the prompt as a title, so give every candidate a real title with that endpoint before telling Cole about it,
 and tell him the title exactly as the list shows it.
+
+## Daily experiments (since 2026-10-14)
+
+`daily_experiment.py`, run by launchd `com.cole.ambientizer-daily` at 07:30, designs one experiment a day with
+Claude (claude-opus-5) from the 3-star pattern, Cole's best prompts, and the ratings on past experiments, then
+generates it raw / text / music_v2 / 10 min and titles it "Daily · <title>" with its world. Ledger:
+`data/daily_experiments.jsonl`; weekly stars: `docs/DAILY-EXPERIMENTS.md`. Cole's metric is stars per week.
+Nothing publishes. To stop it: `launchctl bootout gui/$UID/com.cole.ambientizer-daily`.
