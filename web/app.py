@@ -2709,11 +2709,13 @@ def _serve_audio_file(path: str, job_id: str):
         try:
             if (not os.path.exists(mp3_path)
                     or os.path.getmtime(mp3_path) < os.path.getmtime(path)):
-                from pydub import AudioSegment
-                seg = AudioSegment.from_file(path)
-                if doubled:
-                    seg = seg + seg
-                seg.export(mp3_path, format="mp3", bitrate="320k")
+                # First play of this track: don't make the listener wait for the whole
+                # encode (a 20-min flat doubled to 40 min took 18 s at 320k before the first
+                # byte; Cole saw 20-30 s per first play, 2026-10-15). Start the encode in the
+                # background and stream the growing file now; it lands in the cache for the
+                # Range-capable path above on every later play.
+                state = _start_stream_encode(path, mp3_path, doubled)
+                return _tail_stream_encode(state)
             # conditional=True → real 206/Range support. WITHOUT it, the browser can only
             # play sequentially from what it's downloaded so far — seeking anywhere beyond
             # the buffered window snaps back to ~0 (reproduced: seek to 1050s on a 1750s
@@ -2732,6 +2734,109 @@ def _serve_audio_file(path: str, job_id: str):
             print(f"  [api_audio] mp3 transcode failed for {job_id}: {e} — serving WAV")
     return send_media(path, mimetype="audio/wav", as_attachment=False, conditional=True)
 
+
+
+# ── First-play streaming encode (2026-10-15) ───────────────────────────────────────
+# One background ffmpeg per target mp3. Requests that arrive while it runs all tail the
+# same .part file, and a client that disconnects doesn't cancel the encode, so the cache
+# always completes. ffmpeg reads the WAV directly (-stream_loop 1 plays it twice for the
+# loop=2 audition) instead of decoding the whole file into Python first.
+_stream_encodes: dict = {}
+_stream_encodes_lock = threading.Lock()
+
+
+def _start_stream_encode(src_path: str, mp3_path: str, doubled: bool) -> dict:
+    with _stream_encodes_lock:
+        st = _stream_encodes.get(mp3_path)
+        if st and not st["done"].is_set():
+            return st
+        part = mp3_path + ".part"
+        st = {"part": part, "final": mp3_path, "done": threading.Event(), "ok": False}
+        _stream_encodes[mp3_path] = st
+
+    def run():
+        try:
+            if os.path.exists(part):
+                os.remove(part)
+            cmd = [shutil.which("ffmpeg") or "/opt/homebrew/bin/ffmpeg", "-v", "error", "-y"]
+            if doubled:
+                cmd += ["-stream_loop", "1"]
+            cmd += ["-i", src_path, "-vn", "-c:a", "libmp3lame", "-b:a", "320k",
+                    "-write_xing", "0", "-f", "mp3", part]
+            subprocess.run(cmd, check=True, capture_output=True)
+            os.replace(part, mp3_path)
+            st["ok"] = True
+        except Exception as e:
+            print(f"  [stream-encode] failed for {mp3_path}: {e}")
+        finally:
+            st["done"].set()
+
+    threading.Thread(target=run, daemon=True).start()
+    return st
+
+
+def _tail_stream_encode(st: dict):
+    """Stream an mp3 while ffmpeg is still writing it (HTTP 200, no length).
+    Playback starts as soon as the first frames exist; seeking works from the next play."""
+    from flask import Response
+
+    def gen():
+        pos = 0
+        deadline = time.time() + 20
+        while not os.path.exists(st["part"]) and not st["done"].is_set():
+            if time.time() > deadline:
+                return
+            time.sleep(0.05)
+        path = st["part"]
+        while True:
+            src = path if os.path.exists(path) else st["final"]
+            if not os.path.exists(src):
+                return
+            with open(src, "rb") as fh:
+                fh.seek(pos)
+                chunk = fh.read(256 * 1024)
+            if chunk:
+                pos += len(chunk)
+                yield chunk
+                continue
+            if st["done"].is_set():
+                # drain whatever the rename moved to the final path
+                if os.path.exists(st["final"]) and os.path.getsize(st["final"]) > pos:
+                    continue
+                return
+            time.sleep(0.1)
+
+    resp = Response(gen(), mimetype="audio/mpeg", direct_passthrough=True)
+    resp.headers["Cache-Control"] = "no-cache"
+    resp.headers["X-Stream-Encode"] = "live"
+    return resp
+
+
+def _prewarm_streams_loop():
+    """Keep the most recent songs' first play instant: build their stream cache in the
+    background, one at a time, through the same endpoint the player uses."""
+    import urllib.request
+    time.sleep(60)
+    while True:
+        try:
+            with jobs_lock:
+                recent = sorted((j for j in jobs.values() if j.get("status") == "complete"),
+                                key=lambda j: j.get("created_at", ""), reverse=True)[:25]
+            for j in recent:
+                jid = j["job_id"]
+                if os.path.exists(PROJECT_ROOT / "output" / f"{jid}_stream_x2.mp3"):
+                    continue
+                url = f"http://127.0.0.1:{_PREWARM_PORT}/api/audio/{jid}?fmt=mp3&loop=2&prewarm=1"
+                with urllib.request.urlopen(url, timeout=600) as r:
+                    while r.read(1 << 20):
+                        pass
+                print(f"  [prewarm] stream cached for {jid}")
+        except Exception as e:
+            print(f"  [prewarm] {e}")
+        time.sleep(300)
+
+
+_PREWARM_PORT = 5050
 
 @app.route("/api/audio/<job_id>")
 def api_audio(job_id: str):
@@ -6429,4 +6534,6 @@ if __name__ == "__main__":
     # Debug (Werkzeug debugger = remote code execution) only when explicitly
     # asked for AND the app is not password-gated for public exposure.
     _debug = os.environ.get("AMBIENTIZER_DEBUG", "0") == "1" and not ACCESS_PASSWORD
+    _PREWARM_PORT = cli_args.port
+    threading.Thread(target=_prewarm_streams_loop, daemon=True).start()
     app.run(debug=_debug, use_reloader=False, port=cli_args.port, host=cli_args.host, threaded=True)
