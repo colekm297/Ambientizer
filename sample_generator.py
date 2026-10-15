@@ -85,7 +85,7 @@ class ElevenLabsSampleGenerator:
         self.client = ElevenLabs(api_key=api_key)
         # ElevenLabs Music model. "music_v1" (default, fully tuned) or "music_v2"
         # (better prompt adherence + long-form). Set per-job by the orchestrator.
-        self.music_model = "music_v1"
+        self.music_model = "music_v2"
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self._spend_log_path = self.cache_dir / "_daily_spend.json"

@@ -23,6 +23,7 @@ import uuid
 import subprocess
 from pathlib import Path
 from typing import Optional
+from llm import llm_create, llm_text  # every Claude call goes through llm.py (Opus 5.5)
 
 
 def shorts_dir(project_root: Path) -> Path:
@@ -115,7 +116,7 @@ def pick_segment_auto(
             '{"start_sec": <float>, "description": "<one-line vibe summary>"}'
         )
         resp = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-4-argon",
             contents=[
                 prompt,
                 types.Part.from_bytes(data=audio_bytes, mime_type="audio/mpeg"),
@@ -265,12 +266,12 @@ def claude_short_metadata(
         f"In the description, include this link line exactly when you mention the full track:\n"
         f"{link_line}"
     )
-    msg = client.messages.create(
-        model="claude-sonnet-4-6",
+    msg = llm_create(client, 
+        model="claude-opus-5-5",
         max_tokens=600,
         messages=[{"role": "user", "content": prompt}],
     )
-    raw = msg.content[0].text.strip()
+    raw = llm_text(msg).strip()
     if raw.startswith("```"):
         raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
         if raw.endswith("```"):

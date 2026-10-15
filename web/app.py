@@ -96,6 +96,7 @@ app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0  # Never cache static files during d
 # POSTing the password to /login. Unset = no gate (normal local/Tailscale use).
 import hmac as _hmac
 import secrets as _secrets
+from llm import llm_create, llm_text  # every Claude call goes through llm.py (Opus 5.5)
 
 ACCESS_PASSWORD = os.environ.get("AMBIENTIZER_PASSWORD", "")
 app.secret_key = os.environ.get("FLASK_SECRET_KEY") or _secrets.token_hex(32)
@@ -960,8 +961,8 @@ def analyze_reference():
                     layers_text = "\n".join(f"- {r.get('layer_name', 'Layer')}: {r.get('elevenlabs_prompt', '')}" for r in recreate)
                     @retry_with_backoff(max_retries=3, base_delay=2.0, retryable_check=is_transient_api_error)
                     def _call_summarize():
-                        return client.messages.create(
-                            model="claude-sonnet-4-6",
+                        return llm_create(client, 
+                            model="claude-opus-5-5",
                             max_tokens=300,
                             messages=[{
                                 "role": "user",
@@ -980,7 +981,7 @@ Output ONLY the prompt text, nothing else.""",
                         )
 
                     msg = _call_summarize()
-                    suggested_prompt = msg.content[0].text.strip().strip('"')
+                    suggested_prompt = llm_text(msg).strip().strip('"')
                 except Exception as e:
                     print(f"  Claude summarize failed: {e}")
                     suggested_prompt = feel
@@ -1197,7 +1198,7 @@ def enhance_prompt():
             search_tool = types.Tool(google_search=types.GoogleSearch())
             gemini_limiter.record_call("enhance_search")
             response = client.models.generate_content(
-                model="gemini-2.5-flash",
+                model="gemini-4-argon",
                 contents=search_query,
                 config=types.GenerateContentConfig(tools=[search_tool]),
             )
@@ -1431,8 +1432,8 @@ Output ONLY valid JSON, no markdown fences."""
 
     @retry_with_backoff(max_retries=3, base_delay=2.0, retryable_check=is_transient_api_error)
     def _call_enhance():
-        return client.messages.create(
-            model="claude-opus-4-7",
+        return llm_create(client, effort="medium", 
+            model="claude-opus-5-5",
             max_tokens=1200,
             system=ENHANCE_SYSTEM + style_addendum + fewshot_block,
             messages=[{
@@ -1446,7 +1447,7 @@ Remember: this is a SOUNDSCAPE, not a pop song. Gentle internal events and densi
         )
 
     message = _call_enhance()
-    raw_response = message.content[0].text.strip()
+    raw_response = llm_text(message).strip()
     if raw_response.startswith("```"):
         raw_response = raw_response.split("\n", 1)[1]
     if raw_response.endswith("```"):
@@ -1653,7 +1654,7 @@ def api_generate():
         stitch_cell_sec = float(data.get("stitch_cell_sec", 0) or 0)
     except (TypeError, ValueError):
         stitch_cell_sec = 0
-    music_model = data.get("music_model", "music_v1")
+    music_model = data.get("music_model", "music_v2")
     if music_model not in ("music_v1", "music_v2", "music_v2_5"):
         music_model = "music_v1"
     composition_plan = data.get("composition_plan")  # optional, edited in the UI
@@ -2036,8 +2037,8 @@ def suggest_layers(job_id: str):
     import anthropic
     client = anthropic.Anthropic(api_key=api_key)
 
-    message = client.messages.create(
-        model="claude-sonnet-4-6",
+    message = llm_create(client, 
+        model="claude-opus-5-5",
         max_tokens=600,
         messages=[{
             "role": "user",
@@ -2060,7 +2061,7 @@ Output ONLY the JSON array, nothing else.""",
         }],
     )
 
-    raw = message.content[0].text.strip()
+    raw = llm_text(message).strip()
     if raw.startswith("```"):
         raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
         if raw.endswith("```"):
@@ -2452,7 +2453,7 @@ def ai_feedback(job_id: str):
     try:
         import google.generativeai as genai
         genai.configure(api_key=gemini_key)
-        model = genai.GenerativeModel("gemini-2.5-flash")
+        model = genai.GenerativeModel("gemini-4-argon")
 
         # Listen through (at least) the FIRST FULL LOOP — the generated source is
         # ~10 minutes and the rendered file just repeats it, so the first loop IS
@@ -3320,8 +3321,8 @@ def auto_visual_prompt(job_id: str):
     import anthropic
     client = anthropic.Anthropic(api_key=api_key)
 
-    message = client.messages.create(
-        model="claude-sonnet-4-6",
+    message = llm_create(client, 
+        model="claude-opus-5-5",
         max_tokens=300,
         messages=[{
             "role": "user",
@@ -3342,7 +3343,7 @@ Rules:
         }],
     )
 
-    image_prompt = message.content[0].text.strip()
+    image_prompt = llm_text(message).strip()
     return jsonify({"image_prompt": image_prompt})
 
 
@@ -5153,8 +5154,8 @@ def youtube_auto_metadata(job_id: str):
         "Do NOT invent timestamps or chapter markers — this is one continuous "
         "seamless loop, so fake time points look amateur. Omit them entirely."
     )
-    message = client.messages.create(
-        model="claude-sonnet-4-6",
+    message = llm_create(client, 
+        model="claude-opus-5-5",
         max_tokens=1300,
         messages=[{
             "role": "user",
@@ -5190,7 +5191,7 @@ Output ONLY the JSON, nothing else.""",
         }],
     )
 
-    raw = message.content[0].text.strip()
+    raw = llm_text(message).strip()
     if raw.startswith("```"):
         raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
         if raw.endswith("```"):
@@ -5886,8 +5887,8 @@ def api_seo_v2(job_id: str):
 
     import anthropic
     client = anthropic.Anthropic(api_key=api_key)
-    message = client.messages.create(
-        model="claude-sonnet-4-6",
+    message = llm_create(client, 
+        model="claude-opus-5-5",
         max_tokens=1400,
         messages=[{
             "role": "user",
@@ -5923,7 +5924,7 @@ Output ONLY the JSON, nothing else."""
         }],
     )
 
-    raw = message.content[0].text.strip()
+    raw = llm_text(message).strip()
     if raw.startswith("```"):
         raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
         if raw.endswith("```"):
@@ -5986,8 +5987,8 @@ def api_ads_brief(job_id: str):
 
     import anthropic
     client = anthropic.Anthropic(api_key=api_key)
-    msg = client.messages.create(
-        model="claude-sonnet-4-6",
+    msg = llm_create(client, 
+        model="claude-opus-5-5",
         max_tokens=1800,
         messages=[{
             "role": "user",
@@ -6040,7 +6041,7 @@ Output FORMAT: pure Markdown, no preamble, no code fences. Use this exact struct
         }],
     )
 
-    md = msg.content[0].text.strip()
+    md = llm_text(msg).strip()
     with jobs_lock:
         jobs[job_id]["ads_brief_md"] = md
         jobs[job_id]["last_promoted_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
@@ -6108,8 +6109,8 @@ def api_community_draft(job_id: str):
 
     import anthropic
     client = anthropic.Anthropic(api_key=api_key)
-    msg = client.messages.create(
-        model="claude-sonnet-4-6",
+    msg = llm_create(client, 
+        model="claude-opus-5-5",
         max_tokens=600,
         messages=[{
             "role": "user",
@@ -6125,7 +6126,7 @@ Track context:
 Output the post body ONLY, no preamble, no JSON, no explanations. Plain text."""
         }],
     )
-    body = msg.content[0].text.strip()
+    body = llm_text(msg).strip()
 
     with jobs_lock:
         if "community_drafts" not in jobs[job_id] or not jobs[job_id]["community_drafts"]:
@@ -6167,8 +6168,8 @@ def api_reddit_draft(job_id: str):
 
     import anthropic
     client = anthropic.Anthropic(api_key=api_key)
-    msg = client.messages.create(
-        model="claude-sonnet-4-6",
+    msg = llm_create(client, 
+        model="claude-opus-5-5",
         max_tokens=900,
         messages=[{
             "role": "user",
@@ -6194,7 +6195,7 @@ Reply ONLY with strict JSON:
         }],
     )
 
-    raw = msg.content[0].text.strip()
+    raw = llm_text(msg).strip()
     if raw.startswith("```"):
         raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
         if raw.endswith("```"):
@@ -6259,8 +6260,8 @@ def api_discord_post(job_id: str):
 
     import anthropic
     client = anthropic.Anthropic(api_key=api_key)
-    msg = client.messages.create(
-        model="claude-sonnet-4-6",
+    msg = llm_create(client, 
+        model="claude-opus-5-5",
         max_tokens=400,
         messages=[{
             "role": "user",
@@ -6279,7 +6280,7 @@ Track:
 Output just the message text, no preamble."""
         }],
     )
-    body = msg.content[0].text.strip()
+    body = llm_text(msg).strip()
 
     # Post to Discord webhook. Discord caps content at 2000 chars.
     payload = {"content": body[:1990]}

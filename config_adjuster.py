@@ -16,6 +16,7 @@ import copy
 import json
 from anthropic import Anthropic
 from schemas import SoundscapeConfig, CritiqueResult
+from llm import llm_create, llm_text  # every Claude call goes through llm.py (Opus 5.5)
 
 
 ADJUSTER_SYSTEM = """You are a mix engineer adjusting an ambient soundscape for background listening.
@@ -63,7 +64,7 @@ class ConfigAdjuster:
     Takes a critique and current config, produces a revised config via targeted diffs.
     """
 
-    def __init__(self, anthropic_api_key: str, model: str = "claude-sonnet-4-6"):
+    def __init__(self, anthropic_api_key: str, model: str = "claude-opus-5-5"):
         self.client = Anthropic(api_key=anthropic_api_key)
         self.model = model
 
@@ -76,14 +77,14 @@ class ConfigAdjuster:
     ) -> SoundscapeConfig:
         prompt = self._build_prompt(config, critique, iteration, score_trend)
 
-        response = self.client.messages.create(
+        response = llm_create(self.client, 
             model=self.model,
             max_tokens=1000,
             system=ADJUSTER_SYSTEM,
             messages=[{"role": "user", "content": prompt}],
         )
 
-        raw = response.content[0].text
+        raw = llm_text(response)
         return self._parse_and_apply(raw, config)
 
     def _build_prompt(

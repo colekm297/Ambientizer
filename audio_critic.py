@@ -19,6 +19,7 @@ from google.genai import types
 
 from schemas import SoundscapeConfig, CritiqueResult, AudioFeatures
 from audio_engine import extract_features
+from llm import llm_create, llm_text  # every Claude call goes through llm.py (Opus 5.5)
 
 
 def _to_str_list(val) -> list[str]:
@@ -124,7 +125,7 @@ class GeminiAudioCritic:
     def __init__(
         self,
         gemini_api_key: str,
-        model: str = "gemini-2.5-flash",
+        model: str = "gemini-4-argon",
     ):
         self.client = genai.Client(api_key=gemini_api_key)
         self.model = model
@@ -291,7 +292,7 @@ class FeatureOnlyCritic:
     Useful when you want to test without burning Gemini credits.
     """
 
-    def __init__(self, anthropic_api_key: str, model: str = "claude-sonnet-4-6"):
+    def __init__(self, anthropic_api_key: str, model: str = "claude-opus-5-5"):
         from anthropic import Anthropic
         self.client = Anthropic(api_key=anthropic_api_key)
         self.model = model
@@ -325,14 +326,14 @@ Respond with JSON matching this schema:
 
 Output ONLY valid JSON."""
 
-        response = self.client.messages.create(
+        response = llm_create(self.client, 
             model=self.model,
             max_tokens=1000,
             messages=[{"role": "user", "content": prompt}],
         )
 
         try:
-            data = json.loads(response.content[0].text)
+            data = json.loads(llm_text(response))
             return CritiqueResult(
                 perceived_mood=data.get("perceived_mood", "unknown"),
                 perceived_setting=data.get("perceived_setting", "unknown"),

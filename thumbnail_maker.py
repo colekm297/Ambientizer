@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Optional
 
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from llm import llm_create, llm_text  # every Claude call goes through llm.py (Opus 5.5)
 
 TW, TH = 1280, 720
 _FONTS = "/System/Library/Fonts/Supplemental"
@@ -308,7 +309,7 @@ def _strip_fences(s: str) -> str:
 def choose_thumbnail_design(image_path: str, title: str = "", mood: str = "",
                             setting: str = "", duration_label: str = "1 Hour",
                             anthropic_key: Optional[str] = None,
-                            model: str = "claude-sonnet-4-6") -> dict:
+                            model: str = "claude-opus-5-5") -> dict:
     """Claude art director: LOOK at the scene + brief, pick the typographic style,
     a complementary accent color, the hook + subtitle text, and where to place the
     text so it doesn't cover the focal point. Returns a design dict for
@@ -340,7 +341,7 @@ def choose_thumbnail_design(image_path: str, title: str = "", mood: str = "",
         )
         from anthropic import Anthropic
         client = Anthropic(api_key=anthropic_key)
-        resp = client.messages.create(
+        resp = llm_create(client, 
             model=model, max_tokens=400,
             messages=[{"role": "user", "content": [
                 {"type": "image", "source": {"type": "base64",
@@ -361,7 +362,7 @@ def choose_thumbnail_design(image_path: str, title: str = "", mood: str = "",
                     "}"},
             ]}],
         )
-        data = json.loads(_strip_fences(resp.content[0].text))
+        data = json.loads(_strip_fences(llm_text(resp)))
         # sanitize
         out = dict(fallback)
         if data.get("style") in STYLES:

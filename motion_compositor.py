@@ -49,6 +49,7 @@ from typing import Optional
 import numpy as np
 from PIL import Image
 from scipy.ndimage import gaussian_filter, map_coordinates
+from llm import llm_create, llm_text  # every Claude call goes through llm.py (Opus 5.5)
 
 
 TWO_PI = 2.0 * math.pi
@@ -2178,7 +2179,7 @@ def _enforce_auto_plan(layers: list[dict], director_style: str = "subtle") -> li
 
 
 def choose_layers(scene_text: str, anthropic_key: Optional[str] = None,
-                  model: str = "claude-sonnet-4-6",
+                  model: str = "claude-opus-5-5",
                   director_style: str = "subtle") -> tuple[list[dict], str]:
     """Compose motion layers for a scene. Returns (layers, source).
 
@@ -2191,12 +2192,12 @@ def choose_layers(scene_text: str, anthropic_key: Optional[str] = None,
             from anthropic import Anthropic
             import json as _json
             client = Anthropic(api_key=anthropic_key)
-            resp = client.messages.create(
+            resp = llm_create(client, 
                 model=model, max_tokens=900,
                 system=director_system_for_style(director_style),
                 messages=[{"role": "user", "content": f"Scene: {scene_text}"}],
             )
-            data = _json.loads(_strip_fences(resp.content[0].text))
+            data = _json.loads(_strip_fences(llm_text(resp)))
             layers = _enforce_auto_plan(_validate_layers(data.get("layers", [])), director_style)
             if layers:
                 return layers, f"claude:custom:{director_style}"
@@ -2207,7 +2208,7 @@ def choose_layers(scene_text: str, anthropic_key: Optional[str] = None,
 
 def choose_layers_from_image(image_path: str, scene_text: str = "",
                              anthropic_key: Optional[str] = None,
-                             model: str = "claude-sonnet-4-6",
+                             model: str = "claude-opus-5-5",
                              director_style: str = "subtle") -> tuple[list[dict], str]:
     """VISION motion director: Claude actually LOOKS at the image and composes the
     motion layers to match what's really there. director_style controls how
@@ -2227,7 +2228,7 @@ def choose_layers_from_image(image_path: str, scene_text: str = "",
             b64 = base64.standard_b64encode(buf.getvalue()).decode()
 
             client = Anthropic(api_key=anthropic_key)
-            resp = client.messages.create(
+            resp = llm_create(client, 
                 model=model, max_tokens=1200,
                 system=director_system_for_style(director_style),
                 messages=[{"role": "user", "content": [
@@ -2244,7 +2245,7 @@ def choose_layers_from_image(image_path: str, scene_text: str = "",
                         "Output ONLY the JSON."},
                 ]}],
             )
-            data = _json.loads(_strip_fences(resp.content[0].text))
+            data = _json.loads(_strip_fences(llm_text(resp)))
             layers = _enforce_auto_plan(_validate_layers(data.get("layers", [])), director_style)
             if layers:
                 return layers, f"claude:vision:{director_style}"

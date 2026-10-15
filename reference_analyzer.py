@@ -94,10 +94,13 @@ class ReferenceAnalyzer:
     # which the PRO tier does noticeably better than Flash. Lead with the only
     # available Pro (2.5-pro), then fall through to Flash tiers for availability /
     # rate limits. (3.x-pro names probed as 404 in May 2026 — re-add if they ship.)
+    # 2026-10-14: gemini-4-argon is the frontier model on our key (Cole's pick); in a 30 s audio test it
+    # named the key correctly where 3.8-flash, 3.1-pro-preview and 2.5-flash did not. Older tiers stay as
+    # fallbacks for availability / rate limits.
     FALLBACK_MODELS = [
+        "gemini-4-argon",
+        "gemini-3.8-flash",
         "gemini-2.5-pro",
-        "gemini-3.5-flash",
-        "gemini-3-flash-preview",
         "gemini-2.5-flash",
     ]
 

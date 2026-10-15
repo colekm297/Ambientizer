@@ -14,6 +14,7 @@ the caller can fall back to the generic plan (never blocks generation).
 import json
 import os
 from typing import Optional
+from llm import llm_create, llm_text  # every Claude call goes through llm.py (Opus 5.5)
 
 # ElevenLabs Music rejects any composition-plan section longer than this (422).
 # A 600s track in 3-4 sections = 150-200s each, which ALWAYS exceeded this and
@@ -121,7 +122,7 @@ def author_composition_plan(
     root_key: str = "",
     mood: str = "",
     anthropic_key: Optional[str] = None,
-    model: str = "claude-sonnet-4-6",
+    model: str = "claude-opus-5-5",
     style_examples: Optional[list] = None,
 ) -> Optional[dict]:
     """Have Claude author an evolving ambient composition plan. Returns a validated
@@ -157,11 +158,11 @@ def author_composition_plan(
         last_err = None
         for attempt in range(2):
             try:
-                resp = client.messages.create(
+                resp = llm_create(client, 
                     model=model, max_tokens=2400, system=_PLANNER_SYSTEM,
                     messages=[{"role": "user", "content": user}],
                 )
-                data = _lenient_json_parse(resp.content[0].text)
+                data = _lenient_json_parse(llm_text(resp))
                 if data:
                     plan = _normalize_plan(data, duration_ms)
                     if plan:

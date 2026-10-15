@@ -24,6 +24,7 @@ import pedalboard as pb
 
 from anthropic import Anthropic
 from schemas import SoundscapeConfig
+from llm import llm_create, llm_text  # every Claude call goes through llm.py (Opus 5.5)
 
 try:
     import librosa
@@ -85,7 +86,7 @@ class MixMasterAgent:
     then applies DSP via pedalboard + pyloudnorm.
     """
 
-    def __init__(self, anthropic_api_key: str, model: str = "claude-sonnet-4-6"):
+    def __init__(self, anthropic_api_key: str, model: str = "claude-opus-5-5"):
         self.client = Anthropic(api_key=anthropic_api_key)
         self.model = model
 
@@ -225,14 +226,14 @@ FREQUENCY BANDS:
 
 Prescribe the mastering chain as JSON."""
 
-        response = self.client.messages.create(
+        response = llm_create(self.client, 
             model=self.model,
             max_tokens=1000,
             system=MASTERING_SYSTEM,
             messages=[{"role": "user", "content": prompt}],
         )
 
-        raw = response.content[0].text
+        raw = llm_text(response)
 
         try:
             clean = raw.strip()

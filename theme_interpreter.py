@@ -15,6 +15,7 @@ from anthropic import Anthropic
 from schemas import SoundscapeConfig, LayerConfig, LayerType, EffectsChain, EnergyCurve, GenerationMode
 from retry_utils import retry_with_backoff, is_transient_api_error
 from dataclasses import fields as _dc_fields
+from llm import llm_create, llm_text  # every Claude call goes through llm.py (Opus 5.5)
 
 
 def _only_fields(cls, d):
@@ -195,7 +196,7 @@ def _arrangement_hint(duration_sec: float) -> str:
 class ThemeInterpreter:
     """Converts natural language scene descriptions into SoundscapeConfig."""
 
-    def __init__(self, anthropic_api_key: str, model: str = "claude-opus-4-7"):
+    def __init__(self, anthropic_api_key: str, model: str = "claude-opus-5-5"):
         self.client = Anthropic(api_key=anthropic_api_key)
         self.model = model
 
@@ -510,13 +511,13 @@ BLENDING RULES:
     @retry_with_backoff(max_retries=3, base_delay=2.0, retryable_check=is_transient_api_error)
     def _call_claude(self, user_message: str) -> str:
         """Call Claude with retry logic; returns raw response text."""
-        response = self.client.messages.create(
+        response = llm_create(self.client, effort="medium", 
             model=self.model,
             max_tokens=4096,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_message}],
         )
-        return response.content[0].text
+        return llm_text(response)
 
     def interpret(
         self,
@@ -689,20 +690,20 @@ that captures the full vision. Prefix your final synthesis with "SYNTHESIS:" on 
 
 Be warm and collaborative. Use sensory language. Keep questions concise — one at a time."""
 
-    def __init__(self, anthropic_api_key: str, model: str = "claude-opus-4-7"):
+    def __init__(self, anthropic_api_key: str, model: str = "claude-opus-5-5"):
         self.client = Anthropic(api_key=anthropic_api_key)
         self.model = model
         self.messages: list[dict] = []
 
     def start(self) -> str:
         """Begin the discovery conversation."""
-        response = self.client.messages.create(
+        response = llm_create(self.client, effort="medium", 
             model=self.model,
             max_tokens=300,
             system=self.DISCOVERY_SYSTEM,
             messages=[{"role": "user", "content": "I want to create a soundscape."}],
         )
-        assistant_msg = response.content[0].text
+        assistant_msg = llm_text(response)
         self.messages.append({"role": "user", "content": "I want to create a soundscape."})
         self.messages.append({"role": "assistant", "content": assistant_msg})
         return assistant_msg
@@ -714,14 +715,14 @@ Be warm and collaborative. Use sensory language. Keep questions concise — one 
         """
         self.messages.append({"role": "user", "content": user_input})
 
-        response = self.client.messages.create(
+        response = llm_create(self.client, effort="medium", 
             model=self.model,
             max_tokens=500,
             system=self.DISCOVERY_SYSTEM,
             messages=self.messages,
         )
 
-        assistant_msg = response.content[0].text
+        assistant_msg = llm_text(response)
         self.messages.append({"role": "assistant", "content": assistant_msg})
 
         is_complete = "SYNTHESIS:" in assistant_msg
