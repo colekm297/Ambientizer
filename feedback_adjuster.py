@@ -14,6 +14,7 @@ import copy
 import json
 from anthropic import Anthropic
 from schemas import SoundscapeConfig, EffectsChain
+from llm import llm_create, llm_text  # every Claude call goes through llm.py (Opus 5.5)
 
 
 FEEDBACK_SYSTEM = """You are helping a user refine an ambient soundscape mix. The user listens \
@@ -81,7 +82,7 @@ class FeedbackAdjuster:
     "make rain quieter" then "actually a bit louder than that".
     """
 
-    def __init__(self, anthropic_api_key: str, model: str = "claude-sonnet-4-6"):
+    def __init__(self, anthropic_api_key: str, model: str = "claude-opus-5-5"):
         self.client = Anthropic(api_key=anthropic_api_key)
         self.model = model
         self.history: list[dict] = []
@@ -131,14 +132,14 @@ class FeedbackAdjuster:
 
         self.history.append({"role": "user", "content": user_message})
 
-        response = self.client.messages.create(
+        response = llm_create(self.client, 
             model=self.model,
             max_tokens=1000,
             system=FEEDBACK_SYSTEM,
             messages=self.history,
         )
 
-        assistant_text = response.content[0].text
+        assistant_text = llm_text(response)
         self.history.append({"role": "assistant", "content": assistant_text})
 
         return self._parse_and_apply(assistant_text, current_config)

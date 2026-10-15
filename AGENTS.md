@@ -87,6 +87,19 @@ When you are a **Cloud Agent** (running in Cursor's cloud VM, not on Cole's Mac)
 - You push to a branch + open a PR; Cole reviews/merges from his phone. Keep commit messages clear
   (per "Multi-agent workflow") — they're how the local agents learn what you changed.
 
+## Models (updated 2026-10-14, Cole's picks)
+
+- **Claude: `claude-opus-5-5`, only through `llm.py`** (`llm_create` / `llm_text`). Opus 5.5 always thinks, so
+  never read `content[0].text` and never size `max_tokens` for a bare answer; the helper handles both, sets
+  effort (low for small JSON jobs, medium for the prompt interpreter/enhancer, high for the daily designer),
+  and opts into server-side fallbacks for classifier false positives.
+- **Gemini: `gemini-4-argon`** first everywhere (critics, reference analysis, enhancer search), older tiers as
+  fallbacks. It is slow (about a minute for a grounded search) and Cole accepted that for quality. Check what
+  the key can call with `GET https://generativelanguage.googleapis.com/v1beta/models` before trusting web pages.
+- **ElevenLabs music: `music_v2` default** (full 10-min take, Cole's method). `music_v2_5` is newer but caps
+  around 6 minutes; it stays selectable.
+- Visual models are separate decisions (Seedance 1.5 Pro loops, flux-pro v1.1 ultra stills; Grok key blocked).
+
 ## How a track is made
 
 **Read `docs/HOW-A-TRACK-IS-MADE.md` before generating music for a release.** One 10-minute text-mode

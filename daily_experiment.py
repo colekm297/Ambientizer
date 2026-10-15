@@ -152,17 +152,12 @@ def design(rows):
         f"exactly one thing, and name its job_id as parent. Compare prompts of high and low scorers to find what "
         f"actually differs. Then rewrite the lessons file with anything new the ratings show.\n\n"
         f"Today is {dt.date.today().isoformat()}. Design today's one experiment.")
+    from llm import llm_create, llm_text
     client = anthropic.Anthropic()
-    resp = client.messages.create(
-        model="claude-opus-5", max_tokens=16000, system=system,
-        messages=[{"role": "user", "content": user}],
-        extra_body={"output_config": {"effort": "high", "format": {"type": "json_schema", "schema": SCHEMA}},
-                    "thinking": {"type": "adaptive"}},
-    )
-    if resp.stop_reason == "refusal":
-        raise RuntimeError("design refused")
-    text = next(b.text for b in resp.content if b.type == "text")
-    return json.loads(text)
+    resp = llm_create(client, effort="high", max_tokens=32000, system=system,
+                      messages=[{"role": "user", "content": user}],
+                      extra_body={"output_config": {"format": {"type": "json_schema", "schema": SCHEMA}}})
+    return json.loads(llm_text(resp))
 
 
 def generated_seconds(job_id):
