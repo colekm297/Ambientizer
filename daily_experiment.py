@@ -68,6 +68,25 @@ def coles_best_prompts():
     return out[:8]
 
 
+def rated_evidence(days=90):
+    """Every take Cole has starred recently, dailies and his own, with the full prompt and stars.
+    This is the training signal: the designer sees exactly what earned 3 stars and what earned 1."""
+    cutoff = (dt.date.today() - dt.timedelta(days=days)).isoformat()
+    out = []
+    for p in glob.glob(str(HERE / "saved_jobs" / "*.json")):
+        try:
+            d = json.loads(Path(p).read_text())
+        except Exception:
+            continue
+        r = int(d.get("rating") or 0)
+        if r > 0 and (d.get("created_at") or "")[:10] >= cutoff and d.get("prompt"):
+            out.append({"job_id": Path(p).stem, "date": d["created_at"][:10], "stars": r, "prompt": d["prompt"][:2500]})
+    return sorted(out, key=lambda x: (-x["stars"], x["date"]))[:40]
+
+
+LESSONS = HERE / "data" / "daily_lessons.md"
+
+
 def write_report(rows):
     weeks = {}
     for r in rows:
@@ -81,9 +100,10 @@ def write_report(rows):
         rs = weeks[wk]; rated = [r for r in rs if r["stars"] > 0]
         avg = f"{sum(r['stars'] for r in rated)/len(rated):.1f}" if rated else "-"
         lines.append(f"| {wk} | {len(rs)} | {len(rated)} | {sum(r['stars'] for r in rs)} | {avg} |")
-    lines += ["", "## Log", "", "| Date | World | Title | Testing | Stars |", "|---|---|---|---|---|"]
+    lines += ["", "## What it has learned", "", (LESSONS.read_text() if LESSONS.exists() else "(nothing yet)"),
+              "", "## Log", "", "| Date | Mode | World | Title | Testing | Stars |", "|---|---|---|---|---|---|"]
     for r in sorted(rows, key=lambda r: r["date"], reverse=True):
-        lines.append(f"| {r['date']} | {r['world']} | {r['title']} | {r['testing']} | {'★'*r['stars'] or '-'} |")
+        lines.append(f"| {r['date']} | {r.get('mode','-')} | {r['world']} | {r['title']} | {r['testing']} | {'★'*r['stars'] or '-'} |")
     REPORT.write_text("\n".join(lines) + "\n")
 
 
@@ -94,15 +114,22 @@ SCHEMA = {
         "title": {"type": "string", "description": "Short plain title Cole will see in his list, under 40 characters, no jargon"},
         "testing": {"type": "string", "description": "One plain sentence: what this experiment tests that recent ones did not"},
         "prompt": {"type": "string", "description": "The full ElevenLabs music prompt, written in the shape of Cole's best prompts"},
+        "mode": {"type": "string", "enum": ["exploit", "explore"], "description": "exploit = one change from a take that scored well; explore = a new direction"},
+        "parent_job_id": {"type": "string", "description": "For exploit: the job_id of the rated take this varies; empty for explore"},
+        "lessons": {"type": "string", "description": "The full updated lessons file: what the ratings have taught so far, each lesson with the job ids and stars that support it, plus open questions. Rewrite it whole; keep what still holds, revise what new ratings contradict."},
     },
-    "required": ["world", "title", "testing", "prompt"],
+    "required": ["world", "title", "testing", "prompt", "mode", "parent_job_id", "lessons"],
     "additionalProperties": False,
 }
 
 
 def design(rows):
     guide = (HERE / "docs" / "HOW-A-TRACK-IS-MADE.md").read_text()
-    history = [{k: r[k] for k in ("date", "world", "title", "testing", "stars")} for r in rows[-30:]]
+    history = [{k: r.get(k) for k in ("date", "job_id", "world", "title", "testing", "mode", "parent_job_id", "stars")} for r in rows]
+    lessons = LESSONS.read_text() if LESSONS.exists() else "(none yet: first run)"
+    evidence = rated_evidence()
+    n_rated = sum(1 for r in rows if r["stars"] > 0)
+    explore_share = "about 1 day in 2" if n_rated < 10 else "about 1 day in 4"
     system = (
         "You design one experimental ambient track a day for The Space of Sound, a YouTube channel of one-hour "
         "ambient videos set in story worlds people love. Cole, the owner, rates each take 0-3 stars in his app; "
@@ -118,7 +145,12 @@ def design(rows):
     user = (
         f"House guide (read the 3-star pattern section closely):\n\n{guide}\n\n"
         f"Cole's 3-star prompts, verbatim:\n\n" + "\n\n---\n\n".join(coles_best_prompts()) +
-        f"\n\nDaily experiment log so far (newest last):\n{json.dumps(history, indent=1)}\n\n"
+        f"\n\nWhat the ratings have taught so far (your own notes from earlier runs):\n{lessons}\n\n"
+        f"Every take Cole has starred in the last 90 days, best first, with the exact prompt:\n{json.dumps(evidence, indent=1)}\n\n"
+        f"Full daily experiment log (0 stars = not rated yet, not a dislike):\n{json.dumps(history, indent=1)}\n\n"
+        f"Policy: explore {explore_share}; otherwise exploit, meaning take one of the best-rated takes above and change "
+        f"exactly one thing, and name its job_id as parent. Compare prompts of high and low scorers to find what "
+        f"actually differs. Then rewrite the lessons file with anything new the ratings show.\n\n"
         f"Today is {dt.date.today().isoformat()}. Design today's one experiment.")
     client = anthropic.Anthropic()
     resp = client.messages.create(
@@ -176,8 +208,10 @@ def main():
     else:
         log("take came back short twice; logging it anyway")
     requests.post(f"{BASE}/api/job/{jid}/meta", json={"title": f"Daily · {exp['title']}", "world": exp["world"]}, timeout=30)
+    LESSONS.write_text(exp["lessons"].strip() + "\n")
     rec = {"date": today, "job_id": jid, "world": exp["world"], "title": exp["title"],
-           "testing": exp["testing"], "prompt": exp["prompt"], "seconds": round(secs)}
+           "testing": exp["testing"], "mode": exp["mode"], "parent_job_id": exp["parent_job_id"],
+           "prompt": exp["prompt"], "seconds": round(secs)}
     with LEDGER.open("a") as fh:
         fh.write(json.dumps(rec) + "\n")
     rows = ledger(); write_report(rows)
