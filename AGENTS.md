@@ -160,11 +160,11 @@ take, heard as one loop in the app, looped to the hour. No stitching. Cole picks
    same video must be sequenced, not run in parallel (2026-09-18).
    Editing a pinned comment with `comments.update` UNPINS it (both videos lost their pins on
    2026-09-18 and Chief re-pinned in Studio): batch wording changes, then re-pin.
+14. **Baking a CTA card into a live master is a new upload.** Replacing the file means a new video
+   ID and reset views/comments, so live videos get end screens + pinned comment + description
+   line + watermark; cards get baked only into new releases (`_cta_cards.py` has the mockups).
 15. **First play must stream, never wait on an encode.** The player asks for `/api/audio/<job>?fmt=mp3&loop=2`, a
    320k MP3 of the flat mix played twice. Encoding that up front took 18 s on a 20-min track (Cole: 20-30 s
    before every first play, 2026-10-15). Now a background ffmpeg writes `<job>_stream_x2.mp3.part` while the
    response tails it (first byte ~1.8 s); later plays get the cached file with Range/206 (0.016 s). A prewarm
    thread caches the 25 newest songs every 5 min. Never put a blocking encode back in front of playback.
-14. **Baking a CTA card into a live master is a new upload.** Replacing the file means a new video
-   ID and reset views/comments, so live videos get end screens + pinned comment + description
-   line + watermark; cards get baked only into new releases (`_cta_cards.py` has the mockups).
