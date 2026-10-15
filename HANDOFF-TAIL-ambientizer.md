@@ -1,29 +1,37 @@
-> SNAPSHOT as of 2026-09-13 09:30. Anything newer — git commits, file mtimes, or your own conversation — outranks this file. Verify before acting.
+> SNAPSHOT as of 2026-10-15 07:40. Anything newer — git commits, file mtimes, or your own conversation — outranks this file. Verify before acting.
 
 # Thread tail — open with this
 
-**Live item:** the Fair Wind retitle is waiting on one click from Cole (Google re-consent, opened on the Mac). The new thumbnail is already live. Re-arm the watcher (poll `youtube_token.json` for `youtube.force-ssl`, then apply the title) before saying anything else. Also open: the avatar decision (bold aperture recommended). Due 2026-09-18: Dusk Over Arrakis retention pull, read to chief-f1.
+**Live item:** Frodo Sails West (job a083d482, "Lord of the Rings · Daily · Frodo Sails West") is waiting on Cole's rating. He played it at 06:57 on 2026-10-15. Ask how it landed, plainly, once.
+**Open bug, owned by this workstream:** selecting job 32e87510 ("Three Knocks (misfire: rewritten, 1 min)") froze Chrome's renderer before any audio request. See the handoff's "Open bug" section for what the logs show.
 
 ---
 
 **Cole:**
-> Can we make a better profile pic for my channel? Maybe the intro logo? What do you think? Also click through on fair wind home was abysmal. 1%. Never seen it that low. Only 14 views. Good retention though
+> run one please
 
-**Me** (after sending `avatar_compare_sizes.png`, `avatar_aperture_bold_v2.png`, and `thumbnail_v2_ip_first.png`):
-> **Profile pic: yes, and the intro logo is the right instinct, with one fix.** Your current avatar is a desert-storm photo. At the size YouTube shows it (48 px next to comments, 88 on the watch page) it's a brown smudge, and it ties the whole channel to one Dune image. The aperture mark is right because every video already opens on it, so the avatar and the sting become one identity. But the mark as drawn has sixty thin bars, and the comparison sheet shows what happens at 48 px: it turns into a gear icon. So I cut a bold version, 28 thicker bars filling more of the circle. It reads as a corona at every size. [...] I'd set the bold aperture. Changing the channel avatar is an account setting, so it waits for your word.
+**Me** (after a design panel of 4 designers and 3 judges, plus the judges' fixes):
+> A new one is in your app now, at the top of the list:
 >
-> **The 1%.** Since publish: 14 views, 13.4 minutes average, 31% of the hour. That is the best retention percentage on the channel. So the room works and the door doesn't [...] 1. **The hook is the wrong word.** "FAIR WIND HOME" means nothing to someone browsing; "The Odyssey" is the thing they recognize, and it's buried [...] Temples put "Dune |" first and pulled 538 organic views. 2. **The image is a wide landscape with a tiny boat** [...] The draft I just sent flips the hierarchy on the same still. The matching title would be "The Odyssey | Fair Wind Home | 1 Hour Warm Ambient for Deep Work". Swapping thumbnail and title on a public video is an edit to published content, so it needs your yes; say "swap it" and both change in one call.
+> **LORD OF THE RINGS · Daily · Frodo Sails West**
+>
+> It's the very end of the story: Frodo, Gandalf and Bilbo sailing into the West as the grey veil opens onto a far green country at sunrise. It uses the shape of your two 3-star Fair Wind tracks: one soft heartbeat far back, rope and timber creaks, the bow through calm water, and cellos and horns that get closer and warmer past the middle and stay full to the last second. The hook is a soft, distant wordless voice singing a four-note call, answered by harp and low whistle. Full 10 minutes, clean stereo.
+>
+> [...] One caveat from the judges: it changes several things at once (new world, a voice as the hook, harp and whistle). A 3 tells us the recipe carries to new worlds; a low score won't say which change missed. The 7:30 run continues tomorrow as usual.
 
-**Cole:**
-> Swap it
+**Cole** (via Chief, 2026-10-15): when he plays a song in Ambientizer, the first play always takes 20 to 30 seconds to start.
 
 **Me:**
-> **Thumbnail is swapped and live on Fair Wind.** The title is half a step behind, and it needs your hands once: the Google token this app holds was granted for uploads only, and changing a published video's title needs a broader permission Google makes the account owner approve. Open this on the Mac (the callback lands on localhost, so a phone won't complete it), sign in, approve: [consent URL from `POST /api/youtube/connect`]
+> The first-play lag is fixed, Cole.
 >
-> A watcher is armed: the moment the new token lands, the title flips to "The Odyssey | Fair Wind Home | 1 Hour Warm Ambient for Deep Work" with the description and tags untouched, and you'll see it here. No further click after that one.
+> **Cause:** the first time you played any song, the app built a 40-minute, 94 MB MP3 of it (the loop played twice, at high quality) and sent nothing until the whole file was done. On a 20-minute track that was 18 seconds of encoding before the first byte, then your phone's buffering on top. [...]
 >
-> The avatar (`brand/out/avatar_aperture_bold_v2.png`) still waits on your word, since it's an account setting. Chief has Dusk on a retention watch for the 18th, and is holding the two dead-upload deletes.
+> | | Before | After |
+> |---|---|---|
+> | First play, cold song, time to first audio | **19.4 s** | **1.8 s** |
+> | Audio already received 2.5 s into a cold play | 0 | 105 seconds' worth |
+> | Any later play (with seeking) | 0.008 s | 0.016 s |
+>
+> One small trade: on a song's very first play the time display shows `--:--` and you can't seek until the file finishes, which is a few seconds behind playback. From the second play on, everything works as before.
 
-*(No reply from Cole yet. If the token still lacks `force-ssl`, generate a fresh consent URL — the old one's state has expired — and give it to him again, once.)*
-
-*(Housekeeping for the successor, not for Cole: this session was recycled at Chief's request (context ~569K). Send `chief-f1` one line via SendMessage when you are up: "Ambientizer successor up, tail read, retitle watcher re-armed." Then say nothing to Cole about the recycle.)*
+*(No reply from Cole yet on either.)*

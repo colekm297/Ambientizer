@@ -100,6 +100,27 @@ When you are a **Cloud Agent** (running in Cursor's cloud VM, not on Cole's Mac)
   around 6 minutes; it stays selectable.
 - Visual models are separate decisions (Seedance 1.5 Pro loops, flux-pro v1.1 ultra stills; Grok key blocked).
 
+## Field notes (distilled 2026-10-15 from the Sept-Oct Ambientizer session)
+
+- **Dock app.** `~/Applications/Ambientizer.app` is a tiny launcher (`open -na "Google Chrome" --args
+  --app=<tailnet URL>`), pinned in Cole's Dock, icon from `web/static/icons/icon-512.png`. Chrome's own
+  "Install page as app" menu can't be clicked by agents; rebuild the bundle instead if it ever breaks.
+- **Testing playback from an agent.** Chrome-extension clicks do not count as a user gesture, so `audio.play()`
+  is blocked by autoplay policy and a long `await` inside `javascript_tool` can wedge the tab. Measure the
+  request path with `curl -w %{time_starttransfer}` through the tailnet URL and prove playability by
+  fetching the first seconds (`curl --max-time 2.5`) and decoding them with ffmpeg/ffprobe.
+- **YouTube Analytics API facts.** Impressions and CTR are not exposed (400); Studio is the only source.
+  Data lags about two days. `subscribedStatus` works as a filter with a video filter but not as a
+  dimension for `subscribersGained`. Traffic-source detail (`insightTrafficSourceDetail`) shows which
+  outside videos we are suggested next to and the exact search terms.
+- **Verify a take before Cole hears it.** Check the generated file's length (`ffprobe`) and channel sanity
+  (lag-1 vs lag-2 sample correlation: real audio has lag1 > lag2). Gotchas cost a garbled half-speed take
+  and a 60-second "10-minute" take before this check existed.
+- **Design-panel dailies.** When Cole asks for an extra experiment, `run_panel_winner.py <winner.json>`
+  generates and logs a pitch exactly like the 7:30 daily so its rating feeds `data/daily_lessons.md`. The
+  2026-10-14 panel (4 angle-diverse designers, 3 judges on star odds / rule compliance / learning value)
+  picked "Frodo Sails West"; the general-YouTube "Night Train" pitch scored last for having no journey.
+
 ## How a track is made
 
 **Read `docs/HOW-A-TRACK-IS-MADE.md` before generating music for a release.** One 10-minute text-mode
