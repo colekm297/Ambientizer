@@ -24,6 +24,10 @@ class LLMRefusal(RuntimeError):
 def llm_create(client, *, effort: str = "low", **kw):
     kw["model"] = MODEL
     kw["max_tokens"] = max(int(kw.get("max_tokens") or 0), _MIN_MAX_TOKENS)
+    # anthropic>=0.80 refuses a non-streaming call whose max_tokens implies >10 min unless a timeout is given
+    # explicitly (the 07:30 daily failed on 2026-10-15 and 10-16 with "Streaming is required"). An explicit
+    # timeout skips that guard; 25 min is far above what any call here takes.
+    kw.setdefault("timeout", 1500)
     for k in ("temperature", "top_p", "top_k", "thinking"):
         kw.pop(k, None)
     extra = dict(kw.pop("extra_body", None) or {})
