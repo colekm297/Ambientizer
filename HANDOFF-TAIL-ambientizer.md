@@ -1,37 +1,29 @@
-> SNAPSHOT as of 2026-10-15 07:40. Anything newer — git commits, file mtimes, or your own conversation — outranks this file. Verify before acting.
+> SNAPSHOT as of 2026-10-16 18:40. Anything newer — git commits, file mtimes, or your own conversation — outranks this file. Verify before acting.
 
 # Thread tail — open with this
 
-**Live item:** Frodo Sails West (job a083d482, "Lord of the Rings · Daily · Frodo Sails West") is waiting on Cole's rating. He played it at 06:57 on 2026-10-15. Ask how it landed, plainly, once.
-**Open bug, owned by this workstream:** selecting job 32e87510 ("Three Knocks (misfire: rewritten, 1 min)") froze Chrome's renderer before any audio request. See the handoff's "Open bug" section for what the logs show.
+**Live items:**
+1. **Frodo Sails West is PRIVATE on YouTube: GsNmBR0BGF0** (uploaded 2026-10-16 ~19:20, custom thumbnail set, recorded in `data/post_ledger.jsonl`, job json carries the url). Cole posts it himself (his words: "publish it as private video ill post"); nothing more to do until he does. Three thumbnail candidates in `output/release/frodo_west/` (thumbnail.png IP-first, thumbnail_b_scene.png, thumbnail_c_moment.png "INTO THE WEST") for Studio's Test & compare. The R2 offload of the folder was still uploading the 4.5 GB master at snapshot (`upload.log` tail); check `offload_release.py --check`.
+2. **Merge of origin/main (one README commit, 1ed2a6b) into living-still-harden and the push are held for Cole's go.** The first attempt was declined in-session on 2026-10-16; Chief says that was a settings change clearing the prompt, not Cole. I said I'd wait for his word. Local commit ec139ff is unpushed.
+3. **Today's daily (job 3b5b94d9, "Odyssey · Daily · Fair Wind Home, With a Voice", 536 s)** is in the app unrated. It tests the voice alone, separated from the new world that Frodo confounded.
 
 ---
 
 **Cole:**
-> run one please
-
-**Me** (after a design panel of 4 designers and 3 judges, plus the judges' fixes):
-> A new one is in your app now, at the top of the list:
->
-> **LORD OF THE RINGS · Daily · Frodo Sails West**
->
-> It's the very end of the story: Frodo, Gandalf and Bilbo sailing into the West as the grey veil opens onto a far green country at sunrise. It uses the shape of your two 3-star Fair Wind tracks: one soft heartbeat far back, rope and timber creaks, the bow through calm water, and cellos and horns that get closer and warmer past the middle and stay full to the last second. The hook is a soft, distant wordless voice singing a four-note call, answered by harp and low whistle. Full 10 minutes, clean stereo.
->
-> [...] One caveat from the judges: it changes several things at once (new world, a voice as the hook, harp and whistle). A 3 tells us the recipe carries to new worlds; a low score won't say which change missed. The 7:30 run continues tomorrow as usual.
-
-**Cole** (via Chief, 2026-10-15): when he plays a song in Ambientizer, the first play always takes 20 to 30 seconds to start.
+> I set a star for it right?
 
 **Me:**
-> The first-play lag is fixed, Cole.
->
-> **Cause:** the first time you played any song, the app built a 40-minute, 94 MB MP3 of it (the loop played twice, at high quality) and sent nothing until the whole file was done. On a 20-minute track that was 18 seconds of encoding before the first byte, then your phone's buffering on top. [...]
->
-> | | Before | After |
-> |---|---|---|
-> | First play, cold song, time to first audio | **19.4 s** | **1.8 s** |
-> | Audio already received 2.5 s into a cold play | 0 | 105 seconds' worth |
-> | Any later play (with seeking) | 0.008 s | 0.016 s |
->
-> One small trade: on a song's very first play the time display shows `--:--` and you can't seek until the file finishes, which is a few seconds behind playback. From the second play on, everything works as before.
+> No. Nothing was saved for Frodo Sails West. [...] The last star request the app ever received was Oct 14 at 21:14, on the job 16a924b4. [...] If you tell me the number here, I'll set it on the job directly.
 
-*(No reply from Cole yet on either.)*
+**Cole:**
+> Ah well i meant to start it two i think
+
+**Me:**
+> Saved. Frodo Sails West is at 2 stars in the app and on disk. [...] One thing only you can tell me, and it's optional: what missed? The judges flagged that it changed three things at once (new world, voice as the hook, harp and whistle).
+
+**Cole:**
+> And we can go ahead and publish it as private video ill post. We do need a learning mechanism around posts though, and visuals, and thumbnails…as those are reallt important too
+
+**Me** (in progress at snapshot): built the release (5 stills, chose the golden swan-ship with two cloaked figures; two Seedance seeds, kept A: wrap 4.87, ratio 1.15; hour master with intro/end cards, joins CLEAN, -15.9 LUFS), started the private upload, and built the learning loop: `post_learning.py` + launchd `com.cole.ambientizer-post-learning` Mondays 08:00, first lessons in `data/post_lessons.md` and `docs/POST-EXPERIMENTS.md`. Found on the way: the 07:30 daily had failed on 10-15 and 10-16 (anthropic SDK streaming guard); fixed in `llm.py` (explicit timeout), ran today's by hand. Also found Temples' views were bought (451 of 541 advertising).
+
+*(Cole has not yet seen the release or the learning loop.)*
