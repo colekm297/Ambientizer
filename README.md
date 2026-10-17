@@ -2,15 +2,15 @@
 
 > An AI ambient soundscape studio: prompt → multi-layer composition → real-time browser mixer → AI visuals → YouTube publish → growth automation.
 
-Ambientizer is a single-user, locally-hosted Flask app that turns a one-paragraph creative brief into a finished YouTube-ready ambient music video. It chains Claude (composition planning), ElevenLabs Music v1 (audio generation), Web Audio API (live mixing in the browser), xAI Grok (cover image), and ffmpeg (final video render and live streaming), and ships with a "Distribute" tab that automates Shorts cutting, SEO metadata, ads briefs, and community-post drafts.
+Ambientizer is a single-user, locally-hosted Flask app that turns a one-paragraph creative brief into a finished YouTube-ready ambient music video. It chains Claude (composition planning), ElevenLabs Eleven Music (music_v2) and Sound Effects APIs (audio generation), Web Audio API (live mixing in the browser), xAI Grok (cover image), and ffmpeg (final video render and live streaming), and ships with a "Distribute" tab that automates Shorts cutting, SEO metadata, ads briefs, and community-post drafts.
 
 See [`AMBIENTIZER_README.md`](./AMBIENTIZER_README.md) for the full architecture deep-dive.
 
 ## Features
 
-- **Prompt → multi-layer SoundscapeConfig** via Claude. Each layer gets its own ElevenLabs Music v1 prompt, fade behavior, panning, and effects chain.
+- **Prompt → multi-layer SoundscapeConfig** via Claude. Each layer gets its own Eleven Music (music_v2) prompt, fade behavior, panning, and effects chain.
 - **Browser-native live mixer.** Per-layer gain, mute, solo, FX tweaking, and a master fade preview that matches the YouTube export sample-for-sample.
-- **AI-driven mastering** with a loudness/critique feedback loop (Gemini listens, Claude tunes the chain).
+- **Loudness-normalized mastering** (ffmpeg, pyloudnorm), with track selection by ear.
 - **Visuals tab.** Generates a scene image with xAI Grok, animates it (Ken Burns / custom video), then renders an MP4 at the correct length.
 - **YouTube publish.** OAuth-based upload with auto-compressed thumbnails (handles the 2 MB cap transparently) and resumable retries.
 - **Distribute tab.**
@@ -26,7 +26,7 @@ See [`AMBIENTIZER_README.md`](./AMBIENTIZER_README.md) for the full architecture
 |---|---|
 | Backend | Python 3.13, Flask |
 | LLM | Anthropic Claude (Sonnet 4) |
-| Audio gen | ElevenLabs Music v1 + SFX v2 |
+| Audio gen | ElevenLabs Eleven Music (music_v2) + Sound Effects v2 |
 | Audio DSP | pydub, pedalboard, librosa, pyloudnorm |
 | Reference analysis | Google Gemini 2.5 |
 | Client | Vanilla JS + Web Audio API |
