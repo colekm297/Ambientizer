@@ -1,0 +1,1443 @@
+{
+ "pulled_at": "2026-10-16T17:55:50",
+ "channel": {
+  "viewCount": "3801",
+  "subscriberCount": "170",
+  "hiddenSubscriberCount": false,
+  "videoCount": "17"
+ },
+ "videos": {
+  "y6YS18A8hYY": {
+   "title": "Dune | Last Light on Arrakis | 1 Hour Deep Focus Ambient",
+   "published_at": "2026-09-11T22:02:16Z",
+   "duration_sec": 3601,
+   "lifetime_views": 227,
+   "likes": 3,
+   "comments": 2,
+   "views": 224,
+   "minutes_watched": 1249,
+   "avg_view_pct": 19.05,
+   "avg_view_sec": 686,
+   "subs_gained": 1,
+   "subs_lost": 0,
+   "retention": {
+    "r_1min": 0.574,
+    "r_10min": 0.324,
+    "r_30min": 0.157,
+    "r_end": 0.083,
+    "r_start": 0.926
+   },
+   "sources": [
+    {
+     "insightTrafficSourceType": "SUBSCRIBER",
+     "views": 132,
+     "estimatedMinutesWatched": 331
+    },
+    {
+     "insightTrafficSourceType": "RELATED_VIDEO",
+     "views": 77,
+     "estimatedMinutesWatched": 820
+    },
+    {
+     "insightTrafficSourceType": "NO_LINK_OTHER",
+     "views": 4,
+     "estimatedMinutesWatched": 22
+    },
+    {
+     "insightTrafficSourceType": "YT_SEARCH",
+     "views": 4,
+     "estimatedMinutesWatched": 0
+    },
+    {
+     "insightTrafficSourceType": "YT_OTHER_PAGE",
+     "views": 4,
+     "estimatedMinutesWatched": 21
+    },
+    {
+     "insightTrafficSourceType": "YT_CHANNEL",
+     "views": 2,
+     "estimatedMinutesWatched": 52
+    },
+    {
+     "insightTrafficSourceType": "END_SCREEN",
+     "views": 1,
+     "estimatedMinutesWatched": 0
+    }
+   ],
+   "search_terms": [
+    [
+     "dune ambient",
+     1
+    ],
+    [
+     "dune soundtrack hans zimmer",
+     1
+    ]
+   ],
+   "suggested_from": [
+    [
+     "OaourFG3xYY",
+     5
+    ],
+    [
+     "By1hAfsOsnE",
+     2
+    ],
+    [
+     "Nm_Y9agkPlU",
+     2
+    ],
+    [
+     "Zro5A7gZdKs",
+     2
+    ],
+    [
+     "-8sOqJhop40",
+     1
+    ],
+    [
+     "-vVtOVUHVzE",
+     1
+    ],
+    [
+     "088qKb0on-s",
+     1
+    ],
+    [
+     "0xq08Zawy58",
+     1
+    ],
+    [
+     "15A7RHBeTyA",
+     1
+    ],
+    [
+     "2l1-iBpaMgA",
+     1
+    ]
+   ]
+  },
+  "HvumlX9trg0": {
+   "title": "The Odyssey | Going Home After 20 Years | 1 Hour Deep Work Ambient",
+   "published_at": "2026-09-08T02:46:30Z",
+   "duration_sec": 3601,
+   "lifetime_views": 22,
+   "likes": 0,
+   "comments": 1,
+   "views": 18,
+   "minutes_watched": 198,
+   "avg_view_pct": 27.61,
+   "avg_view_sec": 994,
+   "subs_gained": 0,
+   "subs_lost": 0,
+   "retention": {
+    "r_1min": 0.818,
+    "r_10min": 0.455,
+    "r_30min": 0.273,
+    "r_end": 0.182,
+    "r_start": 1.0
+   },
+   "sources": [
+    {
+     "insightTrafficSourceType": "RELATED_VIDEO",
+     "views": 13,
+     "estimatedMinutesWatched": 198
+    },
+    {
+     "insightTrafficSourceType": "SUBSCRIBER",
+     "views": 4,
+     "estimatedMinutesWatched": 0
+    },
+    {
+     "insightTrafficSourceType": "YT_SEARCH",
+     "views": 1,
+     "estimatedMinutesWatched": 0
+    },
+    {
+     "insightTrafficSourceType": "NO_LINK_OTHER",
+     "views": 0,
+     "estimatedMinutesWatched": 0
+    }
+   ],
+   "search_terms": [],
+   "suggested_from": [
+    [
+     "Rl8Qzt1cPtg",
+     2
+    ],
+    [
+     "6pUPGG7LLEc",
+     1
+    ],
+    [
+     "M926Gwg8xnM",
+     1
+    ],
+    [
+     "QjvPobfMNZQ",
+     1
+    ],
+    [
+     "SyDSiF3PpHo",
+     1
+    ],
+    [
+     "UfkitpwMt6Y",
+     1
+    ],
+    [
+     "ahxLMvwgJLc",
+     1
+    ],
+    [
+     "i6ZP9yn8n5c",
+     1
+    ],
+    [
+     "kO8LO93NXAE",
+     1
+    ],
+    [
+     "tbdIBvn-cIA",
+     1
+    ]
+   ]
+  },
+  "wHOZ8ppszSI": {
+   "title": "The Sirens' Strait | The Odyssey [3 HOURS] | Dark Ambient for Deep Work",
+   "published_at": "2026-08-10T19:04:15Z",
+   "duration_sec": 10806,
+   "lifetime_views": 100,
+   "likes": 3,
+   "comments": 0,
+   "views": 100,
+   "minutes_watched": 986,
+   "avg_view_pct": 5.95,
+   "avg_view_sec": 643,
+   "subs_gained": 1,
+   "subs_lost": 0,
+   "retention": {
+    "r_1min": 0.33,
+    "r_10min": 0.114,
+    "r_30min": 0.057,
+    "r_end": 0.023,
+    "r_start": 0.943
+   },
+   "sources": [
+    {
+     "insightTrafficSourceType": "RELATED_VIDEO",
+     "views": 56,
+     "estimatedMinutesWatched": 666
+    },
+    {
+     "insightTrafficSourceType": "SUBSCRIBER",
+     "views": 23,
+     "estimatedMinutesWatched": 123
+    },
+    {
+     "insightTrafficSourceType": "YT_SEARCH",
+     "views": 12,
+     "estimatedMinutesWatched": 127
+    },
+    {
+     "insightTrafficSourceType": "NO_LINK_OTHER",
+     "views": 8,
+     "estimatedMinutesWatched": 46
+    },
+    {
+     "insightTrafficSourceType": "YT_OTHER_PAGE",
+     "views": 1,
+     "estimatedMinutesWatched": 22
+    }
+   ],
+   "search_terms": [],
+   "suggested_from": [
+    [
+     "VPQXhBGuVbI",
+     3
+    ],
+    [
+     "mvIQFU729TM",
+     2
+    ],
+    [
+     "ziFjnGLEngQ",
+     2
+    ],
+    [
+     "5c8ccb3SdeE",
+     1
+    ],
+    [
+     "6-lMrIRo7BY",
+     1
+    ],
+    [
+     "68PIATQsEMw",
+     1
+    ],
+    [
+     "7SYJYKMfD70",
+     1
+    ],
+    [
+     "7d14EFU-XTQ",
+     1
+    ],
+    [
+     "7i2I8w-0Uw4",
+     1
+    ],
+    [
+     "7rgG3sboipg",
+     1
+    ]
+   ]
+  },
+  "INqxNO66Le0": {
+   "title": "He Turned Down Immortality to Go Home | The Odyssey #Shorts",
+   "published_at": "2026-07-27T19:39:37Z",
+   "duration_sec": 51,
+   "lifetime_views": 58,
+   "likes": 1,
+   "comments": 0,
+   "views": 58,
+   "minutes_watched": 6,
+   "avg_view_pct": 32.87,
+   "avg_view_sec": 16,
+   "subs_gained": 0,
+   "subs_lost": 0,
+   "sources": [
+    {
+     "insightTrafficSourceType": "SHORTS",
+     "views": 54,
+     "estimatedMinutesWatched": 5
+    },
+    {
+     "insightTrafficSourceType": "YT_SEARCH",
+     "views": 2,
+     "estimatedMinutesWatched": 0
+    },
+    {
+     "insightTrafficSourceType": "EXT_URL",
+     "views": 1,
+     "estimatedMinutesWatched": 0
+    },
+    {
+     "insightTrafficSourceType": "NOTIFICATION",
+     "views": 1,
+     "estimatedMinutesWatched": 0
+    },
+    {
+     "insightTrafficSourceType": "NO_LINK_OTHER",
+     "views": 0,
+     "estimatedMinutesWatched": 0
+    }
+   ],
+   "search_terms": [],
+   "suggested_from": []
+  },
+  "JhV1RPOGAGw": {
+   "title": "The Odyssey | Trapped on Calypso's Shore | 1 Hour Ambient Music",
+   "published_at": "2026-07-27T04:00:16Z",
+   "duration_sec": 3601,
+   "lifetime_views": 2031,
+   "likes": 8,
+   "comments": 0,
+   "views": 1995,
+   "minutes_watched": 7756,
+   "avg_view_pct": 7.71,
+   "avg_view_sec": 277,
+   "subs_gained": 3,
+   "subs_lost": 0,
+   "retention": {
+    "r_1min": 0.284,
+    "r_10min": 0.08,
+    "r_30min": 0.051,
+    "r_end": 0.036,
+    "r_start": 1.0
+   },
+   "sources": [
+    {
+     "insightTrafficSourceType": "ADVERTISING",
+     "views": 1874,
+     "estimatedMinutesWatched": 6026
+    },
+    {
+     "insightTrafficSourceType": "NO_LINK_OTHER",
+     "views": 42,
+     "estimatedMinutesWatched": 1145
+    },
+    {
+     "insightTrafficSourceType": "RELATED_VIDEO",
+     "views": 24,
+     "estimatedMinutesWatched": 132
+    },
+    {
+     "insightTrafficSourceType": "SUBSCRIBER",
+     "views": 22,
+     "estimatedMinutesWatched": 151
+    },
+    {
+     "insightTrafficSourceType": "YT_SEARCH",
+     "views": 22,
+     "estimatedMinutesWatched": 217
+    },
+    {
+     "insightTrafficSourceType": "EXT_URL",
+     "views": 4,
+     "estimatedMinutesWatched": 9
+    },
+    {
+     "insightTrafficSourceType": "PLAYLIST",
+     "views": 3,
+     "estimatedMinutesWatched": 71
+    },
+    {
+     "insightTrafficSourceType": "YT_CHANNEL",
+     "views": 2,
+     "estimatedMinutesWatched": 1
+    },
+    {
+     "insightTrafficSourceType": "YT_OTHER_PAGE",
+     "views": 1,
+     "estimatedMinutesWatched": 0
+    },
+    {
+     "insightTrafficSourceType": "NOTIFICATION",
+     "views": 1,
+     "estimatedMinutesWatched": 0
+    }
+   ],
+   "search_terms": [],
+   "suggested_from": [
+    [
+     "BNMinrm5UhQ",
+     2
+    ],
+    [
+     "OaourFG3xYY",
+     2
+    ],
+    [
+     "eEQX5tKOKHM",
+     2
+    ],
+    [
+     "-EK2WokWLTI",
+     1
+    ],
+    [
+     "9xL1LLkVXCo",
+     1
+    ],
+    [
+     "CCSZJM1OqpQ",
+     1
+    ],
+    [
+     "C_IPHg9Bl1E",
+     1
+    ],
+    [
+     "HsvxxfW2IA8",
+     1
+    ],
+    [
+     "NLaIdRkE0QE",
+     1
+    ],
+    [
+     "UaevUlVs63c",
+     1
+    ]
+   ]
+  },
+  "kg-RRBuGsuQ": {
+   "title": "Dawn Over Arrakis \u2014 1 Hour Desert Ambient Music",
+   "published_at": "2026-07-23T01:40:58Z",
+   "duration_sec": 3601,
+   "lifetime_views": 65,
+   "likes": 3,
+   "comments": 0,
+   "views": 57,
+   "minutes_watched": 896,
+   "avg_view_pct": 26.22,
+   "avg_view_sec": 944,
+   "subs_gained": 0,
+   "subs_lost": 0,
+   "retention": {
+    "r_1min": 0.339,
+    "r_10min": 0.25,
+    "r_30min": 0.286,
+    "r_end": 0.196,
+    "r_start": 0.446
+   },
+   "sources": [
+    {
+     "insightTrafficSourceType": "EXT_URL",
+     "views": 30,
+     "estimatedMinutesWatched": 657
+    },
+    {
+     "insightTrafficSourceType": "RELATED_VIDEO",
+     "views": 18,
+     "estimatedMinutesWatched": 189
+    },
+    {
+     "insightTrafficSourceType": "SUBSCRIBER",
+     "views": 5,
+     "estimatedMinutesWatched": 48
+    },
+    {
+     "insightTrafficSourceType": "YT_CHANNEL",
+     "views": 2,
+     "estimatedMinutesWatched": 0
+    },
+    {
+     "insightTrafficSourceType": "YT_SEARCH",
+     "views": 2,
+     "estimatedMinutesWatched": 0
+    },
+    {
+     "insightTrafficSourceType": "NO_LINK_OTHER",
+     "views": 0,
+     "estimatedMinutesWatched": 0
+    }
+   ],
+   "search_terms": [],
+   "suggested_from": [
+    [
+     "8GEiOau9ezA",
+     2
+    ],
+    [
+     "lXcfXPcNdJE",
+     2
+    ],
+    [
+     "8PX4j2Dd8XA",
+     1
+    ],
+    [
+     "H13xctzCJ2w",
+     1
+    ],
+    [
+     "LhMpS_POktI",
+     1
+    ],
+    [
+     "Sr0-aCqHABw",
+     1
+    ],
+    [
+     "UmxMLpEWrEE",
+     1
+    ],
+    [
+     "a9mduvhtPrs",
+     1
+    ],
+    [
+     "c0IgzsUCTLs",
+     1
+    ],
+    [
+     "cE78E1GdfX0",
+     1
+    ]
+   ]
+  },
+  "BRS8MRfNvZ4": {
+   "title": "Hopeful Light in the Alien Biodome \ud83c\udf3f\u2728 #Shorts",
+   "published_at": "2026-06-18T15:52:47Z",
+   "duration_sec": 51,
+   "lifetime_views": 13,
+   "likes": 2,
+   "comments": 0,
+   "views": 13,
+   "minutes_watched": 5,
+   "avg_view_pct": 336.76,
+   "avg_view_sec": 171,
+   "subs_gained": 0,
+   "subs_lost": 0,
+   "sources": [
+    {
+     "insightTrafficSourceType": "SHORTS",
+     "views": 6,
+     "estimatedMinutesWatched": 0
+    },
+    {
+     "insightTrafficSourceType": "EXT_URL",
+     "views": 5,
+     "estimatedMinutesWatched": 5
+    },
+    {
+     "insightTrafficSourceType": "YT_CHANNEL",
+     "views": 1,
+     "estimatedMinutesWatched": 0
+    },
+    {
+     "insightTrafficSourceType": "NOTIFICATION",
+     "views": 1,
+     "estimatedMinutesWatched": 0
+    },
+    {
+     "insightTrafficSourceType": "NO_LINK_OTHER",
+     "views": 0,
+     "estimatedMinutesWatched": 0
+    }
+   ],
+   "search_terms": [],
+   "suggested_from": []
+  },
+  "nAiWwRx1Tk0": {
+   "title": "Project Hail Mary | Two Minds, One Light | 1 Hour Cinematic Ambient",
+   "published_at": "2026-06-17T16:29:27Z",
+   "duration_sec": 3601,
+   "lifetime_views": 111,
+   "likes": 7,
+   "comments": 0,
+   "views": 111,
+   "minutes_watched": 789,
+   "avg_view_pct": 11.86,
+   "avg_view_sec": 426,
+   "subs_gained": 1,
+   "subs_lost": 0,
+   "retention": {
+    "r_1min": 0.387,
+    "r_10min": 0.171,
+    "r_30min": 0.099,
+    "r_end": 0.063,
+    "r_start": 0.964
+   },
+   "sources": [
+    {
+     "insightTrafficSourceType": "SUBSCRIBER",
+     "views": 68,
+     "estimatedMinutesWatched": 414
+    },
+    {
+     "insightTrafficSourceType": "RELATED_VIDEO",
+     "views": 27,
+     "estimatedMinutesWatched": 227
+    },
+    {
+     "insightTrafficSourceType": "NO_LINK_OTHER",
+     "views": 6,
+     "estimatedMinutesWatched": 129
+    },
+    {
+     "insightTrafficSourceType": "YT_SEARCH",
+     "views": 3,
+     "estimatedMinutesWatched": 0
+    },
+    {
+     "insightTrafficSourceType": "PLAYLIST",
+     "views": 3,
+     "estimatedMinutesWatched": 11
+    },
+    {
+     "insightTrafficSourceType": "YT_OTHER_PAGE",
+     "views": 2,
+     "estimatedMinutesWatched": 0
+    },
+    {
+     "insightTrafficSourceType": "YT_CHANNEL",
+     "views": 1,
+     "estimatedMinutesWatched": 5
+    },
+    {
+     "insightTrafficSourceType": "EXT_URL",
+     "views": 1,
+     "estimatedMinutesWatched": 0
+    }
+   ],
+   "search_terms": [
+    [
+     "project hail mary ambience",
+     1
+    ],
+    [
+     "project hail mary ambient",
+     1
+    ]
+   ],
+   "suggested_from": [
+    [
+     "yDZP2SN3HQY",
+     2
+    ],
+    [
+     "25Bc1rHffu4",
+     1
+    ],
+    [
+     "5BypadAxQ-U",
+     1
+    ],
+    [
+     "6oe_iYhOcCo",
+     1
+    ],
+    [
+     "9JAtEaUJBMU",
+     1
+    ],
+    [
+     "DIcr3YX6mQg",
+     1
+    ],
+    [
+     "Ho9em79_0qg",
+     1
+    ],
+    [
+     "SzUcZJ5GTyE",
+     1
+    ],
+    [
+     "TM6HaygshRs",
+     1
+    ],
+    [
+     "U-lGbaDfd-M",
+     1
+    ]
+   ]
+  },
+  "n-QS428KnS0": {
+   "title": "A Flute Echoes Through the Forgotten Ritual Chamber \ud83d\udd6f\ufe0f",
+   "published_at": "2026-06-05T17:09:11Z",
+   "duration_sec": 51,
+   "lifetime_views": 181,
+   "likes": 10,
+   "comments": 0,
+   "views": 181,
+   "minutes_watched": 35,
+   "avg_view_pct": 90.54,
+   "avg_view_sec": 46,
+   "subs_gained": 0,
+   "subs_lost": 0,
+   "sources": [
+    {
+     "insightTrafficSourceType": "SHORTS",
+     "views": 165,
+     "estimatedMinutesWatched": 31
+    },
+    {
+     "insightTrafficSourceType": "YT_CHANNEL",
+     "views": 6,
+     "estimatedMinutesWatched": 0
+    },
+    {
+     "insightTrafficSourceType": "YT_SEARCH",
+     "views": 4,
+     "estimatedMinutesWatched": 0
+    },
+    {
+     "insightTrafficSourceType": "SUBSCRIBER",
+     "views": 3,
+     "estimatedMinutesWatched": 1
+    },
+    {
+     "insightTrafficSourceType": "YT_OTHER_PAGE",
+     "views": 2,
+     "estimatedMinutesWatched": 0
+    },
+    {
+     "insightTrafficSourceType": "EXT_URL",
+     "views": 1,
+     "estimatedMinutesWatched": 0
+    },
+    {
+     "insightTrafficSourceType": "NO_LINK_OTHER",
+     "views": 0,
+     "estimatedMinutesWatched": 0
+    }
+   ],
+   "search_terms": [],
+   "suggested_from": []
+  },
+  "tg1Ixcm_-6k": {
+   "title": "Dune | Beneath the Desert Temples | 1 Hour Ancient Cinematic Ambient",
+   "published_at": "2026-06-05T15:11:42Z",
+   "duration_sec": 3601,
+   "lifetime_views": 541,
+   "likes": 19,
+   "comments": 2,
+   "views": 541,
+   "minutes_watched": 898,
+   "avg_view_pct": 2.82,
+   "avg_view_sec": 101,
+   "subs_gained": 6,
+   "subs_lost": 0,
+   "retention": {
+    "r_1min": 0.193,
+    "r_10min": 0.043,
+    "r_30min": 0.019,
+    "r_end": 0.007,
+    "r_start": 1.004
+   },
+   "sources": [
+    {
+     "insightTrafficSourceType": "ADVERTISING",
+     "views": 451,
+     "estimatedMinutesWatched": 414
+    },
+    {
+     "insightTrafficSourceType": "RELATED_VIDEO",
+     "views": 33,
+     "estimatedMinutesWatched": 330
+    },
+    {
+     "insightTrafficSourceType": "SUBSCRIBER",
+     "views": 18,
+     "estimatedMinutesWatched": 77
+    },
+    {
+     "insightTrafficSourceType": "YT_CHANNEL",
+     "views": 13,
+     "estimatedMinutesWatched": 19
+    },
+    {
+     "insightTrafficSourceType": "NO_LINK_OTHER",
+     "views": 7,
+     "estimatedMinutesWatched": 3
+    },
+    {
+     "insightTrafficSourceType": "YT_SEARCH",
+     "views": 7,
+     "estimatedMinutesWatched": 36
+    },
+    {
+     "insightTrafficSourceType": "YT_OTHER_PAGE",
+     "views": 6,
+     "estimatedMinutesWatched": 12
+    },
+    {
+     "insightTrafficSourceType": "PLAYLIST",
+     "views": 4,
+     "estimatedMinutesWatched": 3
+    },
+    {
+     "insightTrafficSourceType": "HASHTAGS",
+     "views": 1,
+     "estimatedMinutesWatched": 0
+    },
+    {
+     "insightTrafficSourceType": "SHORTS_CONTENT_LINKS",
+     "views": 1,
+     "estimatedMinutesWatched": 0
+    }
+   ],
+   "search_terms": [],
+   "suggested_from": [
+    [
+     "W76tRtTazbk",
+     3
+    ],
+    [
+     "bXTQiTuBkAs",
+     2
+    ],
+    [
+     "2AB0Thzp5ws",
+     1
+    ],
+    [
+     "61tWemJo6o0",
+     1
+    ],
+    [
+     "6dDSJ0F1hpE",
+     1
+    ],
+    [
+     "7M9xU5lM-Es",
+     1
+    ],
+    [
+     "G9jjSrN1jiQ",
+     1
+    ],
+    [
+     "Gp85GL14WaY",
+     1
+    ],
+    [
+     "HNzBnzkkVP0",
+     1
+    ],
+    [
+     "JhV1RPOGAGw",
+     1
+    ]
+   ]
+  },
+  "IDMcx6lX9fM": {
+   "title": "Drifting Between Stars \u2014 Hail Mary's Hope \ud83c\udf0c #Shorts",
+   "published_at": "2026-06-01T02:00:41Z",
+   "duration_sec": 51,
+   "lifetime_views": 27,
+   "likes": 3,
+   "comments": 0,
+   "views": 15,
+   "minutes_watched": 0,
+   "avg_view_pct": 0,
+   "avg_view_sec": 0,
+   "subs_gained": 0,
+   "subs_lost": 0,
+   "sources": [
+    {
+     "insightTrafficSourceType": "SHORTS",
+     "views": 6,
+     "estimatedMinutesWatched": 0
+    },
+    {
+     "insightTrafficSourceType": "YT_CHANNEL",
+     "views": 5,
+     "estimatedMinutesWatched": 0
+    },
+    {
+     "insightTrafficSourceType": "YT_SEARCH",
+     "views": 4,
+     "estimatedMinutesWatched": 0
+    },
+    {
+     "insightTrafficSourceType": "NO_LINK_OTHER",
+     "views": 0,
+     "estimatedMinutesWatched": 0
+    }
+   ],
+   "search_terms": [
+    [
+     "distant stars song",
+     1
+    ],
+    [
+     "interstellar music",
+     1
+    ]
+   ],
+   "suggested_from": []
+  },
+  "PTYSsjpW6NU": {
+   "title": "A Lone Ship Finds Hope in the Void \ud83d\ude80\u2728 #Shorts",
+   "published_at": "2026-06-01T01:53:59Z",
+   "duration_sec": 51,
+   "lifetime_views": 19,
+   "likes": 4,
+   "comments": 0,
+   "views": 13,
+   "minutes_watched": 4,
+   "avg_view_pct": 68.23,
+   "avg_view_sec": 34,
+   "subs_gained": 0,
+   "subs_lost": 0,
+   "sources": [
+    {
+     "insightTrafficSourceType": "SHORTS",
+     "views": 5,
+     "estimatedMinutesWatched": 2
+    },
+    {
+     "insightTrafficSourceType": "YT_CHANNEL",
+     "views": 4,
+     "estimatedMinutesWatched": 0
+    },
+    {
+     "insightTrafficSourceType": "NOTIFICATION",
+     "views": 3,
+     "estimatedMinutesWatched": 1
+    },
+    {
+     "insightTrafficSourceType": "YT_OTHER_PAGE",
+     "views": 1,
+     "estimatedMinutesWatched": 0
+    },
+    {
+     "insightTrafficSourceType": "NO_LINK_OTHER",
+     "views": 0,
+     "estimatedMinutesWatched": 0
+    }
+   ],
+   "search_terms": [],
+   "suggested_from": []
+  },
+  "frJb60y4d5M": {
+   "title": "Project Hail Mary \u2014 A Small Light in the Dark | 1 Hour Space Ambient",
+   "published_at": "2026-05-31T22:23:32Z",
+   "duration_sec": 3601,
+   "lifetime_views": 145,
+   "likes": 5,
+   "comments": 2,
+   "views": 145,
+   "minutes_watched": 1999,
+   "avg_view_pct": 22.98,
+   "avg_view_sec": 827,
+   "subs_gained": 0,
+   "subs_lost": 0,
+   "retention": {
+    "r_1min": 0.54,
+    "r_10min": 0.321,
+    "r_30min": 0.241,
+    "r_end": 0.175,
+    "r_start": 0.956
+   },
+   "sources": [
+    {
+     "insightTrafficSourceType": "RELATED_VIDEO",
+     "views": 92,
+     "estimatedMinutesWatched": 1692
+    },
+    {
+     "insightTrafficSourceType": "SUBSCRIBER",
+     "views": 29,
+     "estimatedMinutesWatched": 228
+    },
+    {
+     "insightTrafficSourceType": "YT_CHANNEL",
+     "views": 14,
+     "estimatedMinutesWatched": 59
+    },
+    {
+     "insightTrafficSourceType": "NO_LINK_OTHER",
+     "views": 6,
+     "estimatedMinutesWatched": 19
+    },
+    {
+     "insightTrafficSourceType": "YT_SEARCH",
+     "views": 2,
+     "estimatedMinutesWatched": 0
+    },
+    {
+     "insightTrafficSourceType": "YT_OTHER_PAGE",
+     "views": 1,
+     "estimatedMinutesWatched": 0
+    },
+    {
+     "insightTrafficSourceType": "SHORTS_CONTENT_LINKS",
+     "views": 1,
+     "estimatedMinutesWatched": 0
+    }
+   ],
+   "search_terms": [
+    [
+     "project hail mary rocky sound",
+     1
+    ]
+   ],
+   "suggested_from": [
+    [
+     "5gO0xpY_Y3E",
+     49
+    ],
+    [
+     "nAiWwRx1Tk0",
+     3
+    ],
+    [
+     "-DjRpUoURkY",
+     2
+    ],
+    [
+     "dM_3ILUUIcw",
+     2
+    ],
+    [
+     "uDcvyWywPfI",
+     2
+    ],
+    [
+     "whJwwBbeykg",
+     2
+    ],
+    [
+     "3tA_auSFYKk",
+     1
+    ],
+    [
+     "7E-NO3zf7w4",
+     1
+    ],
+    [
+     "9yKZfiSpl48",
+     1
+    ],
+    [
+     "DAfqeTBz2Go",
+     1
+    ]
+   ]
+  },
+  "ofA7JRdzH8k": {
+   "title": "Sanctuary \u2022 Deep Contemplative Ambient for Life's Greatest Challenges",
+   "published_at": "2026-05-22T21:56:01Z",
+   "duration_sec": 3601,
+   "lifetime_views": 45,
+   "likes": 4,
+   "comments": 2,
+   "views": 45,
+   "minutes_watched": 275,
+   "avg_view_pct": 10.21,
+   "avg_view_sec": 367,
+   "subs_gained": 1,
+   "subs_lost": 0,
+   "retention": {
+    "r_1min": 0.386,
+    "r_10min": 0.159,
+    "r_30min": 0.068,
+    "r_end": 0.045,
+    "r_start": 0.864
+   },
+   "sources": [
+    {
+     "insightTrafficSourceType": "RELATED_VIDEO",
+     "views": 29,
+     "estimatedMinutesWatched": 180
+    },
+    {
+     "insightTrafficSourceType": "YT_CHANNEL",
+     "views": 9,
+     "estimatedMinutesWatched": 2
+    },
+    {
+     "insightTrafficSourceType": "SUBSCRIBER",
+     "views": 4,
+     "estimatedMinutesWatched": 40
+    },
+    {
+     "insightTrafficSourceType": "NOTIFICATION",
+     "views": 2,
+     "estimatedMinutesWatched": 0
+    },
+    {
+     "insightTrafficSourceType": "PLAYLIST",
+     "views": 1,
+     "estimatedMinutesWatched": 50
+    },
+    {
+     "insightTrafficSourceType": "NO_LINK_OTHER",
+     "views": 0,
+     "estimatedMinutesWatched": 0
+    }
+   ],
+   "search_terms": [],
+   "suggested_from": [
+    [
+     "rv-WDWttm6E",
+     3
+    ],
+    [
+     "k0VppQxHULA",
+     2
+    ],
+    [
+     "-oSbH_fT64k",
+     1
+    ],
+    [
+     "0ClI0-V3Roc",
+     1
+    ],
+    [
+     "1PLerxEKOUM",
+     1
+    ],
+    [
+     "6WUCIFfGHMo",
+     1
+    ],
+    [
+     "7E-NO3zf7w4",
+     1
+    ],
+    [
+     "9IvQPJjfogE",
+     1
+    ],
+    [
+     "AY0oyERpnNw",
+     1
+    ],
+    [
+     "DIvewN35QT4",
+     1
+    ]
+   ]
+  },
+  "pr5JhPlr18c": {
+   "title": "Escher's Paradox | Ambient Music for Inspiration and Deep Thought",
+   "published_at": "2026-04-12T07:01:36Z",
+   "duration_sec": 3601,
+   "lifetime_views": 51,
+   "likes": 3,
+   "comments": 2,
+   "views": 50,
+   "minutes_watched": 366,
+   "avg_view_pct": 12.710000000000003,
+   "avg_view_sec": 457,
+   "subs_gained": 0,
+   "subs_lost": 0,
+   "retention": {
+    "r_1min": 0.362,
+    "r_10min": 0.298,
+    "r_30min": 0.149,
+    "r_end": 0.043,
+    "r_start": 0.83
+   },
+   "sources": [
+    {
+     "insightTrafficSourceType": "YT_SEARCH",
+     "views": 25,
+     "estimatedMinutesWatched": 264
+    },
+    {
+     "insightTrafficSourceType": "YT_CHANNEL",
+     "views": 9,
+     "estimatedMinutesWatched": 16
+    },
+    {
+     "insightTrafficSourceType": "NO_LINK_OTHER",
+     "views": 7,
+     "estimatedMinutesWatched": 69
+    },
+    {
+     "insightTrafficSourceType": "SUBSCRIBER",
+     "views": 4,
+     "estimatedMinutesWatched": 1
+    },
+    {
+     "insightTrafficSourceType": "YT_OTHER_PAGE",
+     "views": 2,
+     "estimatedMinutesWatched": 0
+    },
+    {
+     "insightTrafficSourceType": "PLAYLIST",
+     "views": 2,
+     "estimatedMinutesWatched": 12
+    },
+    {
+     "insightTrafficSourceType": "RELATED_VIDEO",
+     "views": 1,
+     "estimatedMinutesWatched": 1
+    }
+   ],
+   "search_terms": [],
+   "suggested_from": [
+    [
+     "b44-5M4e9nI",
+     1
+    ]
+   ]
+  },
+  "s0s476Lnjtk": {
+   "title": "Project Hail Mary Spacecraft Ambience for Science & Discovery",
+   "published_at": "2026-04-05T01:32:16Z",
+   "duration_sec": 3586,
+   "lifetime_views": 51,
+   "likes": 3,
+   "comments": 3,
+   "views": 50,
+   "minutes_watched": 88,
+   "avg_view_pct": 2.95,
+   "avg_view_sec": 105,
+   "subs_gained": 0,
+   "subs_lost": 0,
+   "retention": {
+    "r_1min": 0.225,
+    "r_10min": 0.082,
+    "r_30min": 0.02,
+    "r_end": 0.02,
+    "r_start": 0.816
+   },
+   "sources": [
+    {
+     "insightTrafficSourceType": "RELATED_VIDEO",
+     "views": 12,
+     "estimatedMinutesWatched": 24
+    },
+    {
+     "insightTrafficSourceType": "YT_CHANNEL",
+     "views": 9,
+     "estimatedMinutesWatched": 21
+    },
+    {
+     "insightTrafficSourceType": "YT_SEARCH",
+     "views": 8,
+     "estimatedMinutesWatched": 3
+    },
+    {
+     "insightTrafficSourceType": "NO_LINK_OTHER",
+     "views": 7,
+     "estimatedMinutesWatched": 3
+    },
+    {
+     "insightTrafficSourceType": "SUBSCRIBER",
+     "views": 7,
+     "estimatedMinutesWatched": 18
+    },
+    {
+     "insightTrafficSourceType": "YT_OTHER_PAGE",
+     "views": 7,
+     "estimatedMinutesWatched": 17
+    }
+   ],
+   "search_terms": [
+    [
+     "project hail mary ambience",
+     4
+    ],
+    [
+     "project hail mary ambiance",
+     1
+    ]
+   ],
+   "suggested_from": [
+    [
+     "2yD5Bsa59SM",
+     1
+    ],
+    [
+     "6lWKKbenrMM",
+     1
+    ],
+    [
+     "9G4yMLtXk-w",
+     1
+    ],
+    [
+     "EKm86HsVS1Q",
+     1
+    ],
+    [
+     "Ggb3wkSNDxk",
+     1
+    ],
+    [
+     "GlM6lcFbLSg",
+     1
+    ],
+    [
+     "Jt7Gzbw06wQ",
+     1
+    ],
+    [
+     "LqrW97UpWpo",
+     1
+    ],
+    [
+     "OKM7GCSdk6A",
+     1
+    ],
+    [
+     "PHuOHH1UdQM",
+     1
+    ]
+   ]
+  },
+  "7E-NO3zf7w4": {
+   "title": "Arrakis Desert Rain | DUNE Contemplative Soundscape for Deep Focus & Meditation",
+   "published_at": "2026-04-04T15:56:57Z",
+   "duration_sec": 3574,
+   "lifetime_views": 119,
+   "likes": 5,
+   "comments": 3,
+   "views": 118,
+   "minutes_watched": 405,
+   "avg_view_pct": 5.92,
+   "avg_view_sec": 211,
+   "subs_gained": 3,
+   "subs_lost": 0,
+   "retention": {
+    "r_1min": 0.246,
+    "r_10min": 0.088,
+    "r_30min": 0.061,
+    "r_end": 0.009,
+    "r_start": 0.825
+   },
+   "sources": [
+    {
+     "insightTrafficSourceType": "RELATED_VIDEO",
+     "views": 66,
+     "estimatedMinutesWatched": 174
+    },
+    {
+     "insightTrafficSourceType": "YT_CHANNEL",
+     "views": 15,
+     "estimatedMinutesWatched": 62
+    },
+    {
+     "insightTrafficSourceType": "SUBSCRIBER",
+     "views": 14,
+     "estimatedMinutesWatched": 106
+    },
+    {
+     "insightTrafficSourceType": "YT_SEARCH",
+     "views": 8,
+     "estimatedMinutesWatched": 0
+    },
+    {
+     "insightTrafficSourceType": "NO_LINK_OTHER",
+     "views": 7,
+     "estimatedMinutesWatched": 34
+    },
+    {
+     "insightTrafficSourceType": "YT_OTHER_PAGE",
+     "views": 7,
+     "estimatedMinutesWatched": 1
+    },
+    {
+     "insightTrafficSourceType": "EXT_URL",
+     "views": 1,
+     "estimatedMinutesWatched": 24
+    }
+   ],
+   "search_terms": [],
+   "suggested_from": [
+    [
+     "kg-RRBuGsuQ",
+     2
+    ],
+    [
+     "-pu93aq9uP4",
+     1
+    ],
+    [
+     "3P7knkgipy8",
+     1
+    ],
+    [
+     "3ciMHwo1ApA",
+     1
+    ],
+    [
+     "447nE-1L_z0",
+     1
+    ],
+    [
+     "4HY99r47qlo",
+     1
+    ],
+    [
+     "4Tr0otuiQuU",
+     1
+    ],
+    [
+     "5BXcAT3w4Lo",
+     1
+    ],
+    [
+     "8VS8CpD34Jo",
+     1
+    ],
+    [
+     "AfIDRkYQD-w",
+     1
+    ]
+   ]
+  }
+ }
+}

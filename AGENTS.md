@@ -121,6 +121,16 @@ When you are a **Cloud Agent** (running in Cursor's cloud VM, not on Cole's Mac)
   2026-10-14 panel (4 angle-diverse designers, 3 judges on star odds / rule compliance / learning value)
   picked "Frodo Sails West"; the general-YouTube "Night Train" pitch scored last for having no journey.
 
+- **Post learning loop (2026-10-16).** The music learns from Cole's stars; titles, thumbnails, visual loops
+  and publish timing learn from YouTube's numbers via `post_learning.py`. At upload, `record` logs the choices
+  (title format, thumbnail style + measured look, loop motion numbers) to `data/post_ledger.jsonl`; launchd
+  `com.cole.ambientizer-post-learning` (Mondays 08:00) runs `pull` (per-video views, avg view %, subs, retention
+  at 1/10/30/60 min, traffic sources incl. search terms and suggested-from neighbours → `data/post_outcomes.json`,
+  dated snapshots in `post_outcomes_history.jsonl`) then `lessons` (Opus 5.5 rewrites `data/post_lessons.md`;
+  `docs/POST-EXPERIMENTS.md` is the report). CTR is Studio-only, so thumbnails are judged by browse/suggested views
+  and subs; every release ships three thumbnail candidates in `output/release/<name>/` for Studio's Test & compare.
+  First pull found Temples (tg1Ixcm_-6k) had 451 of 541 views from ads, so its +6 subs prove nothing.
+
 ## How a track is made
 
 **Read `docs/HOW-A-TRACK-IS-MADE.md` before generating music for a release.** One 10-minute text-mode
