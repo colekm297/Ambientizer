@@ -131,6 +131,12 @@ When you are a **Cloud Agent** (running in Cursor's cloud VM, not on Cole's Mac)
   and subs; every release ships three thumbnail candidates in `output/release/<name>/` for Studio's Test & compare.
   First pull found Temples (tg1Ixcm_-6k) had 451 of 541 views from ads, so its +6 subs prove nothing.
 
+### Process plan experiments (2026-10-23)
+After Penelope (1.3% CTR, 28% at 1:00 vs Last Light's 57%), Cole approved three experiments ("Yeah we can try it"); plan in `docs/PROCESS-PLAN-2026-10-23.md`.
+- **Build:** new releases use `build_release.py <name> <wav> --cta2 ... --next-title ... --next-thumb ...`: no brand sting, subscribe card at 5:00 (not 0:07), one linear gain to -16 LUFS capped at -1 dBTP (the app masters to -18), joins judged against their own +/-3 s neighbours. Proven on `output/release/penelope_v2/`.
+- **Packaging:** niche pattern (famous place + "Peaceful Music & Ambience", bright image, centered Cinzel title): `_niche_thumbs.py`. Changing a public video's title/thumbnail or starting a Studio A/B test needs Cole's yes on the exact wording; the auto-mode classifier blocks it otherwise. Studio's A/B Testing (title, thumbnail, or both) lives under the title field; Chrome must be switched to The Space of Sound channel first.
+- **Take cache:** the app caches takes by prompt hash, so a retry with identical text replays the same file. Retries append "Take N." (daily_experiment.py, `_gen_dune_streak_takes.py`).
+
 ## How a track is made
 
 **Read `docs/HOW-A-TRACK-IS-MADE.md` before generating music for a release.** One 10-minute text-mode
