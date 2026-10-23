@@ -1,6 +1,6 @@
 """Dune streak, week 1 candidates (2026-10-23 process plan, experiment 3). Three takes in Last Light on
 Arrakis's register (the channel's best organic video), each at an iconic place. Cole picks in the app."""
-import time, requests
+import sys, time, subprocess, json, requests
 BASE = "http://127.0.0.1:5050"
 COMMON = ("Richly textured yet spacious, warm and reverent, instrumental, unhurried, never busy; every instrument "
           "keeps sounding at full presence through the final seconds, no fade-out, no silence. No drum kit, no "
@@ -22,9 +22,14 @@ TAKES = {
    "French horns on a tonic D pedal; a faint frame drum far back like a slow heartbeat; morning wind. Opens with santur and "
    "duduk; horns and cellos gather as the light grows; the middle is fullest and warmest. " + COMMON,
 }
+def secs(jid):
+    p = json.load(open(f"saved_jobs/{jid}.json"))["config"]["layers"][0]["generated_audio_path"]
+    return float(subprocess.run(["ffprobe","-v","error","-show_entries","format=duration","-of","csv=p=0",p],capture_output=True,text=True).stdout or 0)
+ONLY = sys.argv[1:]  # rerun named takes only
 for title, prompt in TAKES.items():
-    for attempt in (1, 2):
-        g = requests.post(f"{BASE}/api/generate", json={"prompt": prompt, "mode": "musical", "planner_mode": "raw",
+    if ONLY and title not in ONLY: continue
+    for attempt in (2, 3, 4) if ONLY else (1, 2, 3):
+        g = requests.post(f"{BASE}/api/generate", json={"prompt": prompt + ("" if attempt == 1 else f" Take {attempt + 1}."), "mode": "musical", "planner_mode": "raw",
             "music_length": 10, "duration": 10, "music_generation_mode": "text", "music_model": "music_v2",
             "mastering": True}, timeout=60).json()
         jid = g["job_id"]
@@ -32,7 +37,8 @@ for title, prompt in TAKES.items():
             s = requests.get(f"{BASE}/api/status/{jid}", timeout=30).json()
             if s.get("status") in ("complete", "error", "canceled"): break
             time.sleep(15)
-        print(title, "attempt", attempt, jid, s.get("status"), flush=True)
-        if s.get("status") == "complete": break
+        print(title, "attempt", attempt, jid, s.get("status"), round(secs(jid)) if s.get("status")=="complete" else "", flush=True)
+        if s.get("status") == "complete" and secs(jid) >= 480: break
+        print("  short or failed:", round(secs(jid)) if s.get("status")=="complete" else "", flush=True)
     requests.post(f"{BASE}/api/job/{jid}/meta", json={"title": f"Dune streak · {title}", "world": "Dune"}, timeout=30)
 print("DONE", flush=True)
