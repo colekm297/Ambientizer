@@ -170,7 +170,11 @@ def generated_seconds(job_id):
     return float(out or 0)
 
 
-def generate(prompt):
+def generate(prompt, attempt=1):
+    # The app caches takes by a hash of the prompt, so a retry with the same text returns the same short file
+    # (found 2026-10-23). A retry marks its prompt so it gets fresh audio.
+    if attempt > 1:
+        prompt = f"{prompt} Take {attempt}."
     g = requests.post(f"{BASE}/api/generate", json={
         "prompt": prompt, "mode": "musical", "planner_mode": "raw", "music_length": 10, "duration": 10,
         "music_generation_mode": "text", "music_model": "music_v2", "mastering": True}, timeout=60).json()
@@ -195,7 +199,7 @@ def main():
     exp = design(rows)
     log(f"designed: {exp['world']} / {exp['title']} / {exp['testing']}")
     for attempt in (1, 2):
-        jid, status = generate(exp["prompt"])
+        jid, status = generate(exp["prompt"], attempt)
         secs = generated_seconds(jid)
         log(f"attempt {attempt}: job {jid} {status}, {secs:.0f} s")
         if status == "complete" and secs >= 480:
