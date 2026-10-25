@@ -1597,7 +1597,7 @@ def api_regenerate_exact(job_id: str):
         "approach": "unified",
         "planner_mode": "raw",
         "music_generation_mode": job.get("music_generation_mode", "text"),
-        "music_model": job.get("music_model", "music_v2"),
+        "music_model": job.get("music_model", "music_v2_5"),
         "music_length": float(_cfg("music_length_sec", 600) or 600) / 60.0,
         "duration": float(_cfg("duration_sec", 1200) or 1200) / 60.0,
         "mastering": True,
@@ -1654,7 +1654,7 @@ def api_generate():
         stitch_cell_sec = float(data.get("stitch_cell_sec", 0) or 0)
     except (TypeError, ValueError):
         stitch_cell_sec = 0
-    music_model = data.get("music_model", "music_v2")
+    music_model = data.get("music_model", "music_v2_5")
     if music_model not in ("music_v1", "music_v2", "music_v2_5"):
         music_model = "music_v1"
     composition_plan = data.get("composition_plan")  # optional, edited in the UI

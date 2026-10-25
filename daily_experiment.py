@@ -6,7 +6,7 @@ Metric: stars Cole gives these takes per week. Each morning this:
      plus his 3-star prompts and the house rules in docs/HOW-A-TRACK-IS-MADE.md;
   2. asks Claude for ONE new experiment (world, title, what it tests, prompt) that learns
      from what scored and tries something not tried recently;
-  3. generates it the way Cole makes tracks: raw prompt, text mode, music_v2, 10 minutes;
+  3. generates it the way Cole makes tracks: raw prompt, text mode, music_v2_5, 10 minutes;
   4. titles it in the app ("<World> · Daily · <title>") so it sits at the top of his list;
   5. appends to data/daily_experiments.jsonl and rewrites docs/DAILY-EXPERIMENTS.md
      (per-week star totals).
@@ -177,7 +177,7 @@ def generate(prompt, attempt=1):
         prompt = f"{prompt} Take {attempt}."
     g = requests.post(f"{BASE}/api/generate", json={
         "prompt": prompt, "mode": "musical", "planner_mode": "raw", "music_length": 10, "duration": 10,
-        "music_generation_mode": "text", "music_model": "music_v2", "mastering": True}, timeout=60).json()
+        "music_generation_mode": "text", "music_model": "music_v2_5", "mastering": True}, timeout=60).json()
     jid = g["job_id"]
     while True:
         s = requests.get(f"{BASE}/api/status/{jid}", timeout=30).json()

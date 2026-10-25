@@ -96,9 +96,17 @@ When you are a **Cloud Agent** (running in Cursor's cloud VM, not on Cole's Mac)
 - **Gemini: `gemini-4-argon`** first everywhere (critics, reference analysis, enhancer search), older tiers as
   fallbacks. It is slow (about a minute for a grounded search) and Cole accepted that for quality. Check what
   the key can call with `GET https://generativelanguage.googleapis.com/v1beta/models` before trusting web pages.
-- **ElevenLabs music: `music_v2` default** (full 10-min take, Cole's method). `music_v2_5` is newer but caps
-  around 6 minutes; it stays selectable.
-- Visual models are separate decisions (Seedance 1.5 Pro loops, flux-pro v1.1 ultra stills; Grok key blocked).
+- **ElevenLabs music: `music_v2_5` default since 2026-10-24** (Cole: "upgrade every single model"). The
+  6-minute cap is gone: two 10-min requests came back at 600 s. `music_v2` stays selectable. SFX passes no
+  `model_id`, so it gets ElevenLabs' current default.
+- **Stills: `openai/gpt-image-2` on fal** (quality high, 2048x1152) since 2026-10-24. In a same-prompt test
+  against flux-pro v1.1-ultra and fal-ai/nano-banana-pro it was the only one that kept the figure small in a
+  vast frame (output/_model_upgrade/stills_compare.jpg). Nano Banana Pro is the most filmic runner-up.
+- **Loops: Seedance.** `bytedance/seedance-2.5/us/image-to-video` takes `end_image_url`, 4-30 s, 1080p,
+  `bitrate_mode: high`, but has no `camera_fixed`; see the seam test in output/_model_upgrade/seedance25.log
+  before switching from `fal-ai/bytedance/seedance/v1.5/pro/image-to-video`. Veo 3.1 (fal_loop.py) is still
+  the newest Veo. Grok key blocked.
+- **Music prompts lead with the world name** (Cole 2026-10-24: "its the NUMBER one thing").
 
 ## Field notes (distilled 2026-10-15 from the Sept-Oct Ambientizer session)
 
