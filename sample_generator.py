@@ -83,9 +83,9 @@ class ElevenLabsSampleGenerator:
 
     def __init__(self, api_key: str, cache_dir: str = "generated_samples"):
         self.client = ElevenLabs(api_key=api_key)
-        # ElevenLabs Music model. "music_v1" (default, fully tuned) or "music_v2"
+        # ElevenLabs Music model: "music_v1", "music_v2" or "music_v2_5" (newest, the default)
         # (better prompt adherence + long-form). Set per-job by the orchestrator.
-        self.music_model = "music_v2"
+        self.music_model = "music_v2_5"  # 2026-10-24: newest; now gives full 10-min takes
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self._spend_log_path = self.cache_dir / "_daily_spend.json"

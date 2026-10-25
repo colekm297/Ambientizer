@@ -368,6 +368,11 @@ class ThemeInterpreter:
             else:
                 music_prompt = selected_music[0].get("elevenlabs_prompt", "")
                 music_name = selected_music[0].get("layer_name", "Complete Reference Arrangement")
+            # Cole 2026-10-24: the world in his prompt is "the NUMBER one thing". The reference only
+            # describes the sound; his words (e.g. "Dune soundscape") always lead the prompt.
+            typed = (prompt or "").strip().rstrip(".")
+            if typed and typed.lower() not in music_prompt.lower():
+                music_prompt = f"{typed}. {music_prompt}"[:900]
 
             layers.append(LayerConfig(
                 name=music_name,
