@@ -17,7 +17,7 @@ for p in prompts:
     jid = g["job_id"]
     while (s := requests.get(f"{BASE}/api/status/{jid}", timeout=30).json()).get("status") not in ("complete", "error", "canceled"):
         time.sleep(15)
-    sent = json.load(open(f"saved_jobs/{jid}.json"))["config"]["layers"][0].get("elevenlabs_prompt", "") if s.get("status") == "complete" else ""
+    sent = " || ".join(L.get("elevenlabs_prompt", "")[:120] for L in json.load(open(f"saved_jobs/{jid}.json"))["config"]["layers"]) if s.get("status") == "complete" else ""
     print(p["name"], "+link", jid, s.get("status"), "\n  SENT:", sent[:600], flush=True)
     requests.post(f"{BASE}/api/job/{jid}/meta", json={"title": f"Dune + link (fixed) · {p['name']}", "world": "Dune"}, timeout=30)
     try: crit = grade(wav(jid), p["name"] + " link")
