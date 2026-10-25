@@ -3,7 +3,7 @@ Generates the three prompts Gemini wrote in output/_competitor/empyreal/study.md
 to each take next to the reference and scores how close it is. Cole picks in the app."""
 import re, sys, time, json, subprocess, os, requests
 from pathlib import Path
-from dotenv import load_dotenv; load_dotenv()
+from dotenv import load_dotenv; load_dotenv(".env")
 from google import genai
 from google.genai import types
 BASE = "http://127.0.0.1:5050"; OUT = Path("output/_competitor/empyreal")
