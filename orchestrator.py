@@ -276,6 +276,14 @@ class SoundscapeOrchestrator:
                 layer_plan=layer_plan,
                 approach=approach,
             )
+        # Cole 2026-10-24: the world in his prompt is "the NUMBER one thing". Planners (and reference
+        # analyses above all) rewrite it away, so every musical layer leads with what he typed.
+        typed = (prompt or "").strip().rstrip(".")
+        if planner_mode != "raw" and typed and len(typed) <= 200:
+            for layer in config.layers:
+                p = (layer.elevenlabs_prompt or "").strip()
+                if layer.layer_type == LayerType.MUSICAL and typed.lower() not in p.lower():
+                    layer.elevenlabs_prompt = f"{typed}. {p}"[:900]
         self._status("interpreting",
                       f"   -> {config.title} ({len(config.layers)} layers, mood: {config.mood})",
                       {"title": config.title, "layers": len(config.layers), "mood": config.mood})
