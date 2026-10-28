@@ -421,7 +421,7 @@ class ElevenLabsSampleGenerator:
         return prompt
 
     def _generate_music(self, name: str, prompt: str, duration: float, wav_path: str, cache_key: str,
-                        _sanitized_retry: bool = False) -> str:
+                        _sanitized_retry: bool = False, _busy_retries: int = 0) -> str:
         """Generate via Music v1 API (tonal/harmonic/melodic content)."""
         prompt = self._guard_ending(prompt)
         duration_ms = int(min(duration, HARD_MAX_MUSIC_SEC) * 1000)
@@ -466,12 +466,24 @@ class ElevenLabsSampleGenerator:
                     print(f"      ↻ Sanitized rewrite: {suggestion[:120]}...", flush=True)
                     return self._generate_music(name, suggestion, duration, wav_path, cache_key,
                                                 _sanitized_retry=True)
+                # 2026-10-28: the account allows 2 concurrent music requests. A busy answer is not a
+                # failure; wait for a slot instead of falling back to an 8 s SFX.
+                if ("concurrent_limit_exceeded" in str(e) or "too_many_concurrent" in str(e)) and _busy_retries < 20:
+                    print(f"      ⏳ ElevenLabs busy (concurrency limit), retrying in 60s "
+                          f"({_busy_retries + 1}/20)...", flush=True)
+                    time.sleep(60)
+                    return self._generate_music(name, prompt, duration, wav_path, cache_key,
+                                                _sanitized_retry=_sanitized_retry,
+                                                _busy_retries=_busy_retries + 1)
                 if fmt == "pcm_44100":
                     print(f"      ↓ PCM not available ({e}), trying MP3...")
                     continue
                 self._warn(f"Music generation failed for '{name}' — fell back to a short SFX "
                            f"texture (NOT a full musical track). Error: {str(e)[:160]}")
-                return self._generate_sfx(name, prompt, min(duration, HARD_MAX_SFX_SEC), wav_path, cache_key)
+                # Never write the fallback under the music cache key, or every later request with
+                # this prompt replays the 8 s SFX (seen 2026-10-28).
+                fb_path = wav_path[:-4] + "_sfxfallback.wav" if wav_path.endswith(".wav") else wav_path + ".sfxfallback.wav"
+                return self._generate_sfx(name, prompt, min(duration, HARD_MAX_SFX_SEC), fb_path, cache_key + "_sfxfb")
 
         return ""
 
