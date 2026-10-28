@@ -20,6 +20,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import threading
 import time
@@ -33,6 +34,7 @@ HERE = Path(__file__).resolve().parent
 load_dotenv(HERE / ".env")
 BASE = "http://127.0.0.1:5050"
 lock = threading.Lock()
+MIN_FREE_GB = 20
 
 SCREEN = ("Listen to the AUDIO. This is a 10-minute ambient take meant as calm background music for focus "
           "and sleep. List only real problems, with times: drums or a beat, a busy arpeggio or sequencer, a "
@@ -103,6 +105,12 @@ def run_one(item: dict, reserve: int, log: Path) -> None:
 def _run_one(item: dict, reserve: int, log: Path) -> None:
     for attempt in (1, 2):
         with lock:
+            # Wave 1 filled the disk on 2026-10-28 (each take leaves ~300 MB of WAVs across output/ and
+            # generated_samples/), so stop well before it fills again.
+            free_gb = shutil.disk_usage(HERE).free / 1e9
+            if free_gb < MIN_FREE_GB:
+                print(f"STOP disk: {free_gb:.1f} GB free, floor {MIN_FREE_GB} GB", flush=True)
+                return
             left = remaining()
             if left - 12000 < reserve:
                 print(f"STOP reserve: {left} left, reserve {reserve}", flush=True)
