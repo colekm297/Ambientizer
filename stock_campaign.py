@@ -34,6 +34,7 @@ HERE = Path(__file__).resolve().parent
 load_dotenv(HERE / ".env")
 BASE = "http://127.0.0.1:5050"
 lock = threading.Lock()
+offload_lock = threading.Lock()
 MIN_FREE_GB = 20
 
 SCREEN = ("Listen to the AUDIO. This is a 10-minute ambient take meant as calm background music for focus "
@@ -150,6 +151,25 @@ def _run_one(item: dict, reserve: int, log: Path) -> None:
         with open(log, "a") as fh:
             fh.write(json.dumps(rec) + "\n")
     print(f"DONE {jid} {round(d)}s {title}", flush=True)
+    offload(jid)
+
+
+def offload(jid: str) -> None:
+    """Move the take's raw and mastered mixes to R2 (verified by sha256) and drop the local copies; the
+    layer WAV in generated_samples stays, so the app's player and the flat mix work as before, and the
+    app serves the evicted files from R2. Each take is ~308 MB as three WAVs; this leaves ~104 MB."""
+    from media_store import get_store
+    store = get_store()
+    if not store.enabled:
+        return
+    j = json.load(open(HERE / "saved_jobs" / f"{jid}.json"))
+    for p in {j.get("raw_output_path"), j.get("output_path"), j.get("audio_path")} - {None}:
+        p = str(p if Path(p).is_absolute() else HERE / p)
+        if not os.path.exists(p):
+            continue
+        with offload_lock:
+            ok = store.upload(p) and store.evict(p)
+        print(f"  {'offloaded' if ok else 'OFFLOAD FAILED (kept local)'} {Path(p).name}", flush=True)
 
 
 def main() -> None:
