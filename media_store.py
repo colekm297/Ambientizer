@@ -76,12 +76,19 @@ class MediaStore:
 
     # ── manifest ──────────────────────────────────────────────────────────
     def manifest(self) -> dict:
+        # Reload when another process (offload_release.py, stock_campaign.py) has rewritten the file,
+        # or the app keeps 404ing files evicted after it started.
         with self._lock:
-            if self._manifest is None:
+            try:
+                mtime = os.path.getmtime(MANIFEST_PATH)
+            except OSError:
+                mtime = None
+            if self._manifest is None or mtime != getattr(self, "_manifest_mtime", None):
                 try:
                     self._manifest = json.load(open(MANIFEST_PATH))
                 except Exception:
-                    self._manifest = {}
+                    self._manifest = self._manifest or {}
+                self._manifest_mtime = mtime
             return self._manifest
 
     def _save_manifest(self):
@@ -89,6 +96,7 @@ class MediaStore:
             tmp = str(MANIFEST_PATH) + ".tmp"
             json.dump(self._manifest, open(tmp, "w"), indent=1)
             os.replace(tmp, MANIFEST_PATH)
+            self._manifest_mtime = os.path.getmtime(MANIFEST_PATH)
 
     @staticmethod
     def relkey(path: str) -> str:
