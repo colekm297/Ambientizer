@@ -1,31 +1,134 @@
 {
- "pulled_at": "2026-10-16T17:55:50",
+ "pulled_at": "2026-10-26T08:00:06",
  "channel": {
-  "viewCount": "3801",
+  "viewCount": "3982",
   "subscriberCount": "170",
   "hiddenSubscriberCount": false,
-  "videoCount": "17"
+  "videoCount": "18"
  },
  "videos": {
+  "I1EbGRaQumk": {
+   "title": "The Odyssey | Penelope at the Loom | 1 Hour Deep Focus Ambient",
+   "published_at": "2026-10-17T22:58:45Z",
+   "duration_sec": 3601,
+   "lifetime_views": 167,
+   "likes": 1,
+   "comments": 0,
+   "views": 161,
+   "minutes_watched": 349,
+   "avg_view_pct": 8.04,
+   "avg_view_sec": 289,
+   "subs_gained": 0,
+   "subs_lost": 0,
+   "retention": {
+    "r_1min": 0.311,
+    "r_10min": 0.164,
+    "r_30min": 0.082,
+    "r_end": 0.049,
+    "r_start": 1.0
+   },
+   "sources": [
+    {
+     "insightTrafficSourceType": "SUBSCRIBER",
+     "views": 109,
+     "estimatedMinutesWatched": 209
+    },
+    {
+     "insightTrafficSourceType": "RELATED_VIDEO",
+     "views": 33,
+     "estimatedMinutesWatched": 133
+    },
+    {
+     "insightTrafficSourceType": "NO_LINK_OTHER",
+     "views": 7,
+     "estimatedMinutesWatched": 1
+    },
+    {
+     "insightTrafficSourceType": "EXT_URL",
+     "views": 6,
+     "estimatedMinutesWatched": 0
+    },
+    {
+     "insightTrafficSourceType": "YT_SEARCH",
+     "views": 3,
+     "estimatedMinutesWatched": 0
+    },
+    {
+     "insightTrafficSourceType": "PLAYLIST",
+     "views": 2,
+     "estimatedMinutesWatched": 0
+    },
+    {
+     "insightTrafficSourceType": "YT_CHANNEL",
+     "views": 1,
+     "estimatedMinutesWatched": 3
+    }
+   ],
+   "search_terms": [],
+   "suggested_from": [
+    [
+     "qoVqOaRpQXI",
+     2
+    ],
+    [
+     "16ZkvbvWwlk",
+     1
+    ],
+    [
+     "1AZPvDaBfOI",
+     1
+    ],
+    [
+     "4ENuzv-Xe0Q",
+     1
+    ],
+    [
+     "5iEhY6H98uU",
+     1
+    ],
+    [
+     "6TN7ouUoP04",
+     1
+    ],
+    [
+     "7RwBgKg-1lg",
+     1
+    ],
+    [
+     "AvKzcltBZN0",
+     1
+    ],
+    [
+     "EqWoOWw6FH4",
+     1
+    ],
+    [
+     "GyNgfgTqTsU",
+     1
+    ]
+   ],
+   "views_since_last_pull": 39,
+   "subs_since_last_pull": 0
+  },
   "y6YS18A8hYY": {
    "title": "Dune | Last Light on Arrakis | 1 Hour Deep Focus Ambient",
    "published_at": "2026-09-11T22:02:16Z",
    "duration_sec": 3601,
-   "lifetime_views": 227,
+   "lifetime_views": 230,
    "likes": 3,
    "comments": 2,
-   "views": 224,
-   "minutes_watched": 1249,
-   "avg_view_pct": 19.05,
-   "avg_view_sec": 686,
+   "views": 226,
+   "minutes_watched": 1303,
+   "avg_view_pct": 19.53,
+   "avg_view_sec": 703,
    "subs_gained": 1,
    "subs_lost": 0,
    "retention": {
-    "r_1min": 0.574,
-    "r_10min": 0.324,
-    "r_30min": 0.157,
-    "r_end": 0.083,
-    "r_start": 0.926
+    "r_1min": 0.573,
+    "r_10min": 0.327,
+    "r_30min": 0.164,
+    "r_end": 0.082,
+    "r_start": 0.918
    },
    "sources": [
     {
@@ -35,8 +138,8 @@
     },
     {
      "insightTrafficSourceType": "RELATED_VIDEO",
-     "views": 77,
-     "estimatedMinutesWatched": 820
+     "views": 79,
+     "estimatedMinutesWatched": 874
     },
     {
      "insightTrafficSourceType": "NO_LINK_OTHER",
@@ -92,10 +195,6 @@
      2
     ],
     [
-     "-8sOqJhop40",
-     1
-    ],
-    [
      "-vVtOVUHVzE",
      1
     ],
@@ -108,14 +207,20 @@
      1
     ],
     [
-     "15A7RHBeTyA",
+     "2zz0hz_13qg",
      1
     ],
     [
-     "2l1-iBpaMgA",
+     "50owCJEV6Is",
+     1
+    ],
+    [
+     "7xPgS_G_y1s",
      1
     ]
-   ]
+   ],
+   "views_since_last_pull": 1,
+   "subs_since_last_pull": 0
   },
   "HvumlX9trg0": {
    "title": "The Odyssey | Going Home After 20 Years | 1 Hour Deep Work Ambient",
@@ -201,27 +306,29 @@
      "tbdIBvn-cIA",
      1
     ]
-   ]
+   ],
+   "views_since_last_pull": 0,
+   "subs_since_last_pull": 0
   },
   "wHOZ8ppszSI": {
    "title": "The Sirens' Strait | The Odyssey [3 HOURS] | Dark Ambient for Deep Work",
    "published_at": "2026-08-10T19:04:15Z",
    "duration_sec": 10806,
-   "lifetime_views": 100,
+   "lifetime_views": 103,
    "likes": 3,
    "comments": 0,
-   "views": 100,
+   "views": 103,
    "minutes_watched": 986,
-   "avg_view_pct": 5.95,
-   "avg_view_sec": 643,
+   "avg_view_pct": 5.83,
+   "avg_view_sec": 629,
    "subs_gained": 1,
    "subs_lost": 0,
    "retention": {
-    "r_1min": 0.33,
-    "r_10min": 0.114,
-    "r_30min": 0.057,
-    "r_end": 0.023,
-    "r_start": 0.943
+    "r_1min": 0.322,
+    "r_10min": 0.111,
+    "r_30min": 0.056,
+    "r_end": 0.022,
+    "r_start": 0.944
    },
    "sources": [
     {
@@ -236,13 +343,18 @@
     },
     {
      "insightTrafficSourceType": "YT_SEARCH",
-     "views": 12,
+     "views": 13,
      "estimatedMinutesWatched": 127
     },
     {
      "insightTrafficSourceType": "NO_LINK_OTHER",
      "views": 8,
      "estimatedMinutesWatched": 46
+    },
+    {
+     "insightTrafficSourceType": "PLAYLIST",
+     "views": 2,
+     "estimatedMinutesWatched": 0
     },
     {
      "insightTrafficSourceType": "YT_OTHER_PAGE",
@@ -292,7 +404,9 @@
      "7rgG3sboipg",
      1
     ]
-   ]
+   ],
+   "views_since_last_pull": 0,
+   "subs_since_last_pull": 0
   },
   "INqxNO66Le0": {
    "title": "He Turned Down Immortality to Go Home | The Odyssey #Shorts",
@@ -335,27 +449,29 @@
     }
    ],
    "search_terms": [],
-   "suggested_from": []
+   "suggested_from": [],
+   "views_since_last_pull": 0,
+   "subs_since_last_pull": 0
   },
   "JhV1RPOGAGw": {
    "title": "The Odyssey | Trapped on Calypso's Shore | 1 Hour Ambient Music",
    "published_at": "2026-07-27T04:00:16Z",
    "duration_sec": 3601,
-   "lifetime_views": 2031,
+   "lifetime_views": 2036,
    "likes": 8,
    "comments": 0,
-   "views": 1995,
-   "minutes_watched": 7756,
-   "avg_view_pct": 7.71,
-   "avg_view_sec": 277,
+   "views": 2005,
+   "minutes_watched": 7993,
+   "avg_view_pct": 7.9,
+   "avg_view_sec": 284,
    "subs_gained": 3,
    "subs_lost": 0,
    "retention": {
-    "r_1min": 0.284,
-    "r_10min": 0.08,
-    "r_30min": 0.051,
-    "r_end": 0.036,
-    "r_start": 1.0
+    "r_1min": 0.285,
+    "r_10min": 0.082,
+    "r_30min": 0.053,
+    "r_end": 0.037,
+    "r_start": 0.998
    },
    "sources": [
     {
@@ -365,8 +481,13 @@
     },
     {
      "insightTrafficSourceType": "NO_LINK_OTHER",
-     "views": 42,
-     "estimatedMinutesWatched": 1145
+     "views": 50,
+     "estimatedMinutesWatched": 1379
+    },
+    {
+     "insightTrafficSourceType": "YT_SEARCH",
+     "views": 24,
+     "estimatedMinutesWatched": 220
     },
     {
      "insightTrafficSourceType": "RELATED_VIDEO",
@@ -377,11 +498,6 @@
      "insightTrafficSourceType": "SUBSCRIBER",
      "views": 22,
      "estimatedMinutesWatched": 151
-    },
-    {
-     "insightTrafficSourceType": "YT_SEARCH",
-     "views": 22,
-     "estimatedMinutesWatched": 217
     },
     {
      "insightTrafficSourceType": "EXT_URL",
@@ -451,13 +567,15 @@
      "UaevUlVs63c",
      1
     ]
-   ]
+   ],
+   "views_since_last_pull": 1,
+   "subs_since_last_pull": 0
   },
   "kg-RRBuGsuQ": {
    "title": "Dawn Over Arrakis \u2014 1 Hour Desert Ambient Music",
    "published_at": "2026-07-23T01:40:58Z",
    "duration_sec": 3601,
-   "lifetime_views": 65,
+   "lifetime_views": 66,
    "likes": 3,
    "comments": 0,
    "views": 57,
@@ -547,7 +665,9 @@
      "cE78E1GdfX0",
      1
     ]
-   ]
+   ],
+   "views_since_last_pull": 0,
+   "subs_since_last_pull": 0
   },
   "BRS8MRfNvZ4": {
    "title": "Hopeful Light in the Alien Biodome \ud83c\udf3f\u2728 #Shorts",
@@ -590,7 +710,9 @@
     }
    ],
    "search_terms": [],
-   "suggested_from": []
+   "suggested_from": [],
+   "views_since_last_pull": 0,
+   "subs_since_last_pull": 0
   },
   "nAiWwRx1Tk0": {
    "title": "Project Hail Mary | Two Minds, One Light | 1 Hour Cinematic Ambient",
@@ -705,7 +827,9 @@
      "U-lGbaDfd-M",
      1
     ]
-   ]
+   ],
+   "views_since_last_pull": 0,
+   "subs_since_last_pull": 0
   },
   "n-QS428KnS0": {
    "title": "A Flute Echoes Through the Forgotten Ritual Chamber \ud83d\udd6f\ufe0f",
@@ -758,7 +882,9 @@
     }
    ],
    "search_terms": [],
-   "suggested_from": []
+   "suggested_from": [],
+   "views_since_last_pull": 0,
+   "subs_since_last_pull": 0
   },
   "tg1Ixcm_-6k": {
    "title": "Dune | Beneath the Desert Temples | 1 Hour Ancient Cinematic Ambient",
@@ -874,16 +1000,18 @@
      "JhV1RPOGAGw",
      1
     ]
-   ]
+   ],
+   "views_since_last_pull": 0,
+   "subs_since_last_pull": 0
   },
   "IDMcx6lX9fM": {
    "title": "Drifting Between Stars \u2014 Hail Mary's Hope \ud83c\udf0c #Shorts",
    "published_at": "2026-06-01T02:00:41Z",
    "duration_sec": 51,
-   "lifetime_views": 27,
+   "lifetime_views": 28,
    "likes": 3,
    "comments": 0,
-   "views": 15,
+   "views": 16,
    "minutes_watched": 0,
    "avg_view_pct": 0,
    "avg_view_sec": 0,
@@ -902,7 +1030,7 @@
     },
     {
      "insightTrafficSourceType": "YT_SEARCH",
-     "views": 4,
+     "views": 5,
      "estimatedMinutesWatched": 0
     },
     {
@@ -921,7 +1049,9 @@
      1
     ]
    ],
-   "suggested_from": []
+   "suggested_from": [],
+   "views_since_last_pull": 1,
+   "subs_since_last_pull": 0
   },
   "PTYSsjpW6NU": {
    "title": "A Lone Ship Finds Hope in the Void \ud83d\ude80\u2728 #Shorts",
@@ -964,7 +1094,9 @@
     }
    ],
    "search_terms": [],
-   "suggested_from": []
+   "suggested_from": [],
+   "views_since_last_pull": 0,
+   "subs_since_last_pull": 0
   },
   "frJb60y4d5M": {
    "title": "Project Hail Mary \u2014 A Small Light in the Dark | 1 Hour Space Ambient",
@@ -1070,7 +1202,9 @@
      "DAfqeTBz2Go",
      1
     ]
-   ]
+   ],
+   "views_since_last_pull": 0,
+   "subs_since_last_pull": 0
   },
   "ofA7JRdzH8k": {
    "title": "Sanctuary \u2022 Deep Contemplative Ambient for Life's Greatest Challenges",
@@ -1166,7 +1300,9 @@
      "DIvewN35QT4",
      1
     ]
-   ]
+   ],
+   "views_since_last_pull": 0,
+   "subs_since_last_pull": 0
   },
   "pr5JhPlr18c": {
    "title": "Escher's Paradox | Ambient Music for Inspiration and Deep Thought",
@@ -1175,18 +1311,18 @@
    "lifetime_views": 51,
    "likes": 3,
    "comments": 2,
-   "views": 50,
+   "views": 51,
    "minutes_watched": 366,
-   "avg_view_pct": 12.710000000000003,
-   "avg_view_sec": 457,
+   "avg_view_pct": 12.48,
+   "avg_view_sec": 449,
    "subs_gained": 0,
    "subs_lost": 0,
    "retention": {
-    "r_1min": 0.362,
-    "r_10min": 0.298,
-    "r_30min": 0.149,
-    "r_end": 0.043,
-    "r_start": 0.83
+    "r_1min": 0.375,
+    "r_10min": 0.292,
+    "r_30min": 0.146,
+    "r_end": 0.042,
+    "r_start": 0.833
    },
    "sources": [
     {
@@ -1210,6 +1346,11 @@
      "estimatedMinutesWatched": 1
     },
     {
+     "insightTrafficSourceType": "RELATED_VIDEO",
+     "views": 2,
+     "estimatedMinutesWatched": 1
+    },
+    {
      "insightTrafficSourceType": "YT_OTHER_PAGE",
      "views": 2,
      "estimatedMinutesWatched": 0
@@ -1218,20 +1359,21 @@
      "insightTrafficSourceType": "PLAYLIST",
      "views": 2,
      "estimatedMinutesWatched": 12
-    },
-    {
-     "insightTrafficSourceType": "RELATED_VIDEO",
-     "views": 1,
-     "estimatedMinutesWatched": 1
     }
    ],
    "search_terms": [],
    "suggested_from": [
     [
+     "JhV1RPOGAGw",
+     1
+    ],
+    [
      "b44-5M4e9nI",
      1
     ]
-   ]
+   ],
+   "views_since_last_pull": 0,
+   "subs_since_last_pull": 0
   },
   "s0s476Lnjtk": {
    "title": "Project Hail Mary Spacecraft Ambience for Science & Discovery",
@@ -1336,7 +1478,9 @@
      "PHuOHH1UdQM",
      1
     ]
-   ]
+   ],
+   "views_since_last_pull": 0,
+   "subs_since_last_pull": 0
   },
   "7E-NO3zf7w4": {
    "title": "Arrakis Desert Rain | DUNE Contemplative Soundscape for Deep Focus & Meditation",
@@ -1345,7 +1489,7 @@
    "lifetime_views": 119,
    "likes": 5,
    "comments": 3,
-   "views": 118,
+   "views": 119,
    "minutes_watched": 405,
    "avg_view_pct": 5.92,
    "avg_view_sec": 211,
@@ -1376,7 +1520,7 @@
     },
     {
      "insightTrafficSourceType": "YT_SEARCH",
-     "views": 8,
+     "views": 9,
      "estimatedMinutesWatched": 0
     },
     {
@@ -1402,27 +1546,7 @@
      2
     ],
     [
-     "-pu93aq9uP4",
-     1
-    ],
-    [
      "3P7knkgipy8",
-     1
-    ],
-    [
-     "3ciMHwo1ApA",
-     1
-    ],
-    [
-     "447nE-1L_z0",
-     1
-    ],
-    [
-     "4HY99r47qlo",
-     1
-    ],
-    [
-     "4Tr0otuiQuU",
      1
     ],
     [
@@ -1430,14 +1554,36 @@
      1
     ],
     [
-     "8VS8CpD34Jo",
+     "AfIDRkYQD-w",
      1
     ],
     [
-     "AfIDRkYQD-w",
+     "CCuh5B3HOfs",
+     1
+    ],
+    [
+     "Cfo7SaGLQMs",
+     1
+    ],
+    [
+     "GTlXIjspS-w",
+     1
+    ],
+    [
+     "HWIdWCKvhco",
+     1
+    ],
+    [
+     "IvfolR9QOEc",
+     1
+    ],
+    [
+     "KkB6cxsayOs",
      1
     ]
-   ]
+   ],
+   "views_since_last_pull": 0,
+   "subs_since_last_pull": 0
   }
  }
 }

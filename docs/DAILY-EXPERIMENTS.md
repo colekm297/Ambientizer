@@ -5,52 +5,119 @@ Written by `daily_experiment.py`; ratings are read live from the app.
 
 | Week | Takes | Rated | Stars | Avg of rated |
 |---|---|---|---|---|
-| 2026-W42 | 4 | 1 | 2 | 2.0 |
+| 2026-W44 | 3 | 0 | 0 | - |
+| 2026-W43 | 7 | 0 | 0 | - |
+| 2026-W42 | 5 | 1 | 2 | 2.0 |
 
 ## What it has learned
 
-LESSONS (updated 2026-10-17)
+LESSONS (updated 2026-10-28)
 
-Evidence base: Cole's own rated takes, plus one rated daily experiment (a083d482, 2 stars). Still unrated, so possibly not heard yet: 43199a6e (Interstellar, pipe organ, The Endurance Passes Saturn) and 3b5b94d9 (Fair Wind + wordless voice, exploit of 1af58c0f). Treat both as no signal. Since 10-16 there are no new ratings, so nothing below is revised.
+Evidence base: Cole's own rated takes, plus two rated daily experiments: a083d482 (2 stars, 10-14) and ad7bf446 (1 star, 10-24). No new ratings have arrived since 10-25.
 
-What the 3-star takes share (a38b5c83, eec20d97, 324a1f7b, 1af58c0f, 16a924b4, 10919aaa, 94b60fc9, all 3 stars):
-1. A famous world AND a named moment you can picture: Calypso's shore, dawn over Arrakis, Penelope's loom, the ship running home, the sirens' strait.
-2. One soft, distant pulse only: a frame drum 'like a distant heartbeat', muffled oars, the loom shuttle. Never a beat up front.
-3. One recognizable hook, named and described note by note: a three-note descending vocal call, a four-note lyre figure, flute 'homeward phrases'.
-4. A written journey. It opens sparse (low held note + pulse + hook instrument), gathers gradually, and is fullest and CLOSER/WARMER past the midpoint. It ends in a calm glow with everything still sounding through the final seconds. Two 3-star prompts say 'no fade-out, no silence'.
-5. Specific harmony: a named mode or key, 40-64 BPM, and a slow progression over a steady low held note.
-6. Sound from the scene itself, kept quiet and distant: rope and hull creaks, waves at the bow, sand on the wind, the loom creaking.
+Fifteen daily takes are unrated and may not have been heard yet:
+- 43199a6e: Interstellar, pipe organ.
+- 3b5b94d9: Fair Wind plus voice, exploit of 1af58c0f.
+- 9438668d: Night Train Home in the Rain.
+- 5244914d: Arrakis Under Two Moons, exploit of 10919aaa.
+- 9e2396c0: Odysseus Home with Penelope.
+- 10c8b7c5: Penelope's Loom, Slower, exploit of 16a924b4.
+- 895de55e: Paul and Chani at Sunset.
+- cec556fe: Stone Observatory, With a Heartbeat, exploit of 94b60fc9.
+- 028ad6d0: Grace and Rocky Learn to Talk.
+- 90ee77ee: Sirens' Strait Without the Voice, exploit of eec20d97.
+- c69ba06d: Lighthouse Lamp on a Calm Night.
+- 9bd31155: Calypso's Shore, With a Pipe Tune, exploit of a38b5c83.
+- 5d8da794: Morning in the Shire.
+- Today's take: Penelope's Loom, on a Harp, exploit of 16a924b4.
+
+Treat all of these as no signal. The backlog is very large. Once Cole rates a batch, revise these lessons before designing more. Until then, lean toward exploits of 3-star takes, plus safe explores in famous hopeful moments. Consider whether Chief should nudge Cole to rate the backlog, since new experiments teach nothing until he does.
+
+From ad7bf446 (1 star): 'Dune soundscape. Arrakis at night: deep warm drone, a distant duduk now and then, desert wind. Sparse, slow, no drums.' It has a famous world and the Dawn lead instrument. It has no key, no tempo, no hook and no journey, and it asks for 'deep drone', 'sparse' and 'no drums'. A famous world and the right timbre do not earn stars by themselves. The shape of the prompt carries the stars: specific harmony, a hook or a lead pair, a written arc, and rich layering. This matches 54ebbee0 (1 star). It does not settle whether 'Arrakis at night' pulls toward emptiness; 5244914d will.
+
+What the 3-star takes share (a38b5c83, eec20d97, 324a1f7b, 1af58c0f, 16a924b4, 10919aaa and 94b60fc9, all 3 stars):
+1. A specific moment you can picture. Six of the seven are in a famous world. 94b60fc9 (the observatory, no story world) still got 3 stars, so a vivid, concrete place and time may matter more than the story world.
+2. At most one soft, distant pulse, never a beat up front. 94b60fc9 and a38b5c83 (Calypso) have no drum pulse and still got 3 stars. The pulse is common but may not be required; cec556fe tests this.
+3. One recognizable hook, or at least a named lead pair. Dawn, Calypso and the observatory reach 3 stars with only a lead pair in one rich paragraph. 9bd31155 tests whether a named hook adds anything there.
+4. A written journey: a sparse opening, gradual gathering, fullest and CLOSER/WARMER past the midpoint, then a calm glow with everything still sounding at the end. Write 'no fade-out, no silence' in the long forms. Calypso shows that 'gently thickening through the middle and breathing at full density through the very end' is enough in the short form.
+5. Specific harmony: a named mode or key, 40 to 64 BPM, and a slow progression over a steady low held note.
+6. Quiet, distant sound from the scene itself.
 7. Bans only for problems heard before: no cymbals, no electric guitar, water stays distant.
+8. Rich layering. Every 3-star prompt says 'richly textured/layered yet unhurried, never busy'. The 1-star prompts say 'sparse'. Never make 'sparse', 'deep drone' or 'no drums' the defining traits.
+9. Palette: every 3-star except the observatory leads with Greek or Middle Eastern folk timbres (lyre, aulos, duduk, ney, santur, kanun). The observatory (dulcimer, wooden flute, harp) shows that nearby folk timbres can also hold. It is not yet known whether the specific lead timbre matters; today's harp swap tests this directly.
 
 What separates 2 stars from 3 stars:
-- Sirens 3-star (eec20d97) vs its 2-star twin b043fc9e. The only difference: the 2-star added 'the peak is intimacy, not volume', 'dissonance never grows', and 'the final quarter returns fully to the calm of the beginning'. Holding back the arc cost a star. Let the middle bloom, and never promise to return to the opening.
-- 46368573, 363eafe7 and dbc62b38 (all 2 stars) write the sirens scene with no named parts. The 3-star version has named parts. Named parts with jobs beat a flat list of instruments for busier scenes. Flowing single paragraphs work when the palette is small and the mood is single (Calypso, Dawn).
-- 54ebbee0 (1 star) is mood with no specific moment, no hook and no arc. This is the failure mode.
-- a083d482, Frodo Sails West (2 stars). It follows the full 3-star shape in a new world (Lord of the Rings), with a wordless female voice hook, harp + low whistle, and I-vi-IV-I. It lost a star, but several things changed at once. Partial reading: the shape is portable enough to earn 2 stars outside the Odyssey and Dune. It was also the longest prompt yet.
+- Sirens 3-star (eec20d97) vs its 2-star twin (b043fc9e): the 2-star held back the arc ('peak is intimacy', 'dissonance never grows', 'final quarter returns to the calm of the beginning'). Let the middle bloom, and never promise a return to the opening.
+- 46368573, 363eafe7 and dbc62b38 (all 2 stars) have no named parts. Two of them also brightened a perilous scene, which did not help. Named parts suit busy scenes; flowing paragraphs suit small palettes.
+- 54ebbee0 and ad7bf446 (both 1 star) have a mood but no moment, hook or arc, and are thin. That is the failure mode.
+- a083d482, Frodo Sails West (2 stars), put the full shape in a new world with a voice hook. Several things changed at once: a new world, a voice, a very long prompt, a farewell mood, and a Celtic harp/low whistle palette. The shape is portable enough to earn 2 stars outside Odyssey and Dune.
 
-Holdings for the channel's rules: percussion-heavy is bad (Three Knocks v2.5 overshot). Nothing dark under a hopeful story (Tau Ceti Vigil). Plain titles.
+Note: 324a1f7b and 1af58c0f both use I-bVII-IV-I, so both are effectively Mixolydian. A Mixolydian-to-major exploit would not separate anything.
 
-Pending tests:
-- 3b5b94d9 (10-16, exploit of 1af58c0f): Fair Wind word for word plus a distant wordless voice hook (A, F-sharp, D). If it holds at 3, the voice is safe in hopeful scenes and Frodo's lost star came from world or palette. If it drops to 2, keep voice for perilous or enchanted scenes like the Sirens.
-- 43199a6e (10-14): Interstellar with a pipe organ lead. If it scores, follow up by changing only one of world or palette.
-- TODAY (10-17, explore): 'Night Train Home in the Rain'. No story world at all. Keeps the full Fair Wind shape: E major ~60 BPM, I-bVII-IV-I over a tonic pedal, cello and horn pads, flute answers, glass shimmer, a written bloom, and no fade-out. The pulse is wheels on rail joints, kept distant like a heartbeat. The scene sound is rain on the window. The hook moves to a felt piano four-note figure (B, C-sharp, E, B) because a lyre makes no sense on a train. Confound: the world AND the hook instrument both change. If it gets 3, non-IP scenes are a real lane. Next, test rain on a window alone, and test piano as the hook inside an IP world. If it gets 1-2, check whether the piano or the missing world is the cause, by putting a piano hook on a 3-star IP template.
+Channel rules held: percussion-heavy is bad. Nothing dark under a hopeful story (Tau Ceti Vigil, ce42ae6f). Darkness is fine when the scene is perilous (Sirens). Plain titles.
+
+Pending tests (read each when rated):
+- 3b5b94d9: a voice added to hopeful Fair Wind. 3 stars means the voice is safe in hopeful scenes. 2 stars means keep the voice for enchanted or perilous scenes.
+- 43199a6e: Interstellar with a pipe organ lead. If it scores, vary only the world or the palette next.
+- 9438668d: Night Train, no world, felt piano. Confounded. If 3 stars, the non-story lane is real. If 1 or 2, put a piano hook on a 3-star story-world template.
+- 5244914d: Dawn over Arrakis moved to night. If it drops, retry in a brighter mode. Compare with ad7bf446.
+- 9e2396c0: a converging two-voice hook in an Odyssey reunion.
+- 10c8b7c5: Penelope's loom at about 44 BPM. If 3 stars, probe about 36 next.
+- 895de55e: Dune with named parts and a four-note duduk hook. Read it together with 9bd31155; both add a named hook to a lead-pair template.
+- cec556fe: the observatory plus a distant heartbeat. If 3 stars, the pulse is safe anywhere. If lower, the pulse should match a motion in the scene.
+- 028ad6d0: Hail Mary kept warm, with a glass-harmonica 'Rocky's voice' hook converging with cello.
+- 90ee77ee: Sirens with the call moved from the voice to the aulos. If 3 stars, the call's shape earned the stars, not the voice.
+- c69ba06d: Lighthouse, a still non-story scene in the observatory shape, with a harp/celesta hook that returns with the beam and no drum pulse. If 3 stars, still non-story scenes in that shape are a reliable lane. If 2 or less while 94b60fc9 holds at 3, the observatory may be a one-off; return to famous moments.
+- 9bd31155 (exploit of a38b5c83, Calypso, 3 stars): the only change is that the aulos phrases become a named three-note call (B, A, G). 3 stars means a named hook is at least safe on a lead-pair template. 2 or less means keep loose lead phrases in small palettes. Compare with 895de55e.
+- 5d8da794 (explore, Morning in the Shire): a second Lord of the Rings moment, hopeful and homely, in the medium single-paragraph Calypso/observatory shape. It has a low whistle and Celtic harp lead pair, G major at 60 BPM, I-IV-vi-IV over a G pedal, no voice, no drum pulse, and a short written arc. Read it against a083d482 (Frodo, 2 stars).
+  - Shire 3 stars: Lord of the Rings is a strong world, and Frodo's 2 came from its length, voice or farewell mood. Follow up with a Fair Wind-style named-part Lord of the Rings moment, or a voice exploit.
+  - Shire 2 stars: Lord of the Rings may sit a notch below Odyssey and Dune, or the Celtic palette may be weaker. Read it together with today's harp swap before deciding.
+  - Shire 1 star: a gentle pastoral scene with no pulse and no peril may be too static. Revisit lesson 2.
+- TODAY 10-28 (exploit of 16a924b4, Penelope's loom, 3 stars): the only change is that the four-note hook moves from the ancient lyre to a warm Celtic harp. Everything else is word-for-word: the world, the moment, A Dorian at 62 BPM, the progression, the loom pulse, the arc and the bans.
+  - Harp 3 stars: the hook's shape and the template carry the stars, not the lyre's Greek timbre. Lead timbres are swappable within warm plucked strings, and a weak Shire score would point to the world or the moment rather than the Celtic harp.
+  - Harp 2 or less: the lyre timbre matters. Keep Greek/Middle Eastern leads on proven templates, and suspect the Celtic palette in Frodo's 2 and in any weak Shire score.
+  - Read it alongside 10c8b7c5. Both are one-change exploits of the same parent, so together they show which variable Penelope is more sensitive to: tempo or timbre.
 
 Open questions:
-- Is the voice the cause of Frodo's 2? (3b5b94d9 tests this, once rated.)
-- Does the shape carry to Interstellar or Hail Mary? (43199a6e, once rated.)
-- Does the moment carry within a world? Dawn Over Arrakis (10919aaa) moved to night under the two moons, everything else held. Still never run; the strongest next exploit.
-- Does a lead voice outside the folk palette hold (organ, felt piano, glass harmonica)? Today partly tests the piano.
-- Does the recipe work with no story world at all? Today tests this.
-- Tempo below 40 BPM is untested.
-- Prompt length: does a very long, over-specified prompt (Frodo) lose something against the medium-length 3-stars? Today's prompt is kept to medium length.
+- Is the voice a cause of stars, a cost, or neutral? (3b5b94d9, 90ee77ee; Shire vs Frodo is a loose read.)
+- Does the shape carry to Interstellar, Hail Mary or Lord of the Rings? (43199a6e, 028ad6d0, 5d8da794.)
+- Does the moment carry within a world? (5244914d, 895de55e.)
+- Does a named hook add stars to a rich single-paragraph lead-pair prompt? (9bd31155, 895de55e.)
+- Can a converging call-and-answer hook replace a solo hook? (9e2396c0, 028ad6d0.)
+- Does the lead timbre matter on a proven template? (Today's harp swap is the clean test.) Non-folk leads are still untested: organ, felt piano, glass harmonica, celesta, and Celtic low whistle/harp. (43199a6e, 9438668d, 028ad6d0, c69ba06d, 5d8da794.)
+- Does the recipe work with no story world? (9438668d, c69ba06d; the observatory says maybe.)
+- Is the distant pulse a cause of stars or just common? (cec556fe, c69ba06d, 5d8da794; Calypso and the observatory scored 3 without one.)
+- Do slower tempos hold? (10c8b7c5.) Below 40 BPM is untested.
+- Prompt length: does a very long prompt (Frodo) lose to medium ones? (5d8da794 partly tests this.) ad7bf446 shows that very short prompts clearly lose. Calypso (medium, one paragraph) is the shortest 3-star.
 
-Cadence: explored 10-14, exploited 10-16, explored 10-17. The next run should be an exploit, ideally the Arrakis night exploit of 10919aaa, or a follow-up on whichever pending take gets rated first.
+Cadence: explored 10-14, exploited 10-16, explored 10-17, exploited 10-18, explored 10-19, exploited 10-20, explored 10-21, exploited 10-22, explored 10-23, exploited 10-24, explored 10-25, exploited 10-26, explored 10-27, exploited 10-28. The next run should be an explore, unless a batch of ratings arrives. In that case, revise the lessons first and follow up the best new rating.
+
+Exploit ideas still open:
+- Sirens (eec20d97) with only the tempo raised from about 40 to about 52.
+- 324a1f7b (Fair Wind, E major), never exploited: change only the moment to another hopeful homecoming sea moment, such as the Phaeacian ship carrying the sleeping Odysseus home at night.
+- Calypso with only the moment changed to dawn on Ogygia (better after 5244914d is rated).
+- Dawn (10919aaa) with only a named duduk hook (better after 9bd31155 and 895de55e are rated).
+
+Explore ideas:
+- A new famous hopeful Odyssey or Dune moment in the full shape, such as Odysseus waking on Ithaca's shore after the Phaeacians leave him there. This is the safest next explore while the backlog sits unrated.
+- Snow past a mountain cabin window, and rain on a window (only after 9438668d and c69ba06d are rated).
 
 
 ## Log
 
 | Date | Mode | World | Title | Testing | Stars |
 |---|---|---|---|---|---|
+| 2026-10-28 | exploit | Odyssey | Penelope's Loom, on a Harp | Whether the 3-star Penelope's loom take holds when the only change is that the four-note hook moves from the ancient lyre to a warm Celtic harp, which shows whether the Greek lyre timbre itself earns stars. | - |
+| 2026-10-27 | explore | Lord of the Rings | Morning in the Shire | Whether a second Lord of the Rings moment, a calm hopeful morning at Bag End, scores higher than the 2-star Frodo Sails West when it is written in the medium, single-paragraph Calypso and observatory shape: a lead pair, no voice, no drum pulse, and a short written arc. | - |
+| 2026-10-26 | exploit | Odyssey | Calypso's Shore, With a Pipe Tune | Whether the 3-star Calypso take holds or improves when the only change is that the aulos's loose sighing phrases become one named three-note call that keeps returning, which tests whether a named hook adds anything to a rich single-paragraph prompt that already scored 3 with only a lead pair. | - |
+| 2026-10-25 | explore | Lighthouse (no story world) | Lighthouse Lamp on a Calm Night | Whether a still, non-story scene written in the 3-star observatory shape earns stars when its hook is tied to the scene: a harp figure that returns each time the lighthouse beam comes round. It uses a flowing single paragraph and no drum pulse. | - |
+| 2026-10-24 | exploit | Odyssey | Sirens' Strait Without the Voice | Whether the 3-star Sirens take still holds when the only change is that the three-note call is played on a breathy aulos instead of sung by a wordless female voice, which shows whether the call or the voice earned the stars. | - |
+| 2026-10-23 | explore | Hail Mary | Grace and Rocky Learn to Talk | Whether the 3-star shape earns stars in Project Hail Mary, a world Cole has only heard go dark, when it is written as a warm, hopeful moment whose hook is Rocky's musical voice. | - |
+| 2026-10-22 | exploit | Observatory (no story world) | Stone Observatory, With a Heartbeat | Whether the 3-star observatory take, the only 3-star with no pulse, still holds or improves when the only change is a soft, distant frame-drum heartbeat far back in the mix. | - |
+| 2026-10-21 | explore | Dune | Paul and Chani at Sunset | Whether a new, hopeful Dune moment (Paul and Chani on a dune ridge at sunset) earns stars in the Dawn palette when the prompt adds named parts and a named four-note duduk hook, which the 3-star Dawn prompt lacked. | - |
+| 2026-10-20 | exploit | Odyssey | Penelope's Loom, Slower | Whether the 3-star Penelope's loom take still holds when the only change is the tempo, lowered from about 62 BPM to about 44 BPM, to start probing slower tempos. | - |
+| 2026-10-19 | explore | Odyssey | Odysseus Home with Penelope | Whether a new famous Odyssey moment, the reunion night when Athena holds back the dawn, earns 3 stars with a two-instrument call-and-answer hook (lyre rises, flute falls, and the two meet in unison past the midpoint) instead of one solo figure. | - |
+| 2026-10-18 | exploit | Dune | Arrakis Under Two Moons | Whether the 3-star Dawn Over Arrakis take still holds when only the moment changes, from dawn to a calm night under Arrakis's two moons, with every instrument, key and tempo kept the same. | - |
 | 2026-10-17 | explore | Night Train (no story world) | Night Train Home in the Rain | Whether the proven 3-star shape earns stars with no story world at all: a generic YouTube scene, a night train home through the rain, with a felt-piano hook. | - |
 | 2026-10-16 | exploit | Odyssey | Fair Wind Home, With a Voice | Whether adding a soft, distant wordless female voice as the hook to the 3-star Fair Wind take keeps it at 3 stars. This separates the voice from the new world in the 2-star Frodo Sails West. | - |
 | 2026-10-14 | - | Interstellar | The Endurance Passes Saturn | Whether the proven 3-star shape (named parts, one soft distant pulse, a sung hook, a bloom past the middle) still lands with a church pipe organ as the lead voice instead of the lyre/duduk/dulcimer folk palette. | - |

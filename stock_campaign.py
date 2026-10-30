@@ -130,8 +130,10 @@ def _run_one(item: dict, reserve: int, log: Path) -> None:
         if not jid:
             print("SUBMIT FAILED", item["name"], g, flush=True)
             return
+        # An app restart drops in-flight jobs ({"error": "Job not found"}); without this the run polled a dead
+        # job for 20 minutes on 2026-10-30.
         while (s := requests.get(f"{BASE}/api/status/{jid}", timeout=30).json()).get("status") not in (
-                "complete", "error", "canceled"):
+                "complete", "error", "canceled") and "error" not in s:
             time.sleep(20)
         d = secs(wav(jid)) if s.get("status") == "complete" else 0
         if d >= 300:
