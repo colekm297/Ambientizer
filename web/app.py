@@ -2831,9 +2831,31 @@ def _prewarm_streams_loop():
                     while r.read(1 << 20):
                         pass
                 print(f"  [prewarm] stream cached for {jid}")
+            _prune_stream_caches({j["job_id"] for j in recent})
         except Exception as e:
             print(f"  [prewarm] {e}")
         time.sleep(300)
+
+
+def _prune_stream_caches(keep_ids: set, max_age_days: float = 7.0):
+    """Playback caches (output/<job>_flat.wav ~106 MB, <job>_stream_x2.mp3 ~47 MB) were never removed, so
+    every take ever played or prewarmed kept ~150 MB on disk (2026-10-30: 3.6 GB in one morning of stock
+    takes). Both rebuild on the next play. Keep them for the newest songs and anything touched in the last
+    week; drop the rest."""
+    cutoff = time.time() - max_age_days * 86400
+    freed = 0
+    for pat in ("*_flat.wav", "*_stream_x2.mp3"):
+        for p in (PROJECT_ROOT / "output").glob(pat):
+            jid = p.name.split("_", 1)[0]
+            try:
+                if jid in keep_ids or p.stat().st_mtime > cutoff:
+                    continue
+                freed += p.stat().st_size
+                p.unlink()
+            except OSError:
+                pass
+    if freed:
+        print(f"  [prewarm] pruned {freed / 1e9:.2f} GB of old playback caches")
 
 
 _PREWARM_PORT = 5050

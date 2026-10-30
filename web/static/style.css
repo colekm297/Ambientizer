@@ -3483,8 +3483,10 @@ audio::-webkit-media-controls-panel {
 .library-search-row { padding: 10px 14px; border-bottom: 1px solid var(--border); display: flex; }
 .library-controls .library-select { flex: 1 1 140px; }
 @media (max-width: 720px) {
-    .library-overlay { padding: max(12px, env(safe-area-inset-top)) 10px 10px; }
-    .library-panel { max-height: calc(100dvh - max(12px, env(safe-area-inset-top)) - 10px); }
+    /* Leave visible backdrop on every side (and a band at the bottom) so a tap outside closes it. */
+    .library-overlay { padding: max(16px, env(safe-area-inset-top)) 22px 0; }
+    .library-panel { max-height: 74dvh; }
+    .library-close { font-size: 2rem; padding: 4px 8px; }
     .library-search, .library-select { font-size: 16px; }   /* <16px makes iOS zoom the page on focus */
 }
 .library-list {

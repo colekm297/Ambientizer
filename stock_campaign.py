@@ -36,6 +36,8 @@ load_dotenv(HERE / ".env")
 BASE = "http://127.0.0.1:5050"
 lock = threading.Lock()
 offload_lock = threading.Lock()
+MODEL_ROTATION = ["music_v2", "music_v1", "music_v2", "music_v2_5"]
+MODEL_TAG = {"music_v1": "v1", "music_v2": "v2", "music_v2_5": "v2.5"}
 MIN_FREE_GB = 20
 
 SCREEN = ("Listen to the AUDIO. This is a 10-minute ambient take meant as calm background music for focus "
@@ -123,7 +125,7 @@ def _run_one(item: dict, reserve: int, log: Path) -> None:
         prompt = f"{item['prompt']} Take {random.randint(100, 999)}."
         g = requests.post(f"{BASE}/api/generate", json={
             "prompt": prompt, "mode": "musical", "planner_mode": "raw", "music_length": 10, "duration": 10,
-            "music_generation_mode": "text", "music_model": "music_v2_5", "mastering": True}, timeout=60).json()
+            "music_generation_mode": "text", "music_model": item["model"], "mastering": True}, timeout=60).json()
         jid = g.get("job_id")
         if not jid:
             print("SUBMIT FAILED", item["name"], g, flush=True)
@@ -135,6 +137,8 @@ def _run_one(item: dict, reserve: int, log: Path) -> None:
         if d >= 300:
             break
         print(f"SHORT/FAILED {item['name']} {jid} {s.get('status')} {d:.0f}s", flush=True)
+        if s.get("status") == "complete":
+            offload(jid)   # short takes stay in the library, but their WAVs shouldn't sit on the disk
     else:
         return
     flags, note = "unscreened", ""
@@ -147,7 +151,7 @@ def _run_one(item: dict, reserve: int, log: Path) -> None:
                 _gemini_ok["v"] = False   # Gemini prepay is out; stop calling it this run
                 print("GEMINI OUT: screening off for this run", flush=True)
     tag = "" if flags.lower() in ("none", "unscreened") else f" [{flags}]"
-    title = f"Stock · {item['world']} · {item['name']}{tag}"[:120]
+    title = f"Stock · {item['world']} · {item['name']} · {MODEL_TAG[item['model']]}{tag}"[:120]
     requests.post(f"{BASE}/api/job/{jid}/meta", json={"title": title, "world": item["world"]}, timeout=30)
     rec = {**item, "job_id": jid, "secs": round(d), "flags": flags, "screen": note, "title": title,
            "done_at": time.strftime("%Y-%m-%dT%H:%M:%S")}
@@ -189,6 +193,10 @@ def main() -> None:
     if log.exists():
         done = {(r["name"], r["prompt"]) for r in map(json.loads, log.read_text().splitlines())}
     todo = [i for i in items if (i["name"], i["prompt"]) not in done]
+    # Cole, 2026-10-30: his best-rated takes came from v2, so mix models instead of all-v2.5, weighted to v2.
+    # An item can pin its own "model"; the rest rotate v2, v1, v2, v2.5.
+    for n, it in enumerate(todo):
+        it.setdefault("model", MODEL_ROTATION[n % len(MODEL_ROTATION)])
     print(f"START {wave.name}: {len(todo)} to do, {remaining()} credits left, reserve {a.reserve}", flush=True)
     with ThreadPoolExecutor(a.parallel) as ex:
         for it in todo:
