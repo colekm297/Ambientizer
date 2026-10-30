@@ -3578,8 +3578,37 @@
   if (libraryOpenBtn) libraryOpenBtn.addEventListener("click", () => {
     libraryOverlay.classList.remove("hidden");
     _renderLibraryList();
-    librarySearch.focus();
+    // No auto-focus: on the phone it threw up the keyboard over the list. Search opens on demand.
+    if (typeof _highlightCurrentLibraryRow === "function") _highlightCurrentLibraryRow();
   });
+  const librarySearchToggle = document.getElementById("library-search-toggle");
+  const librarySearchRow = document.getElementById("library-search-row");
+  const libraryFilterToggle = document.getElementById("library-filter-toggle");
+  const libraryControls = document.getElementById("library-controls");
+  if (librarySearchToggle) librarySearchToggle.addEventListener("click", () => {
+    const opening = librarySearchRow.classList.contains("hidden");
+    if (!opening && librarySearch.value) { librarySearch.value = ""; _renderLibraryList(); }
+    librarySearchRow.classList.toggle("hidden", !opening);
+    librarySearchToggle.classList.toggle("active", opening);
+    if (opening) librarySearch.focus();
+  });
+  if (libraryFilterToggle) libraryFilterToggle.addEventListener("click", () => {
+    const opening = libraryControls.classList.contains("hidden");
+    libraryControls.classList.toggle("hidden", !opening);
+    libraryFilterToggle.classList.toggle("active", opening);
+  });
+  // A dot on the filter button whenever any sort/filter differs from the default, since the menu is closed.
+  const _syncFilterDot = () => {
+    const dot = libraryFilterToggle && libraryFilterToggle.querySelector(".library-filter-dot");
+    if (!dot) return;
+    const on = [libraryFilterMode, libraryFilterRating, libraryFilterScore, libraryFilterVisual].some((el) => el && el.value)
+      || (librarySort && librarySort.value !== "new");
+    dot.classList.toggle("hidden", !on);
+  };
+  [librarySort, libraryFilterMode, libraryFilterRating, libraryFilterScore, libraryFilterVisual].forEach((el) => {
+    if (el) el.addEventListener("input", _syncFilterDot);
+  });
+  if (librarySearch) librarySearch.addEventListener("keydown", (e) => { if (e.key === "Enter") librarySearch.blur(); });
   if (libraryCloseBtn) libraryCloseBtn.addEventListener("click", () => libraryOverlay.classList.add("hidden"));
   if (libraryOverlay) libraryOverlay.addEventListener("click", (e) => {
     if (e.target === libraryOverlay) libraryOverlay.classList.add("hidden");

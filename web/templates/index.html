@@ -1123,11 +1123,24 @@
     <!-- Library: full search / filter / sort panel over the whole track history -->
     <div id="library-overlay" class="library-overlay hidden">
         <div class="library-panel">
+            <!-- One compact row; search and filters open only when asked for (Cole, 2026-10-30: on the
+                 phone the always-on search grabbed the keyboard and the filters buried the list). -->
             <div class="library-header">
-                <input type="text" id="library-search" class="library-search" placeholder="Search title, world/idea, prompt, mood...">
+                <span class="library-title">Library</span>
+                <span id="library-count" class="library-count"></span>
+                <button id="library-search-toggle" class="library-icon-btn" title="Search">
+                    <svg viewBox="0 0 24 24" width="20" height="20"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2.2"/><line x1="15.5" y1="15.5" x2="21" y2="21" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+                </button>
+                <button id="library-filter-toggle" class="library-icon-btn" title="Sort and filter">
+                    <svg viewBox="0 0 24 24" width="20" height="20"><path d="M3 6h18M6 12h12M10 18h4" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" fill="none"/></svg>
+                    <span class="library-filter-dot hidden"></span>
+                </button>
                 <button id="library-close" class="library-close" title="Close">&times;</button>
             </div>
-            <div class="library-controls">
+            <div id="library-search-row" class="library-search-row hidden">
+                <input type="search" id="library-search" class="library-search" placeholder="Search title, world, prompt, mood...">
+            </div>
+            <div id="library-controls" class="library-controls hidden">
                 <select id="library-sort" class="library-select">
                     <option value="new">Newest first</option>
                     <option value="old">Oldest first</option>
@@ -1161,7 +1174,6 @@
                     <option value="published">Published to YouTube</option>
                     <option value="ready_unpublished">Video ready, not published</option>
                 </select>
-                <span id="library-count" class="library-count"></span>
             </div>
             <div id="library-list" class="library-list"></div>
         </div>
