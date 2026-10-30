@@ -3457,10 +3457,35 @@ audio::-webkit-media-controls-panel {
     font-size: 0.78rem;
 }
 .library-count {
-    margin-left: auto;
+    margin-right: auto;
     align-self: center;
     font-size: 0.78rem;
     color: var(--text-muted);
+}
+.library-title { font-weight: 700; font-size: 1.05rem; color: var(--text-primary); }
+.library-icon-btn {
+    position: relative;
+    width: 40px; height: 40px;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+.library-icon-btn.active { color: var(--accent); border-color: var(--accent); }
+.library-filter-dot {
+    position: absolute; top: 6px; right: 6px;
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--accent);
+}
+.library-filter-dot.hidden, .library-search-row.hidden, .library-controls.hidden { display: none; }
+.library-search-row { padding: 10px 14px; border-bottom: 1px solid var(--border); display: flex; }
+.library-controls .library-select { flex: 1 1 140px; }
+@media (max-width: 720px) {
+    .library-overlay { padding: max(12px, env(safe-area-inset-top)) 10px 10px; }
+    .library-panel { max-height: calc(100dvh - max(12px, env(safe-area-inset-top)) - 10px); }
+    .library-search, .library-select { font-size: 16px; }   /* <16px makes iOS zoom the page on focus */
 }
 .library-list {
     overflow-y: auto;
