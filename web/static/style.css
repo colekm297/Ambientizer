@@ -4434,21 +4434,24 @@ body { padding-bottom: 120px; }   /* clear the fixed bar */
        loop on top, then a full-width seek bar with the times either side. Volume is the phone's own
        buttons (iOS ignores page volume on audio elements anyway). */
     html, body { overflow-x: hidden; max-width: 100%; }
-    body { padding-bottom: calc(196px + env(safe-area-inset-bottom)); }
+    body { padding-bottom: calc(210px + env(safe-area-inset-bottom)); }
+    /* Keep the bar clear of the iPhone home indicator (viewport-fit=cover makes env() report it; the
+       28px floor covers the standalone app when it doesn't). */
     .global-player {
         width: 100%;
         box-sizing: border-box;
-        padding-bottom: calc(14px + env(safe-area-inset-bottom));
+        padding-bottom: max(28px, calc(env(safe-area-inset-bottom) + 14px));
     }
     .gp-transport { flex-wrap: wrap; justify-content: center; row-gap: 6px; }
     .gp-transport .transport-extras { margin-left: 0; padding-left: 0; border-left: none; }
     .gp-transport .transport-volume, .gp-transport .vol-icon { display: none; }
-    .gp-transport .transport-time { order: 10; min-width: 44px; font-size: 0.9rem; }
+    .gp-transport .transport-time { order: -4; min-width: 44px; font-size: 0.9rem; }
     #transport-current { text-align: right; }
     /* Full-width break so the times and seek bar always get their own row. */
-    .gp-transport::after { content: ""; order: 9; flex-basis: 100%; height: 0; }
+    /* Times + seek bar go ABOVE the buttons, so the thing you drag isn't the lowest thing on screen. */
+    .gp-transport::after { content: ""; order: -1; flex-basis: 100%; height: 0; }
     .gp-transport .transport-seek {
-        order: 11;
+        order: -3;
         flex: 1 1 0;
         min-width: 0;
         /* A 30px-tall touch zone drawn as an 8px track (the loop marker sizes the thumb from this height,
@@ -4458,7 +4461,7 @@ body { padding-bottom: 120px; }   /* clear the fixed bar */
         border-radius: 0;
         touch-action: none;
     }
-    #transport-total { order: 12; }
+    #transport-total { order: -2; }
     .gp-transport .transport-seek::-webkit-slider-thumb { width: 30px; height: 30px; }
 
     /* All five tabs on one phone row; if a label still doesn't fit, the bar scrolls instead of clipping. */
