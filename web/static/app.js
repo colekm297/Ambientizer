@@ -1479,6 +1479,10 @@
       if (trackWidth <= 0) { requestAnimationFrame(place); return; }
       const trackLeft = transportSeek.offsetLeft + thumbW / 2;
       marker.style.left = `${trackLeft + trackWidth * f}px`;
+      // Span only the slider's own row (on phones the transport wraps to two rows).
+      marker.style.top = `${transportSeek.offsetTop}px`;
+      marker.style.bottom = "auto";
+      marker.style.height = `${transportSeek.offsetHeight}px`;
       console.log(`[loop marker] frac=${f} offLeft=${transportSeek.offsetLeft} offW=${transportSeek.offsetWidth} thumbW=${thumbW} px=${(trackLeft + trackWidth * f).toFixed(0)} | total=${transportTotal ? transportTotal.textContent : "?"}`);
     };
     place();
@@ -1537,6 +1541,23 @@
     });
     transportSeek.addEventListener("mouseup", () => { seeking = false; });
     transportSeek.addEventListener("touchend", () => { seeking = false; });
+
+    // iOS Safari only moves a range input by dragging its thumb; taps on the track do nothing, which made
+    // scrubbing on the phone nearly impossible. Map the finger's x straight onto the bar instead.
+    const seekFromTouch = (e) => {
+      const r = transportSeek.getBoundingClientRect();
+      const x = e.touches.length ? e.touches[0].clientX : e.changedTouches[0].clientX;
+      const f = Math.min(1, Math.max(0, (x - r.left) / r.width));
+      transportSeek.value = Math.round(f * 1000);
+      transportSeek.dispatchEvent(new Event("input"));
+    };
+    transportSeek.addEventListener("touchstart", (e) => { seeking = true; seekFromTouch(e); e.preventDefault(); }, { passive: false });
+    transportSeek.addEventListener("touchmove", (e) => { seekFromTouch(e); e.preventDefault(); }, { passive: false });
+    transportSeek.addEventListener("touchend", (e) => {
+      seekFromTouch(e);
+      transportSeek.dispatchEvent(new Event("change"));
+      e.preventDefault();
+    }, { passive: false });
 
     // Prevent seek slider from updating while user is dragging
     window._seekDragging = () => seeking;
