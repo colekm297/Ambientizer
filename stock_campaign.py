@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import random
 import re
 import shutil
 import subprocess
@@ -116,7 +117,10 @@ def _run_one(item: dict, reserve: int, log: Path) -> None:
             if left - 12000 < reserve:
                 print(f"STOP reserve: {left} left, reserve {reserve}", flush=True)
                 return
-        prompt = item["prompt"] + ("" if attempt == 1 else " Take 9.")
+        # The app caches by prompt, so a repeated prompt returns the old (possibly short or broken) take
+        # for free instead of generating (the 2026-10-30 rerun of wave 1 got Oct 28's failures back).
+        # A fresh take number on every attempt forces a new generation.
+        prompt = f"{item['prompt']} Take {random.randint(100, 999)}."
         g = requests.post(f"{BASE}/api/generate", json={
             "prompt": prompt, "mode": "musical", "planner_mode": "raw", "music_length": 10, "duration": 10,
             "music_generation_mode": "text", "music_model": "music_v2_5", "mastering": True}, timeout=60).json()
