@@ -99,6 +99,27 @@ def screen(path: str) -> tuple[str, str]:
     return (m.group(1).strip() if m else "unscreened"), text
 
 
+def adopt(item: dict, jid: str, log: Path) -> None:
+    """Wait for an already-submitted job and finish it like a campaign take (title, log, offload)."""
+    while (s := requests.get(f"{BASE}/api/status/{jid}", timeout=30)).status_code == 200 and \
+            s.json().get("status") not in ("complete", "error", "canceled"):
+        time.sleep(20)
+    st = s.json().get("status") if s.status_code == 200 else "lost"
+    d = secs(wav(jid)) if st == "complete" else 0
+    if st == "complete":
+        offload(jid)
+    if d < 300:
+        print(f"ADOPT SHORT/FAILED {item['name']} {jid} {st} {d:.0f}s", flush=True)
+        return
+    title = f"Stock · {item['world']} · {item['name']} · {MODEL_TAG[item['model']]}"[:120]
+    requests.post(f"{BASE}/api/job/{jid}/meta", json={"title": title, "world": item["world"]}, timeout=30)
+    with lock:
+        with open(log, "a") as fh:
+            fh.write(json.dumps({**item, "job_id": jid, "secs": round(d), "flags": "unscreened", "title": title,
+                                 "done_at": time.strftime("%Y-%m-%dT%H:%M:%S")}) + "\n")
+    print(f"ADOPT DONE {jid} {round(d)}s {title}", flush=True)
+
+
 def run_one(item: dict, reserve: int, log: Path) -> None:
     try:
         _run_one(item, reserve, log)
@@ -132,8 +153,12 @@ def _run_one(item: dict, reserve: int, log: Path) -> None:
             return
         # An app restart drops in-flight jobs ({"error": "Job not found"}); without this the run polled a dead
         # job for 20 minutes on 2026-10-30.
-        while (s := requests.get(f"{BASE}/api/status/{jid}", timeout=30).json()).get("status") not in (
-                "complete", "error", "canceled") and "error" not in s:
+        # (Every job's status carries an "error": null field, so test the HTTP 404, not the key.)
+        while True:
+            r = requests.get(f"{BASE}/api/status/{jid}", timeout=30)
+            s = {"status": "lost"} if r.status_code == 404 else r.json()
+            if s.get("status") in ("complete", "error", "canceled", "lost"):
+                break
             time.sleep(20)
         d = secs(wav(jid)) if s.get("status") == "complete" else 0
         if d >= 300:
