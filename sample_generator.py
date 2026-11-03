@@ -2,7 +2,7 @@
 sample_generator.py — Generates audio samples on-demand using ElevenLabs APIs.
 
 Uses two ElevenLabs APIs:
-  - SFX v2 (text_to_sound_effects) for environmental/texture layers (base, mid, detail)
+  - SFX v3 (text_to_sound_effects) for environmental/texture layers (base, mid, detail)
   - Music v1 (music.compose) for musical/tonal layers that need harmonic content
 
 Each layer gets cached to disk so the feedback loop can iterate on the mix
@@ -43,6 +43,8 @@ MUSIC_CELL_SEC = 150.0
 STITCH_CROSSFADE_MS = 12000
 MAX_STITCH_CELLS = 16
 HARD_MAX_SFX_SEC = 8.0
+# SFX v2 (the API default when model_id is omitted) is deprecated and removed 2027-03-01; v3 replaces it.
+SFX_MODEL = "eleven_text_to_sound_v3"
 
 
 def stitch_arc_cue(i: int, n: int) -> str:
@@ -356,6 +358,7 @@ class ElevenLabsSampleGenerator:
                 result = self._call_with_retry(
                     self.client.text_to_sound_effects.convert,
                     text=prompt,
+                    model_id=SFX_MODEL,
                     duration_seconds=duration,
                     prompt_influence=0.7,
                     output_format=fmt,
