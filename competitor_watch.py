@@ -11,6 +11,7 @@ Retention and CTR are private, but the public record is enough to see demand:
 Usage:
   .venv/bin/python competitor_watch.py             # snapshot + report
   .venv/bin/python competitor_watch.py --discover "odyssey ambient"   # find channels
+  .venv/bin/python competitor_watch.py --recurrence  # + which outliers people keep coming back to
 
 Output: output/_competitor/<stamp>/report.json (+ printed summary).
 Reuses the read-only analytics OAuth token; public data only.
@@ -56,6 +57,13 @@ def yt_client():
     return build("youtube", "v3", credentials=creds, cache_discovery=False)
 
 
+def comments_client():
+    # commentThreads.list wants the youtube.force-ssl scope, which only the upload token carries;
+    # this script uses it for that one read call and nothing else.
+    creds = Credentials.from_authorized_user_info(json.load(open(HERE / "youtube_token.json")))
+    return build("youtube", "v3", credentials=creds, cache_discovery=False)
+
+
 def channel_uploads(yt, channel_id, max_videos=200):
     ch = yt.channels().list(part="snippet,statistics,contentDetails",
                             id=channel_id).execute()["items"][0]
@@ -82,6 +90,7 @@ def channel_uploads(yt, channel_id, max_videos=200):
                 "published_at": sn["publishedAt"], "age_days": round(age, 1),
                 "duration_sec": dur, "views": int(st.get("viewCount", 0)),
                 "likes": int(st.get("likeCount", 0)),
+                "comment_count": int(st.get("commentCount", 0)),
                 "views_per_day": round(int(st.get("viewCount", 0)) / age, 1),
             })
     return {
@@ -118,6 +127,45 @@ def analyze(chan):
     return chan
 
 
+RETURNING = re.compile(
+    r"\b(every (day|night|morning)|each (day|night)|daily|again|back (here|to this)|keep coming back|"
+    r"come back|came back|still (listen|here|coming)|for (months|years|weeks)|on repeat|"
+    r"(study|work|sleep|focus|read|cod)\w* (to|with) this|my go.?to)\b", re.I)
+
+
+def recurrence(yt, video, pages=3):
+    """HackerTube's test (Karpathy, 2026-10): what lasts beats what spiked. Reads the newest comments
+    (up to 300) and compares their pace with the video's lifetime pace. still_alive near 1 means people
+    keep arriving as fast as they ever did; near 0 means the video spiked and went quiet. Also counts
+    comments that read as a returning listener ("I study to this every night"), a regex stand-in for
+    HackerTube's model-labeled stance. Videos under 90 days old aren't scored: too young to tell."""
+    pub = dt.datetime.fromisoformat(video["published_at"].replace("Z", "+00:00"))
+    now = dt.datetime.now(dt.timezone.utc)
+    stamps, returning, page = [], 0, None
+    for _ in range(pages):
+        try:
+            r = yt.commentThreads().list(part="snippet", videoId=video["video_id"], maxResults=100,
+                                         order="time", textFormat="plainText", pageToken=page).execute()
+        except Exception:   # comments disabled
+            break
+        for it in r.get("items", []):
+            c = it["snippet"]["topLevelComment"]["snippet"]
+            stamps.append(dt.datetime.fromisoformat(c["publishedAt"].replace("Z", "+00:00")))
+            returning += bool(RETURNING.search(c.get("textDisplay", "")))
+        page = r.get("nextPageToken")
+        if not page:
+            break
+    video.update(comments_read=len(stamps), returning_comments=returning, still_alive=None)
+    if video["age_days"] < 90 or len(stamps) < 10 or not video["comment_count"]:
+        return
+    # window = newest comments back to the oldest one read, but at least 30 days so a burst of
+    # three comments yesterday doesn't read as a fast pace
+    window = max(30.0, (now - min(stamps)).total_seconds() / 86400)
+    recent_pace = sum(1 for t in stamps if (now - t).days <= window) / window
+    lifetime_pace = video["comment_count"] / video["age_days"]
+    video["still_alive"] = round(recent_pace / lifetime_pace, 2)
+
+
 def discover(yt, query, limit=8):
     r = yt.search().list(part="snippet", q=query, type="video",
                          maxResults=25, order="viewCount").execute()
@@ -133,6 +181,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--discover", help="search query to find competitor channels")
     ap.add_argument("--max-videos", type=int, default=120)
+    ap.add_argument("--recurrence", action="store_true",
+                    help="also read comments on each channel's top outliers and rank by lasting months")
     a = ap.parse_args()
     yt = yt_client()
 
@@ -155,6 +205,12 @@ def main():
         except Exception as e:
             print(f"  FAILED {cid}: {e}", file=sys.stderr)
 
+    if a.recurrence:
+        cyt = comments_client()
+        for c in channels:
+            for v in sorted(c["videos"], key=lambda v: -v["outlier_score"])[:8]:
+                recurrence(cyt, v)
+
     (out / "report.json").write_text(json.dumps(channels, indent=1))
     print(f"\nwrote {out/'report.json'}\n")
 
@@ -170,6 +226,14 @@ def main():
             fr = f" [{v['franchise']}]" if v["franchise"] else ""
             print(f"  {v['outlier_score']:5.1f}x  {v['views_per_day']:7.0f} v/d  "
                   f"{v['duration_sec']//60:3d}min{fr}  {v['title'][:56]}")
+        print()
+    if a.recurrence:
+        rows = [(c["title"], v) for c in channels for v in c["videos"] if v.get("still_alive") is not None]
+        print("=== LASTING (still_alive = newest comments' pace / lifetime pace; 1 = never faded) ===")
+        for ch, v in sorted(rows, key=lambda r: -r[1]["still_alive"])[:20]:
+            fr = f" [{v['franchise']}]" if v["franchise"] else ""
+            print(f"  {v['still_alive']:5.2f} alive  {v['returning_comments']:3d}/{v['comments_read']:<3d} returning  "
+                  f"{v['outlier_score']:5.1f}x  age {v['age_days']:4.0f}d  {ch[:18]:18s}{fr}  {v['title'][:44]}")
         print()
     if own:
         print(f"=== YOU — {own['subs']} subs, median {own['median_views_per_day']} views/day ===")
