@@ -11,20 +11,17 @@ serve. Prefer rare, specific leads over consensus.
 - Cole's touchstones: Brian Eno (Music for Airports, Apollo), Stars of the Lid (The Tired Sounds of...,
   And Their Refinement of the Decline), Hiroshi Yoshimura (Music for Nine Postcards).
 - Sound Cole rated top: Empyreal's 3SnFFdHVvdo (warm, slow, world-branded).
-- Lasting competitor videos from competitor_watch --recurrence on 2026-11-03 (still_alive, see the
-  caveat in Method): Ambient Worlds "Night in The Shire" 0.74, Symbology "Anakin & Obi-Wan / Jedi
-  Temple" 0.74, Ambient Cinematics "Most Peaceful DUNE Music" 0.57 at 959 days, "Peaceful Night in
-  Skyrim" 0.56, Interstellar pair 0.44. Faded: Finding Nemo 0.31.
+- Lasting competitor videos, re-scored 2026-11-03 with year_pace (competitor_watch --recurrence now
+  uses it): Ambient Worlds "Peaceful Night in Skyrim" 0.84, "Night in The Shire" 0.60, Symbology
+  "Aragorn's Song" 0.40, Interstellar pair 0.31 and 0.28, Ambient Cinematics "Most Peaceful DUNE
+  Music" 0.17 (faded), Finding Nemo 0.20.
 - HackerTube's lasting ambient picks: "Star Trek TNG Ambient Engine Noise (24 hrs)" (recommended in
   4 separate months), Reich's Music for 18 Musicians, The Caretaker's Everywhere at the End of Time.
 
 ## Method (learned 2026-11-03)
-- still_alive misleads in both directions. If all comments get read, its window is the video's whole
-  life and it sits near 0.5 to 0.7 by construction (Takada 0.60 with 2 comments in the last year). If
-  300 comments span years, it hides a recent fade (Mushishi OST 0.96 with 8 in the last year).
-- Use instead: comments in the last 365 days / (comment_count / age_days * 365). Call it year_pace.
-  comment_count includes replies and threads don't, so year_pace reads low everywhere. Compare, don't
-  treat 1.0 as a target. Code not edited (scout can't); flagged to Chief in the 2026-11-03 tick.
+- still_alive was wrong (it read ~0.6 by construction, or hid fades); the tick-1 flag was right.
+  competitor_watch.py now computes year_pace = comments in the last 365 days (replies included) /
+  lifetime yearly pace, and skips past a pinned old comment heading page one. Fixed 2026-11-03.
 - Judge a record across uploads: Green reads 0.90 on one upload and 0.13 on another.
 - Comment world counts are regex over 2,909 top-level comments, not hand-read. Treat as rough.
 - Quota: search.list costs 100; comment pages cost 1. Budget 7 searches a tick at most. Tick 1 used
