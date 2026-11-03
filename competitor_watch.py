@@ -133,37 +133,44 @@ RETURNING = re.compile(
     r"(study|work|sleep|focus|read|cod)\w* (to|with) this|my go.?to)\b", re.I)
 
 
-def recurrence(yt, video, pages=3):
-    """HackerTube's test (Karpathy, 2026-10): what lasts beats what spiked. Reads the newest comments
-    (up to 300) and compares their pace with the video's lifetime pace. still_alive near 1 means people
-    keep arriving as fast as they ever did; near 0 means the video spiked and went quiet. Also counts
-    comments that read as a returning listener ("I study to this every night"), a regex stand-in for
-    HackerTube's model-labeled stance. Videos under 90 days old aren't scored: too young to tell."""
-    pub = dt.datetime.fromisoformat(video["published_at"].replace("Z", "+00:00"))
+def recurrence(yt, video, max_pages=10):
+    """HackerTube's test (Karpathy, 2026-10): what lasts beats what spiked. year_pace = comments in
+    the last 365 days over the video's lifetime yearly pace; near 1 means people keep arriving as fast
+    as they ever did, near 0 means it spiked and went quiet. Replies count as comments on both sides
+    (the API's commentCount includes them), credited to their thread's date. Also counts comments that
+    read as a returning listener ("I study to this every night"), a regex stand-in for HackerTube's
+    model-labeled stance. Videos under 1 year old aren't scored: too young to tell.
+    (v1 compared the newest 300 comments' pace to lifetime pace; the scout's first tick, 2026-11-03,
+    showed it reads ~0.6 by construction when every comment fits in 300 and hides fades when 300
+    span years.)"""
     now = dt.datetime.now(dt.timezone.utc)
-    stamps, returning, page = [], 0, None
-    for _ in range(pages):
+    year, read, returning, page, capped = 0, 0, 0, None, True
+    for _ in range(max_pages):
         try:
             r = yt.commentThreads().list(part="snippet", videoId=video["video_id"], maxResults=100,
                                          order="time", textFormat="plainText", pageToken=page).execute()
         except Exception:   # comments disabled
+            capped = False
             break
+        last = None
         for it in r.get("items", []):
             c = it["snippet"]["topLevelComment"]["snippet"]
-            stamps.append(dt.datetime.fromisoformat(c["publishedAt"].replace("Z", "+00:00")))
+            t = dt.datetime.fromisoformat(c["publishedAt"].replace("Z", "+00:00"))
+            read += 1
             returning += bool(RETURNING.search(c.get("textDisplay", "")))
+            if (now - t).days <= 365:
+                year += 1 + it["snippet"].get("totalReplyCount", 0)
+            last = t
         page = r.get("nextPageToken")
-        if not page:
+        # stop once a page's oldest comment is past a year (a pinned old comment can head page one,
+        # so the first old comment seen isn't the end)
+        if not page or (last and (now - last).days > 365):
+            capped = False
             break
-    video.update(comments_read=len(stamps), returning_comments=returning, still_alive=None)
-    if video["age_days"] < 90 or len(stamps) < 10 or not video["comment_count"]:
+    video.update(comments_read=read, returning_comments=returning, year_pace=None, year_pace_floor=capped)
+    if video["age_days"] < 365 or not video["comment_count"] or read < 10:
         return
-    # window = newest comments back to the oldest one read, but at least 30 days so a burst of
-    # three comments yesterday doesn't read as a fast pace
-    window = max(30.0, (now - min(stamps)).total_seconds() / 86400)
-    recent_pace = sum(1 for t in stamps if (now - t).days <= window) / window
-    lifetime_pace = video["comment_count"] / video["age_days"]
-    video["still_alive"] = round(recent_pace / lifetime_pace, 2)
+    video["year_pace"] = round(year / (video["comment_count"] / video["age_days"] * 365), 2)
 
 
 def discover(yt, query, limit=8):
@@ -228,11 +235,11 @@ def main():
                   f"{v['duration_sec']//60:3d}min{fr}  {v['title'][:56]}")
         print()
     if a.recurrence:
-        rows = [(c["title"], v) for c in channels for v in c["videos"] if v.get("still_alive") is not None]
-        print("=== LASTING (still_alive = newest comments' pace / lifetime pace; 1 = never faded) ===")
-        for ch, v in sorted(rows, key=lambda r: -r[1]["still_alive"])[:20]:
+        rows = [(c["title"], v) for c in channels for v in c["videos"] if v.get("year_pace") is not None]
+        print("=== LASTING (year_pace = last 365 days' comments / lifetime yearly pace; 1 = never faded, + = lower bound) ===")
+        for ch, v in sorted(rows, key=lambda r: -r[1]["year_pace"])[:20]:
             fr = f" [{v['franchise']}]" if v["franchise"] else ""
-            print(f"  {v['still_alive']:5.2f} alive  {v['returning_comments']:3d}/{v['comments_read']:<3d} returning  "
+            print(f"  {v['year_pace']:5.2f}{'+' if v['year_pace_floor'] else ' '} pace  {v['returning_comments']:3d}/{v['comments_read']:<3d} returning  "
                   f"{v['outlier_score']:5.1f}x  age {v['age_days']:4.0f}d  {ch[:18]:18s}{fr}  {v['title'][:44]}")
         print()
     if own:
