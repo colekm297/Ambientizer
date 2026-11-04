@@ -13,8 +13,10 @@ Cost per video: gpt-image-2 still ($0.16), one Seedance 1.5 Pro loop, three Clau
 Takes with a beat (beat_check.py) are skipped.
 YouTube quota: an upload is 1,600 units of the 10,000/day, so PER_DAY stays at 5.
 
-Usage: .venv/bin/python drafts_daily.py [--n 5] [--dry-run]
-Log: data/drafts.jsonl (one line per attempt).
+Cole's publish or delete is his verdict on a draft, and each run records it (read only, never acts on it).
+
+Usage: .venv/bin/python drafts_daily.py [--n 5] [--dry-run] [--verdicts]
+Log: data/drafts.jsonl (one line per attempt), data/draft_verdicts.jsonl (one line per status change).
 """
 from __future__ import annotations
 
@@ -31,6 +33,7 @@ import requests
 HERE = Path(__file__).resolve().parent
 BASE = "http://127.0.0.1:5050"
 LOG = HERE / "data" / "drafts.jsonl"
+VERDICTS = HERE / "data" / "draft_verdicts.jsonl"
 PLAYLIST_FILE = HERE / "data" / "drafts_playlist.json"
 PLAYLIST_TITLE = "Drafts to review"
 PER_DAY = 1   # Cole, 2026-11-03: "one a day is fine"; he publishes the ones he likes himself
@@ -273,11 +276,45 @@ def draft(p: dict) -> dict:
     return {"title": title, "video_id": vid, "url": s.get("youtube_url")}
 
 
+def record_verdicts(yt) -> list[dict]:
+    """Note each uploaded draft's status when it changes: private, public, unlisted, or deleted (YouTube returns
+    nothing for it). One videos.list per 50 drafts, 1 quota unit each. Returns the new rows."""
+    drafts = {}
+    for l in LOG.read_text().splitlines() if LOG.exists() else []:
+        r = json.loads(l) if l.strip() else {}
+        if r.get("video_id"):
+            drafts[r["video_id"]] = r
+    last = {}
+    for l in VERDICTS.read_text().splitlines() if VERDICTS.exists() else []:
+        if l.strip():
+            r = json.loads(l)
+            last[r["video_id"]] = r["status"]
+    ids, seen = list(drafts), {}
+    for i in range(0, len(ids), 50):
+        for v in yt.videos().list(part="status", id=",".join(ids[i:i + 50])).execute().get("items", []):
+            seen[v["id"]] = v["status"]["privacyStatus"]
+    new = []
+    for vid, d in drafts.items():
+        status = seen.get(vid, "deleted")
+        if last.get(vid) != status:
+            new.append({"video_id": vid, "job_id": d["job_id"], "title": d.get("title"), "status": status,
+                        "at": time.strftime("%Y-%m-%dT%H:%M:%S")})
+    if new:
+        with open(VERDICTS, "a") as fh:
+            fh.writelines(json.dumps(r) + "\n" for r in new)
+    return new
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--n", type=int, default=PER_DAY)
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--verdicts", action="store_true", help="record publish/delete verdicts and stop")
     a = ap.parse_args()
+    if a.verdicts:
+        for r in record_verdicts(yt_client()):
+            print(r["status"], r["video_id"], r["title"], flush=True)
+        return
     q = queue()
     print(f"{time.strftime('%F %T')} queue: {len(q)} takes "
           f"({sum(p['tier'] == 0 for p in q)} 3-star, {sum(p['tier'] == 1 for p in q)} 2-star, "
@@ -287,6 +324,10 @@ def main():
             print("  would draft", p["job_id"], p["rating"], p["title"][:70])
         return
     yt = yt_client()
+    try:
+        record_verdicts(yt)
+    except Exception as e:
+        print(f"verdicts failed: {str(e)[:200]}", flush=True)
     pl = playlist_id(yt)
     made, streak = 0, 0
     for p in q:
