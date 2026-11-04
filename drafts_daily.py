@@ -29,15 +29,17 @@ import time
 from pathlib import Path
 
 import requests
+from dotenv import load_dotenv
 
 HERE = Path(__file__).resolve().parent
+load_dotenv(HERE / ".env")   # launchd passes no keys: without this the Claude, fal and R2 steps fail or skip
 BASE = "http://127.0.0.1:5050"
 LOG = HERE / "data" / "drafts.jsonl"
 VERDICTS = HERE / "data" / "draft_verdicts.jsonl"
 PLAYLIST_FILE = HERE / "data" / "drafts_playlist.json"
 PLAYLIST_TITLE = "Drafts to review"
 PER_DAY = 1   # Cole, 2026-11-03: "one a day is fine"; he publishes the ones he likes himself
-MIN_FREE_GB = 20
+MIN_FREE_GB = 24   # an hour at Seedance's 18 Mbps is 8 GB, and the fade step holds three copies at its peak
 # beat_check.py percussive share. Rain Over Arrakis (Cole: "the beat in it is just bad") scored 0.147 and his
 # drum-y 1-stars 0.142 and 0.393; every 3-star he has is 0.085 or under. Calibrated 2026-11-03.
 MAX_PERC = 0.10
@@ -212,13 +214,15 @@ def yt_client():
 
 
 def offload(jid: str) -> None:
-    """The finished mp4 (~0.5 GB) is on YouTube now; move the local copy to R2 like the release media."""
+    """The finished mp4 (about 8 GB) is on YouTube now; move the local copy to R2 like the release media."""
     from media_store import get_store
     store = get_store()
     p = json.load(open(HERE / "saved_jobs" / f"{jid}.json")).get("visual_video_path")
     if store.enabled and p and Path(p).exists():
         ok = store.upload(p) and store.evict(p)
         print(f"  {'offloaded' if ok else 'OFFLOAD FAILED (kept local)'} {Path(p).name}", flush=True)
+    elif not store.enabled:
+        print("  OFFLOAD SKIPPED: R2 keys missing", flush=True)
 
 
 def draft(p: dict) -> dict:
