@@ -115,7 +115,9 @@ or two small, natural things move gently (a flame flickering, rain falling, mist
 stars twinkling). Name exactly what moves and say firmly that everything else (land, buildings, figures,
 sky shapes, the frame) does not move. Start with: "Static locked-off tripod shot. The camera does not move
 at all: no push in, no zoom, no pan, no drift." End with: "A living photograph, cinematic, no cuts."
-Under 110 words. Reply with the prompt only.
+Nothing may appear, burst, puff, grow, fade out or travel across the frame: no smoke plumes, no sparks, no
+birds, no lightning, no people moving. Every motion is continuous and even, the same at the last second as
+at the first, so the loop has no visible event. Under 110 words. Reply with the prompt only.
 
 The still was made from this description:
 """
@@ -145,6 +147,11 @@ def seedance_loop(jid: str) -> str:
     if r.get("status") != "ready":
         raise RuntimeError(f"attaching the loop failed: {r}")
     return motion
+
+
+def fl_seam(jid: str) -> dict:
+    import fal_loop as fl
+    return fl.seam_report(str(HERE / "output" / f"{jid}_seedance.mp4"))
 
 
 def queue() -> list[dict]:
@@ -210,13 +217,31 @@ def offload(jid: str) -> None:
 def draft(p: dict) -> dict:
     jid = p["job_id"]
     hook = p["world"] or re.sub(r"^Stock · |\s·\sv[\d.]+.*$", "", p["title"]).split(" · ")[0] or p["title"]
-    ap = jget(requests.post(f"{BASE}/api/visual/auto-prompt/{jid}", timeout=120))
-    if not ap.get("image_prompt"):
-        raise RuntimeError(f"auto-prompt failed: {ap}")
-    r = jget(requests.post(f"{BASE}/api/visual/image/{jid}", json={"prompt": ap["image_prompt"]}, timeout=60))
-    if r.get("error") or wait_task(jid).get("status") != "done":
-        raise RuntimeError(f"image failed: {r}")
-    seedance_loop(jid)
+    still = json.load(open(HERE / "saved_jobs" / f"{jid}.json")).get("visual_image_path")
+    if not (still and Path(still).exists()):   # a retry keeps the still it already paid for
+        ap = jget(requests.post(f"{BASE}/api/visual/auto-prompt/{jid}", timeout=120))
+        if not ap.get("image_prompt"):
+            raise RuntimeError(f"auto-prompt failed: {ap}")
+        r = jget(requests.post(f"{BASE}/api/visual/image/{jid}", json={"prompt": ap["image_prompt"]}, timeout=60))
+        if r.get("error") or wait_task(jid).get("status") != "done":
+            raise RuntimeError(f"image failed: {r}")
+    # Gate on the jump at the loop point. wrap_ratio (jump / mean motion) punishes calm shots: the Sietch loop
+    # had a clean seam by eye and wrap 2.66 (shipped loops: 1.6-5.1) but ratio 2.55 because it barely moves.
+    # Shipped junction spikes ran 1.16-1.69; the loop with a smoke plume puffing every cycle hit 2.06.
+    loop = HERE / "output" / f"{jid}_seedance.mp4"
+    for attempt in (0, 1, 2):
+        if attempt or not loop.exists():
+            seedance_loop(jid)
+        seam = fl_seam(jid)
+        print(f"  loop attempt {attempt}: wrap {seam['wrap']}, junction {seam['junction_spike']}", flush=True)
+        if seam["junction_spike"] <= 1.9 and seam["wrap"] <= 5.5:
+            if not attempt:   # reusing a loop from an earlier run: attach it
+                with open(loop, "rb") as fh:
+                    requests.post(f"{BASE}/api/visual/upload-video/{jid}",
+                                  files={"file": (loop.name, fh, "video/mp4")}, timeout=300)
+            break
+    else:
+        raise RuntimeError(f"loop seam failed twice (junction {seam['junction_spike']})")
     r = jget(requests.post(f"{BASE}/api/thumbnail/{jid}/set", json={
         "style": "hailmary", "hook": hook, "subtitle": "Ambient Soundscape"}, timeout=60))
     if r.get("error"):
