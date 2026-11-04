@@ -307,6 +307,9 @@ class YouTubePublisher:
             "status": {
                 "privacyStatus": privacy,
                 "selfDeclaredMadeForKids": False,
+                # YouTube Help requires disclosure when AI "creates music that's the main focus of the video",
+                # and all of this channel's music is AI-generated. Set for every upload.
+                "containsSyntheticMedia": True,
             },
         }
 
