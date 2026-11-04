@@ -1,31 +1,20 @@
-> SNAPSHOT as of 2026-10-17 13:10. Anything newer — git commits, file mtimes, or your own conversation — outranks this file. Verify before acting.
+> SNAPSHOT as of 2026-11-04 02:26 PST. Anything newer (git commits, file mtimes, your own conversation) outranks this file. Verify before acting.
 
-# Thread tail — open with this
+# Thread tail: open with this
 
-**Live items:**
-A. **Process plan (2026-10-23), Cole said "Yeah we can try it".** Done: build_release.py (first-minute fix, proven on penelope_v2), niche thumbnails for Penelope and Last Light, three Dune streak week-1 takes in the app (0f2008ab Sietch Tabr 7:18, 44492a73 Deep Desert 8:02, 65866a5b Arrakeen at Dawn 10:00). Waiting on Cole: yes on the exact A/B test packages (blocked without it), his pick of a Dune take. Ten duplicate/short Dune jobs are labelled "ignore" in the app; deleting them is his call.
-0. **Penelope at the Loom is PRIVATE on YouTube: I1EbGRaQumk** (job 16a924b4, Cole's 3-star from Oct 14; built and uploaded 2026-10-17 after he said Frodo "was not what i was talking about"). Cole posts it himself. Release folder `output/release/penelope_loom/` (three thumbnails: thumbnail.png IP-first, thumbnail_b_scene.png, thumbnail_c_moment.png "TWENTY YEARS"); R2 offload launched (`offload.log`, verify with `offload_release.py --check`). Ledger row recorded. Reports go to Chief, not Music Leader (Cole's correction via Chief 2026-10-17; one message had already gone to music-leader-7f).
-1. **Frodo Sails West is PRIVATE on YouTube: GsNmBR0BGF0** (uploaded 2026-10-16 ~19:20, custom thumbnail set, recorded in `data/post_ledger.jsonl`, job json carries the url). Cole posts it himself (his words: "publish it as private video ill post"); nothing more to do until he does. Three thumbnail candidates in `output/release/frodo_west/` (thumbnail.png IP-first, thumbnail_b_scene.png, thumbnail_c_moment.png "INTO THE WEST") for Studio's Test & compare. The R2 offload of the folder was still uploading the 4.5 GB master at snapshot (`upload.log` tail); check `offload_release.py --check`.
-2. Merge of origin/main and push done 2026-10-17 (Chief confirmed it as plumbing; Cole's project rule already covered it). Branch tracks origin/living-still-harden.
-3. **Dailies unrated in the app:** 3b5b94d9 (Oct 16, Fair Wind with a voice) and 9438668d (Oct 17, Night Train Home in the Rain, no story world). Cole asked 2026-10-17 whether dailies still run: yes, the 07:30 job ran today. Old text: **Today's daily (job 3b5b94d9, "Odyssey · Daily · Fair Wind Home, With a Voice", 536 s)** is in the app unrated. It tests the voice alone, separated from the new world that Frodo confounded.
+**First thing: Cole has NOT seen the thinking-run results.** Deliver this "While you were out" note to him (rewrite it in a conversational voice, no em-dashes). Source: `.claude/thinking/2026-11-03-2240.md` (synthesis + checker results near the end). The run went from 22:40:25 to about 23:04, so about 24 minutes, not 45.
+1. **AI-music disclosure is required and isn't set.** YouTube Help requires it when AI "creates music that's the main focus of the video". The upload code never sets `status.containsSyntheticMedia`. Fix: one field in the upload code, plus a Studio pass on the 13 public long-form videos. Cole decides.
+2. **The Odyssey is the series world.** Underserved: 10 competitor videos, 7 above their channel's norm, median 2.0x (Dune is 0.86x across 30). We have 4 Odyssey pieces. Nolan's film hits digital and 4K on **Nov 17, 2026** (two checkers PASS) and has grossed about $1.8B (checker-corrected). Order: disclosure, then a public playlist and retitles (searchable words, never "OST"), then new pieces from his draft picks.
+3. **Identity gap.** Fewer than one view per subscriber in 5 months (SUBSCRIBED 154 views vs UNSUBSCRIBED 3,661). Zero public playlists. The biggest suggester is Zimmer's "Interstellar (Space Sounds)" (49 views).
+4. **The human-made line.** Competitors sell "Human-made" and "handcrafted". Idea: a Juno or guitar bed Cole plays, tried on one piece, only if he wants.
+5. **An 8-week bet with a kill line:** views per subscriber per month from 0.18 to 0.5, or one piece past 500 organic views in 30 days.
+Smaller: feed his packaging rules into draft metadata (the 11-03 draft title says "Sietch", a lore word he banned). Enable the YouTube Reporting API for project 247866141133 (403 now). The 24/7 stream (distribute_stream.py) has never been used. Fresh-eyes agents saw what I'd missed: 59% of lifetime views were paid, and the genre rewards sameness (habit) over novelty.
+Also tell him: the 11-03 draft "Dune | Ember-Lit Ritual in the Hidden Sietch" is private at https://www.youtube.com/watch?v=QtzjbUNs5lI (playlist "Drafts to review").
 
----
+**Live systems (built 11-03, all committed):**
+- `drafts_daily.py`, launchd `com.cole.ambientizer-drafts` at 10:00: one take a day becomes a private 1-hour video. Cole publishes or deletes; never do either for him. See memory project-daily-private-drafts.
+- Scout trial: `scout_tick.sh`, launchd `com.cole.ambientizer-scout` at 08:30, ends itself by Nov 17 or after 3 dry ticks. Data in `data/scout/`.
+- `competitor_watch.py --recurrence` (year_pace).
+- SFX now on ElevenLabs v3 (`sample_generator.SFX_MODEL`); v2 is removed 2027-03-01.
 
-**Cole:**
-> I set a star for it right?
-
-**Me:**
-> No. Nothing was saved for Frodo Sails West. [...] The last star request the app ever received was Oct 14 at 21:14, on the job 16a924b4. [...] If you tell me the number here, I'll set it on the job directly.
-
-**Cole:**
-> Ah well i meant to start it two i think
-
-**Me:**
-> Saved. Frodo Sails West is at 2 stars in the app and on disk. [...] One thing only you can tell me, and it's optional: what missed? The judges flagged that it changed three things at once (new world, voice as the hook, harp and whistle).
-
-**Cole:**
-> And we can go ahead and publish it as private video ill post. We do need a learning mechanism around posts though, and visuals, and thumbnails…as those are reallt important too
-
-**Me** (in progress at snapshot): built the release (5 stills, chose the golden swan-ship with two cloaked figures; two Seedance seeds, kept A: wrap 4.87, ratio 1.15; hour master with intro/end cards, joins CLEAN, -15.9 LUFS), started the private upload, and built the learning loop: `post_learning.py` + launchd `com.cole.ambientizer-post-learning` Mondays 08:00, first lessons in `data/post_lessons.md` and `docs/POST-EXPERIMENTS.md`. Found on the way: the 07:30 daily had failed on 10-15 and 10-16 (anthropic SDK streaming guard); fixed in `llm.py` (explicit timeout), ran today's by hand. Also found Temples' views were bought (451 of 541 advertising).
-
-*(Cole has not yet seen the release or the learning loop.)*
+**Waiting on Cole (bring through Chief, don't do without him):** the disclosure flag, the Odyssey playlist and retitles before Nov 17, the human bed, enabling the Reporting API, the packaging rules in draft metadata.

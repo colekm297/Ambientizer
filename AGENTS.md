@@ -213,3 +213,12 @@ take, heard as one loop in the app, looped to the hour. No stitching. Cole picks
    before every first play, 2026-10-15). Now a background ffmpeg writes `<job>_stream_x2.mp3.part` while the
    response tails it (first byte ~1.8 s); later plays get the cached file with Range/206 (0.016 s). A prewarm
    thread caches the 25 newest songs every 5 min. Never put a blocking encode back in front of playback.
+
+## Field notes, 2026-11-03 (drafts, scout, thinking)
+- **Living stills for drafts:** use Seedance 1.5 Pro with the same still as the first and last frame, camera fixed, 12 s. The motion prompt must ban events (a smoke plume puffed every cycle). Gate on the junction jump (≤ 1.9), not wrap_ratio, which fails calm shots. The app's whole-frame "motion" warp is rejected ("horrible").
+- **Beat gate:** `beat_check.py` gives the HPSS percussive share. Skip anything over 0.10; Cole's 3-stars all score under 0.09.
+- **Images:** the xAI key is dead; `generate_image` falls back to gpt-image-2 on fal. Never automate Midjourney (its terms ban it).
+- **Recurrence:** `year_pace` = last-365-day comments / (lifetime rate x 365). A pinned old comment heads page one, so stop on the page's oldest comment. Comment reads need youtube_token.json (force-ssl scope).
+- **Retry design:** keep a paid still or loop on retry; stop after 3 failures in a row; a dead API key must never mark every take failed.
+- **Thinking runs:** report only `date`-measured minutes. The "real end" is the last `date` you actually read.
+- **YouTube:** an upload costs 1,600 quota units. AI disclosure is `status.containsSyntheticMedia` (not set yet, see the handoff). Reach per video lives in the Reporting API (`channel_reach_basic_a1`), which is disabled now.
