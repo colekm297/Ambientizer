@@ -24,6 +24,7 @@ this module is inert until credentials exist.
 """
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import os
@@ -43,6 +44,18 @@ def _sha256(path: str) -> str:
         for b in iter(lambda: f.read(_CHUNK), b""):
             h.update(b)
     return h.hexdigest()
+
+
+def etag_of(path: str) -> str:
+    """The ETag R2 gives this file: the md5 of its 8 MiB part md5s. A match proves the stored bytes without a
+    download. The sha256 in an object's metadata doesn't, since it's computed before the upload."""
+    parts = []
+    with open(path, "rb") as f:
+        for b in iter(lambda: f.read(_CHUNK), b""):
+            parts.append(hashlib.md5(b).digest())
+    if len(parts) == 1:
+        return parts[0].hex()
+    return f"{hashlib.md5(b''.join(parts)).hexdigest()}-{len(parts)}"
 
 
 class MediaStore:
@@ -91,21 +104,18 @@ class MediaStore:
                 self._manifest_mtime = mtime
             return self._manifest
 
-    def _save_manifest(self):
-        with self._lock:
-            tmp = str(MANIFEST_PATH) + ".tmp"
-            json.dump(self._manifest, open(tmp, "w"), indent=1)
+    def _commit(self, key: str, entry: dict) -> None:
+        """Write one entry on top of what's on disk now, under a lock shared with other processes. Each process
+        caches the manifest, so saving its whole copy would drop what the others wrote since."""
+        with self._lock, open(str(MANIFEST_PATH) + ".lock", "w") as lk:
+            fcntl.flock(lk, fcntl.LOCK_EX)
+            fresh = json.load(open(MANIFEST_PATH)) if MANIFEST_PATH.exists() else {}   # unreadable raises: never wipe it
+            fresh[key] = entry
+            tmp = f"{MANIFEST_PATH}.{os.getpid()}.tmp"
+            with open(tmp, "w") as fh:
+                json.dump(fresh, fh, indent=1)
             os.replace(tmp, MANIFEST_PATH)
-            self._manifest_mtime = os.path.getmtime(MANIFEST_PATH)
-
-    @staticmethod
-    def relkey(path: str) -> str:
-        """Object key = path relative to the project root (stable, readable)."""
-        p = Path(path).resolve()
-        try:
-            return str(p.relative_to(PROJECT_ROOT))
-        except ValueError:
-            return "external/" + p.name
+            self._manifest, self._manifest_mtime = fresh, os.path.getmtime(MANIFEST_PATH)
 
     # ── operations ────────────────────────────────────────────────────────
     def upload(self, path: str, verify: bool = True) -> Optional[str]:
@@ -117,18 +127,17 @@ class MediaStore:
         digest = _sha256(path)
         size = os.path.getsize(path)
         extra = {"Metadata": {"sha256": digest}}
-        self.client.upload_file(path, self.bucket, key, ExtraArgs=extra)
+        from boto3.s3.transfer import TransferConfig
+        self.client.upload_file(path, self.bucket, key, ExtraArgs=extra,
+                                Config=TransferConfig(multipart_threshold=_CHUNK, multipart_chunksize=_CHUNK))
         if verify:
             head = self.client.head_object(Bucket=self.bucket, Key=key)
-            remote_sha = head.get("Metadata", {}).get("sha256")
-            if head["ContentLength"] != size or remote_sha != digest:
+            if head["ContentLength"] != size or head["ETag"].strip('"') != etag_of(path):
                 # wrong object landed — do not record it as safe
                 return None
-        m = self.manifest()
-        m[key] = {"size": size, "sha256": digest,
-                  "uploaded_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-                  "local_path": str(Path(path).resolve()), "evicted": False}
-        self._save_manifest()
+        self._commit(key, {"size": size, "sha256": digest,
+                           "uploaded_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                           "local_path": str(Path(path).resolve()), "evicted": False})
         return key
 
     def adopt(self, path: str) -> Optional[str]:
@@ -150,12 +159,10 @@ class MediaStore:
         size = os.path.getsize(path)
         if head["ContentLength"] != size or head.get("Metadata", {}).get("sha256") != digest:
             return None
-        m = self.manifest()
-        m[key] = {"size": size, "sha256": digest,
-                  "uploaded_at": head["LastModified"].strftime("%Y-%m-%dT%H:%M:%S"),
-                  "local_path": str(Path(path).resolve()), "evicted": False,
-                  "adopted": True}
-        self._save_manifest()
+        self._commit(key, {"size": size, "sha256": digest,
+                           "uploaded_at": head["LastModified"].strftime("%Y-%m-%dT%H:%M:%S"),
+                           "local_path": str(Path(path).resolve()), "evicted": False,
+                           "adopted": True})
         return key
 
     def evict(self, path: str) -> bool:
@@ -169,9 +176,12 @@ class MediaStore:
         # if it changed since upload, evicting would lose the newer version.
         if not os.path.exists(path) or _sha256(path) != ent["sha256"]:
             return False
+        # and that the bucket really holds these bytes, right before the only local copy goes
+        head = self.client.head_object(Bucket=self.bucket, Key=key)
+        if head["ContentLength"] != ent["size"] or head["ETag"].strip('"') != etag_of(path):
+            return False
         os.unlink(path)
-        ent["evicted"] = True
-        self._save_manifest()
+        self._commit(key, {**ent, "evicted": True})
         return True
 
     def lookup(self, path: str) -> Optional[dict]:
@@ -199,8 +209,7 @@ class MediaStore:
             os.unlink(tmp)
             return False
         os.replace(tmp, path)
-        ent["evicted"] = False
-        self._save_manifest()
+        self._commit(key, {**ent, "evicted": False})
         return True
 
 

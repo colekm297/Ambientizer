@@ -1979,6 +1979,8 @@ def submit_feedback(job_id: str):
     try:
         engine = _get_engine()
         new_audio = engine.render_flat(revised_config)
+        if new_audio.dBFS == float("-inf"):   # layer audio missing: render_flat skips it and returns silence
+            return jsonify({"error": "Re-render came out silent: this song's layer audio isn't on the Mac"}), 500
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         safe_title = "".join(c if c.isalnum() or c in " -_" else "" for c in revised_config.title)
@@ -2400,6 +2402,8 @@ def finalize(job_id: str):
 
         engine = _get_engine()
         full_audio = engine.render_flat(full_config)
+        if full_audio.dBFS == float("-inf"):   # layer audio missing: render_flat skips it and returns silence
+            raise RuntimeError("Render came out silent: this song's layer audio isn't on the Mac")
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         safe_title = "".join(c if c.isalnum() or c in " -_" else "" for c in full_config.title)

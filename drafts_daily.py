@@ -167,7 +167,7 @@ def queue() -> list[dict]:
     """Takes to draft, best first."""
     done = tried()
     stock_order = {}
-    for f in sorted(glob.glob(str(HERE / "data" / "stock" / "wave*.jsonl"))):
+    for f in sorted(glob.glob(str(HERE / "data" / "stock" / "wave*.jsonl")) + glob.glob(str(HERE / "data" / "stock" / "burn_*.jsonl"))):
         for l in Path(f).read_text().splitlines():
             r = json.loads(l)
             stock_order.setdefault(r["job_id"], (r.get("done_at", ""), r))
