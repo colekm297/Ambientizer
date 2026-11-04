@@ -46,11 +46,30 @@ class VisualGenerator:
         resolution: str = "2k",
         aspect_ratio: str = "16:9",
     ) -> str:
-        """Generate a scene image using Grok Imagine API. Returns saved path."""
+        """Generate a scene image using Grok Imagine API. Returns saved path.
+        Falls back to gpt-image-2 on fal (1920x1080, high, $0.158 per image on fal's page 2026-11-03) when
+        xAI refuses the request; the xAI key was found rejected on 2026-11-03."""
         if not output_path:
             safe = "".join(c if c.isalnum() or c in " -_" else "" for c in prompt[:40])
             output_path = str(self.output_dir / f"{safe}_visual.png")
 
+        try:
+            return self._generate_image_xai(prompt, model, output_path, resolution, aspect_ratio)
+        except HTTPError as e:
+            if not os.environ.get("FAL_KEY"):
+                raise
+            print(f"  Grok image refused ({e}); using gpt-image-2 on fal")
+            import fal_client
+            res = fal_client.subscribe("openai/gpt-image-2", arguments={
+                "prompt": prompt, "image_size": {"width": 1920, "height": 1080},
+                "quality": "high", "output_format": "png"}, with_logs=False)
+            image_bytes = requests.get(res["images"][0]["url"], timeout=300).content
+            with open(output_path, "wb") as f:
+                f.write(image_bytes)
+            print(f"  Generated image: {output_path} ({len(image_bytes) / 1024:.0f} KB, gpt-image-2 high, 1920x1080)")
+            return output_path
+
+    def _generate_image_xai(self, prompt, model, output_path, resolution, aspect_ratio) -> str:
         response = requests.post(
             "https://api.x.ai/v1/images/generations",
             headers=self._auth_headers(),
