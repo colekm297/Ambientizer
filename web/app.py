@@ -4996,6 +4996,8 @@ def export_visual_video(job_id: str):
                 raise
             except Exception as e:
                 print(f"  [export] Video fade step failed (non-fatal): {e}")
+                if os.path.exists(vf_out):   # a partial file here filled the disk on 2026-11-04
+                    os.remove(vf_out)
 
         with jobs_lock:
             jobs[job_id]["visual_video_path"] = final_path
