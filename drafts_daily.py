@@ -9,7 +9,8 @@ rest in YouTube Studio. Nothing here ever makes a video public or deletes one.
 
 Order: his 3-star takes, then 2-star, then the stock-campaign takes (oldest first). Never 1-star, never
 a take already on YouTube, never one under 2 minutes. Same app flow as _publish_3star.py.
-Cost per video: one Grok image (~$0.07) plus two Claude calls; the living still and export are local.
+Cost per video: gpt-image-2 still ($0.16), one Seedance 1.5 Pro loop, three Claude calls; the export is local.
+Takes with a beat (beat_check.py) are skipped.
 YouTube quota: an upload is 1,600 units of the 10,000/day, so PER_DAY stays at 5.
 
 Usage: .venv/bin/python drafts_daily.py [--n 5] [--dry-run]
@@ -34,6 +35,9 @@ PLAYLIST_FILE = HERE / "data" / "drafts_playlist.json"
 PLAYLIST_TITLE = "Drafts to review"
 PER_DAY = 1   # Cole, 2026-11-03: "one a day is fine"; he publishes the ones he likes himself
 MIN_FREE_GB = 20
+# beat_check.py percussive share. Rain Over Arrakis (Cole: "the beat in it is just bad") scored 0.147 and his
+# drum-y 1-stars 0.142 and 0.393; every 3-star he has is 0.085 or under. Calibrated 2026-11-03.
+MAX_PERC = 0.10
 # Takes already in a release whose job record doesn't carry the YouTube id (built by the _build_*_master
 # scripts): Sirens eec20d97, Fair Wind 2bacadbf plus its two sister takes, Calypso, Dawn, the observatory.
 RELEASED = {"eec20d97", "2bacadbf", "324a1f7b", "1af58c0f", "16a924b4", "a38b5c83", "10919aaa", "94b60fc9"}
@@ -95,6 +99,52 @@ def take_secs(j: dict) -> float:
         if Path(p).exists():
             return secs(p)
     return 0.0
+
+
+def beat_perc(j: dict) -> float | None:
+    from beat_check import beat_scores
+    for p in (((j.get("config") or {}).get("layers") or [{}])[0].get("generated_audio_path"), j.get("raw_output_path")):
+        if p and Path(p).exists():
+            return beat_scores(p)["perc"]
+    return None
+
+
+LOOP_PROMPT = """Write the motion prompt for a 12-second image-to-video shot of this still, for an ambient music
+video that loops for an hour. The camera is locked off and almost everything holds perfectly still; only one
+or two small, natural things move gently (a flame flickering, rain falling, mist drifting, water glinting,
+stars twinkling). Name exactly what moves and say firmly that everything else (land, buildings, figures,
+sky shapes, the frame) does not move. Start with: "Static locked-off tripod shot. The camera does not move
+at all: no push in, no zoom, no pan, no drift." End with: "A living photograph, cinematic, no cuts."
+Under 110 words. Reply with the prompt only.
+
+The still was made from this description:
+"""
+
+
+def seedance_loop(jid: str) -> str:
+    """The living still the releases use (memory: Seedance pipeline, 2026-08-28): Seedance 1.5 Pro, the same
+    still as first and last frame, camera fixed, 12 s at 1080p, shipped raw. The app's "motion" clip warps
+    the whole frame, which is what Cole saw on the first draft ("the entire background is just moving")."""
+    import anthropic
+    import fal_loop as fl
+    from llm import llm_create, llm_text
+    j = json.load(open(HERE / "saved_jobs" / f"{jid}.json"))
+    still, desc = j["visual_image_path"], j.get("visual_image_prompt", "")
+    motion = llm_text(llm_create(anthropic.Anthropic(), model="claude-opus-5-5", max_tokens=400,
+                                 messages=[{"role": "user", "content": LOOP_PROMPT + desc}])).strip()
+    fal = fl._fal()
+    url = fal.upload_file(still)
+    res = fal.subscribe("fal-ai/bytedance/seedance/v1.5/pro/image-to-video", arguments={
+        "prompt": motion, "image_url": url, "end_image_url": url, "resolution": "1080p", "duration": "12",
+        "camera_fixed": True, "generate_audio": False, "aspect_ratio": "16:9"}, with_logs=False)
+    out = HERE / "output" / f"{jid}_seedance.mp4"
+    out.write_bytes(requests.get(res["video"]["url"], timeout=300).content)
+    with open(out, "rb") as fh:
+        r = jget(requests.post(f"{BASE}/api/visual/upload-video/{jid}",
+                               files={"file": (out.name, fh, "video/mp4")}, timeout=300))
+    if r.get("status") != "ready":
+        raise RuntimeError(f"attaching the loop failed: {r}")
+    return motion
 
 
 def queue() -> list[dict]:
@@ -166,11 +216,7 @@ def draft(p: dict) -> dict:
     r = jget(requests.post(f"{BASE}/api/visual/image/{jid}", json={"prompt": ap["image_prompt"]}, timeout=60))
     if r.get("error") or wait_task(jid).get("status") != "done":
         raise RuntimeError(f"image failed: {r}")
-    r = jget(requests.post(f"{BASE}/api/visual/clip/{jid}", json={
-        "mode": "motion", "motion_style": "auto", "motion_intensity": 1.0,
-        "motion_loop_sec": 16, "motion_director_style": "subtle"}, timeout=60))
-    if r.get("error") or wait_task(jid).get("status") != "done":
-        raise RuntimeError(f"living still failed: {r}")
+    seedance_loop(jid)
     r = jget(requests.post(f"{BASE}/api/thumbnail/{jid}/set", json={
         "style": "hailmary", "hook": hook, "subtitle": "Ambient Soundscape"}, timeout=60))
     if r.get("error"):
@@ -228,8 +274,11 @@ def main():
         j = json.load(open(HERE / "saved_jobs" / f"{p['job_id']}.json"))
         rec = {"job_id": p["job_id"], "rating": p["rating"], "take_title": p["title"],
                "at": time.strftime("%Y-%m-%dT%H:%M:%S")}
-        if take_secs(j) < 120:
+        perc = beat_perc(j) if take_secs(j) >= 120 else None
+        if perc is None:
             rec["status"] = "skipped: under 2 min or audio missing"
+        elif perc > MAX_PERC:
+            rec["status"] = f"skipped: beat (perc {perc})"
         else:
             try:
                 rec.update(draft(p), status="private")
