@@ -1,0 +1,259 @@
+#!/usr/bin/env python3
+"""drafts_daily.py: turn takes into finished 1-hour videos, uploaded PRIVATE, for Cole to review on YouTube.
+
+Cole, 2026-11-03: "can we just start posting stuff... start private but i get to see the whole thing easily
+and just ok what i like delete what i don't." So the music pick moves to the end: every day a few takes
+become full videos (scene image, living still, thumbnail, metadata) and land private in a playlist
+called "Drafts to review" on his channel. He watches there, makes the keepers public and deletes the
+rest in YouTube Studio. Nothing here ever makes a video public or deletes one.
+
+Order: his 3-star takes, then 2-star, then the stock-campaign takes (oldest first). Never 1-star, never
+a take already on YouTube, never one under 2 minutes. Same app flow as _publish_3star.py.
+Cost per video: one Grok image (~$0.07) plus two Claude calls; the living still and export are local.
+YouTube quota: an upload is 1,600 units of the 10,000/day, so PER_DAY stays at 5.
+
+Usage: .venv/bin/python drafts_daily.py [--n 5] [--dry-run]
+Log: data/drafts.jsonl (one line per attempt).
+"""
+from __future__ import annotations
+
+import argparse
+import glob
+import json
+import re
+import shutil
+import time
+from pathlib import Path
+
+import requests
+
+HERE = Path(__file__).resolve().parent
+BASE = "http://127.0.0.1:5050"
+LOG = HERE / "data" / "drafts.jsonl"
+PLAYLIST_FILE = HERE / "data" / "drafts_playlist.json"
+PLAYLIST_TITLE = "Drafts to review"
+PER_DAY = 1   # Cole, 2026-11-03: "one a day is fine"; he publishes the ones he likes himself
+MIN_FREE_GB = 20
+# Takes already in a release whose job record doesn't carry the YouTube id (built by the _build_*_master
+# scripts): Sirens eec20d97, Fair Wind 2bacadbf plus its two sister takes, Calypso, Dawn, the observatory.
+RELEASED = {"eec20d97", "2bacadbf", "324a1f7b", "1af58c0f", "16a924b4", "a38b5c83", "10919aaa", "94b60fc9"}
+CTA = "If you liked this track, please consider liking and subscribing!"
+
+
+def jget(r):
+    try:
+        return r.json()
+    except Exception:
+        return {"error": f"non-JSON ({r.status_code}): {r.text[:200]}"}
+
+
+def wait_task(jid, timeout=40 * 60):
+    t0 = time.time()
+    time.sleep(3)
+    while time.time() - t0 < timeout:
+        try:
+            s = jget(requests.get(f"{BASE}/api/task-status/{jid}", timeout=30))
+        except Exception:
+            time.sleep(10)
+            continue
+        if s.get("status") in ("done", "error", "canceled", "idle"):
+            return s
+        time.sleep(10)
+    return {"status": "timeout"}
+
+
+def tried() -> set:
+    """Takes that are finished with: uploaded, skipped, or failed twice. A single failure retries next run."""
+    if not LOG.exists():
+        return set()
+    fails, out = {}, set()
+    for l in LOG.read_text().splitlines():
+        if not l.strip():
+            continue
+        r = json.loads(l)
+        if r["status"].startswith("failed"):
+            fails[r["job_id"]] = fails.get(r["job_id"], 0) + 1
+            if fails[r["job_id"]] >= 2:
+                out.add(r["job_id"])
+        else:
+            out.add(r["job_id"])
+    return out
+
+
+def take_secs(j: dict) -> float:
+    """Length of the take, pulling its audio back from R2 if it was offloaded (export needs it local)."""
+    from stock_campaign import secs
+    from media_store import get_store
+    store = get_store()
+    for p in (((j.get("config") or {}).get("layers") or [{}])[0].get("generated_audio_path"),
+              j.get("raw_output_path"), j.get("output_path"), j.get("audio_path")):
+        if not p:
+            continue
+        p = str(p if Path(p).is_absolute() else HERE / p)
+        if not Path(p).exists() and store.enabled and store.lookup(p):
+            store.restore(p)
+        if Path(p).exists():
+            return secs(p)
+    return 0.0
+
+
+def queue() -> list[dict]:
+    """Takes to draft, best first."""
+    done = tried()
+    stock_order = {}
+    for f in sorted(glob.glob(str(HERE / "data" / "stock" / "wave*.jsonl"))):
+        for l in Path(f).read_text().splitlines():
+            r = json.loads(l)
+            stock_order.setdefault(r["job_id"], (r.get("done_at", ""), r))
+    picks = []
+    for f in glob.glob(str(HERE / "saved_jobs" / "*.json")):
+        try:
+            j = json.load(open(f))
+        except Exception:
+            continue
+        jid = Path(f).stem
+        if j.get("status") != "complete" or jid in done or jid in RELEASED or j.get("youtube_video_id") or j.get("youtube_url"):
+            continue
+        rating = j.get("rating") or 0
+        title = (j.get("config") or {}).get("title") or j.get("title") or ""
+        if rating == 1:
+            continue
+        if rating >= 2:
+            tier, key = (0 if rating == 3 else 1), j.get("created_at", "")
+        elif jid in stock_order:
+            tier, key = 2, stock_order[jid][0]
+        else:
+            continue
+        picks.append({"job_id": jid, "tier": tier, "key": key, "rating": rating, "title": title,
+                      "world": (stock_order.get(jid, (0, {}))[1] or {}).get("world")})
+    picks.sort(key=lambda p: (p["tier"], p["key"]))
+    return picks
+
+
+def playlist_id(yt) -> str:
+    if PLAYLIST_FILE.exists():
+        return json.loads(PLAYLIST_FILE.read_text())["id"]
+    r = yt.playlists().insert(part="snippet,status", body={
+        "snippet": {"title": PLAYLIST_TITLE, "description": "Private drafts for Cole to review."},
+        "status": {"privacyStatus": "private"}}).execute()
+    PLAYLIST_FILE.write_text(json.dumps({"id": r["id"], "title": PLAYLIST_TITLE}))
+    return r["id"]
+
+
+def yt_client():
+    from google.oauth2.credentials import Credentials
+    from googleapiclient.discovery import build
+    creds = Credentials.from_authorized_user_info(json.load(open(HERE / "youtube_token.json")))
+    return build("youtube", "v3", credentials=creds, cache_discovery=False)
+
+
+def offload(jid: str) -> None:
+    """The finished mp4 (~0.5 GB) is on YouTube now; move the local copy to R2 like the release media."""
+    from media_store import get_store
+    store = get_store()
+    p = json.load(open(HERE / "saved_jobs" / f"{jid}.json")).get("visual_video_path")
+    if store.enabled and p and Path(p).exists():
+        ok = store.upload(p) and store.evict(p)
+        print(f"  {'offloaded' if ok else 'OFFLOAD FAILED (kept local)'} {Path(p).name}", flush=True)
+
+
+def draft(p: dict) -> dict:
+    jid = p["job_id"]
+    hook = p["world"] or re.sub(r"^Stock · |\s·\sv[\d.]+.*$", "", p["title"]).split(" · ")[0] or p["title"]
+    ap = jget(requests.post(f"{BASE}/api/visual/auto-prompt/{jid}", timeout=120))
+    if not ap.get("image_prompt"):
+        raise RuntimeError(f"auto-prompt failed: {ap}")
+    r = jget(requests.post(f"{BASE}/api/visual/image/{jid}", json={"prompt": ap["image_prompt"]}, timeout=60))
+    if r.get("error") or wait_task(jid).get("status") != "done":
+        raise RuntimeError(f"image failed: {r}")
+    r = jget(requests.post(f"{BASE}/api/visual/clip/{jid}", json={
+        "mode": "motion", "motion_style": "auto", "motion_intensity": 1.0,
+        "motion_loop_sec": 16, "motion_director_style": "subtle"}, timeout=60))
+    if r.get("error") or wait_task(jid).get("status") != "done":
+        raise RuntimeError(f"living still failed: {r}")
+    r = jget(requests.post(f"{BASE}/api/thumbnail/{jid}/set", json={
+        "style": "hailmary", "hook": hook, "subtitle": "Ambient Soundscape"}, timeout=60))
+    if r.get("error"):
+        raise RuntimeError(f"thumbnail failed: {r}")
+    r = jget(requests.post(f"{BASE}/api/visual/export/{jid}", json={"duration_minutes": 60}, timeout=60))
+    if r.get("error") or wait_task(jid, 60 * 60).get("status") != "done":
+        raise RuntimeError(f"export failed: {r}")
+    meta = jget(requests.post(f"{BASE}/api/youtube/auto-metadata/{jid}", timeout=180))
+    if meta.get("error"):
+        raise RuntimeError(f"metadata failed: {meta}")
+    # Channel titles read "Dune | Last Light on Arrakis | 1 Hour ...", and nothing of Cole's carries an em-dash.
+    title = re.sub(r"\s*[—–]\s*", " | ", meta.get("title", "").strip())[:100]
+    desc = re.sub(r"\s*[—–]\s*", ", ", meta.get("description", "")).rstrip() + f"\n\n{CTA}"
+    r = jget(requests.post(f"{BASE}/api/youtube/upload/{jid}", json={
+        "title": title, "description": desc, "tags": meta.get("tags", []), "privacy": "private"}, timeout=60))
+    if r.get("error"):
+        raise RuntimeError(f"upload start failed: {r}")
+    t0 = time.time()
+    while time.time() - t0 < 45 * 60:
+        s = jget(requests.get(f"{BASE}/api/youtube/upload-status/{jid}", timeout=30))
+        if s.get("status") == "done":
+            break
+        if s.get("status") == "error":
+            raise RuntimeError(f"upload failed: {s.get('message')}")
+        time.sleep(10)
+    else:
+        raise RuntimeError("upload timed out")
+    vid = json.load(open(HERE / "saved_jobs" / f"{jid}.json")).get("youtube_video_id")
+    return {"title": title, "video_id": vid, "url": s.get("youtube_url")}
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--n", type=int, default=PER_DAY)
+    ap.add_argument("--dry-run", action="store_true")
+    a = ap.parse_args()
+    q = queue()
+    print(f"{time.strftime('%F %T')} queue: {len(q)} takes "
+          f"({sum(p['tier'] == 0 for p in q)} 3-star, {sum(p['tier'] == 1 for p in q)} 2-star, "
+          f"{sum(p['tier'] == 2 for p in q)} stock)", flush=True)
+    if a.dry_run:
+        for p in q[:a.n]:
+            print("  would draft", p["job_id"], p["rating"], p["title"][:70])
+        return
+    yt = yt_client()
+    pl = playlist_id(yt)
+    made, streak = 0, 0
+    for p in q:
+        if made >= a.n:
+            break
+        free = shutil.disk_usage(HERE).free / 1e9
+        if free < MIN_FREE_GB:
+            print(f"STOP disk: {free:.1f} GB free", flush=True)
+            break
+        j = json.load(open(HERE / "saved_jobs" / f"{p['job_id']}.json"))
+        rec = {"job_id": p["job_id"], "rating": p["rating"], "take_title": p["title"],
+               "at": time.strftime("%Y-%m-%dT%H:%M:%S")}
+        if take_secs(j) < 120:
+            rec["status"] = "skipped: under 2 min or audio missing"
+        else:
+            try:
+                rec.update(draft(p), status="private")
+                if rec.get("video_id"):
+                    yt.playlistItems().insert(part="snippet", body={"snippet": {
+                        "playlistId": pl, "resourceId": {"kind": "youtube#video", "videoId": rec["video_id"]}}}).execute()
+                offload(p["job_id"])
+                made, streak = made + 1, 0
+            except Exception as e:
+                rec["status"] = f"failed: {str(e)[:300]}"
+                streak += 1
+                if "quota" in str(e).lower():
+                    print("STOP: YouTube quota", flush=True)
+                    with open(LOG, "a") as fh:
+                        fh.write(json.dumps(rec) + "\n")
+                    break
+        with open(LOG, "a") as fh:
+            fh.write(json.dumps(rec) + "\n")
+        print(f"{time.strftime('%T')} {rec['status'][:60]:60s} {p['job_id']} {rec.get('title') or p['title'][:60]}", flush=True)
+        if streak >= 3:
+            print("STOP: 3 failures in a row, something upstream is broken", flush=True)
+            break
+    print(f"{time.strftime('%F %T')} DRAFTS DONE: {made} uploaded private to '{PLAYLIST_TITLE}'", flush=True)
+
+
+if __name__ == "__main__":
+    main()
