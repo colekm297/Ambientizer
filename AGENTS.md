@@ -35,6 +35,7 @@ Grok visuals / procedural motion → ffmpeg → YouTube publish. Public repo.
   ```
   launchctl kickstart -k gui/$UID/com.cole.ambientizer
   ```
+  Run `.venv/bin/python smoke_existing.py` BEFORE the restart and again after: it tests the paths existing songs use, not just new code (a dropped method broke R2 playback on 2026-11-04 while the new-code test passed).
   and **hard-refresh the browser** (Flask + browser cache hold old code otherwise).
 - API keys live in `.env` (ANTHROPIC, GEMINI, ELEVENLABS, XAI). The launch wrapper
   `run_ambientizer.sh` sources `.env` and adds Homebrew to PATH — see gotchas.
