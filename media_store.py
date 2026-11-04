@@ -117,6 +117,15 @@ class MediaStore:
             os.replace(tmp, MANIFEST_PATH)
             self._manifest, self._manifest_mtime = fresh, os.path.getmtime(MANIFEST_PATH)
 
+    @staticmethod
+    def relkey(path: str) -> str:
+        """Object key = path relative to the project root (stable, readable)."""
+        p = Path(path).resolve()
+        try:
+            return str(p.relative_to(PROJECT_ROOT))
+        except ValueError:
+            return "external/" + p.name
+
     # ── operations ────────────────────────────────────────────────────────
     def upload(self, path: str, verify: bool = True) -> Optional[str]:
         """Upload one file; verify round-trip hash; record in manifest.
