@@ -277,7 +277,7 @@ def draft(p: dict) -> dict:
     if r.get("error"):
         raise RuntimeError(f"upload start failed: {r}")
     t0 = time.time()
-    while time.time() - t0 < 45 * 60:
+    while time.time() - t0 < 3 * 60 * 60:   # an 8 GB hour took over 45 min on 2026-11-04
         s = jget(requests.get(f"{BASE}/api/youtube/upload-status/{jid}", timeout=30))
         if s.get("status") == "done":
             break
