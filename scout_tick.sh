@@ -26,8 +26,9 @@ status() { awk -v k="$1:" '$1==k {print $2; exit}' $PAD; }
 
 echo "$(date '+%F %T') tick start"
 mkdir -p data/scout/ticks
-perl -e 'alarm 1800; exec @ARGV' /opt/homebrew/bin/claude -p --model claude-opus-5-5 \
-  --permission-mode bypassPermissions \
+# This run reads the open web, so it gets no outward tools (Chief, 11-04, on Cole's word).
+ENABLE_CLAUDEAI_MCP_SERVERS=false perl -e 'alarm 1800; exec @ARGV' /opt/homebrew/bin/claude -p --model claude-opus-5-5 \
+  --permission-mode bypassPermissions --disallowedTools='mcp__*,PushNotification,RemoteTrigger,Artifact,SendMessage' \
   "[scout-tick] Automation, not Cole. Today is $(date +%F). Follow data/scout/PROMPT.md exactly: one lead, findings, rewrite the scratchpad, write today's tick report."
 echo "$(date '+%F %T') tick end (exit $?)"
 
