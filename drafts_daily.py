@@ -45,6 +45,10 @@ MAX_PERC = 0.10
 # scripts): Sirens eec20d97, Fair Wind 2bacadbf plus its two sister takes, Calypso, Dawn, the observatory.
 RELEASED = {"eec20d97", "2bacadbf", "324a1f7b", "1af58c0f", "16a924b4", "a38b5c83", "10919aaa", "94b60fc9"}
 CTA = "If you liked this track, please consider liking and subscribing!"
+# Cole, 2026-09-26: "nobody fucking knows what a sietch is". 36 competitor Dune videos agree: places a film viewer
+# knows win, book lore loses (Irulan 0.20x, Salusa Secundus 0.44x). The metadata prompt asks; this enforces.
+LORE = re.compile(r"\b(sietch|irulan|alia|salusa|secundus|giedi|caladan|bene gesserit|kwisatz|haderach|shai[- ]hulud"
+                  r"|lisan|mahdi|muad.?dib|ornithopter|melange|crysknife)\b", re.I)
 
 
 def jget(r):
@@ -219,7 +223,6 @@ def offload(jid: str) -> None:
 
 def draft(p: dict) -> dict:
     jid = p["job_id"]
-    hook = p["world"] or re.sub(r"^Stock · |\s·\sv[\d.]+.*$", "", p["title"]).split(" · ")[0] or p["title"]
     still = json.load(open(HERE / "saved_jobs" / f"{jid}.json")).get("visual_image_path")
     if not (still and Path(still).exists()):   # a retry keeps the still it already paid for
         ap = jget(requests.post(f"{BASE}/api/visual/auto-prompt/{jid}", timeout=120))
@@ -245,19 +248,30 @@ def draft(p: dict) -> dict:
             break
     else:
         raise RuntimeError(f"loop seam failed twice (junction {seam['junction_spike']})")
+    r = jget(requests.post(f"{BASE}/api/visual/export/{jid}", json={"duration_minutes": 60}, timeout=60))
+    if r.get("error") or wait_task(jid, 60 * 60).get("status") != "done":
+        raise RuntimeError(f"export failed: {r}")
+    for attempt in range(3):
+        meta = jget(requests.post(f"{BASE}/api/youtube/auto-metadata/{jid}", timeout=180))
+        if meta.get("error"):
+            raise RuntimeError(f"metadata failed: {meta}")
+        lore = LORE.findall(f"{meta.get('title', '')} {meta.get('description', '')}")
+        if not lore:
+            break
+        print(f"  metadata attempt {attempt}: lore words {lore}", flush=True)
+    else:
+        raise RuntimeError(f"metadata kept using lore words: {lore}")
+    # Channel titles read "Dune | Last Light on Arrakis | 1 Hour ...", and nothing of Cole's carries an em-dash.
+    title = re.sub(r"\s*[—–]\s*", " | ", meta.get("title", "").strip())[:100]
+    desc = re.sub(r"\s*[—–]\s*", ", ", meta.get("description", "")).rstrip() + f"\n\n{CTA}"
+    # A rated take's own title can be lore ("Sietch Cavern Ritual"), so without a world the thumbnail takes the
+    # title's scene. It renders here, after metadata; the export doesn't use it.
+    parts = title.split(" | ")
+    hook = p["world"] or (parts[1] if len(parts) > 1 else title)
     r = jget(requests.post(f"{BASE}/api/thumbnail/{jid}/set", json={
         "style": "hailmary", "hook": hook, "subtitle": "Ambient Soundscape"}, timeout=60))
     if r.get("error"):
         raise RuntimeError(f"thumbnail failed: {r}")
-    r = jget(requests.post(f"{BASE}/api/visual/export/{jid}", json={"duration_minutes": 60}, timeout=60))
-    if r.get("error") or wait_task(jid, 60 * 60).get("status") != "done":
-        raise RuntimeError(f"export failed: {r}")
-    meta = jget(requests.post(f"{BASE}/api/youtube/auto-metadata/{jid}", timeout=180))
-    if meta.get("error"):
-        raise RuntimeError(f"metadata failed: {meta}")
-    # Channel titles read "Dune | Last Light on Arrakis | 1 Hour ...", and nothing of Cole's carries an em-dash.
-    title = re.sub(r"\s*[—–]\s*", " | ", meta.get("title", "").strip())[:100]
-    desc = re.sub(r"\s*[—–]\s*", ", ", meta.get("description", "")).rstrip() + f"\n\n{CTA}"
     r = jget(requests.post(f"{BASE}/api/youtube/upload/{jid}", json={
         "title": title, "description": desc, "tags": meta.get("tags", []), "privacy": "private"}, timeout=60))
     if r.get("error"):

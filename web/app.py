@@ -5295,10 +5295,13 @@ Layers: {layers_desc}{timestamps_hint}
 
 STEP 1 — Identify the SUBJECT HOOK: the single most recognizable thing this evokes (a book/film/universe, a real place, or a vivid concept — e.g. "Project Hail Mary", "Dune", "a cabin in a snowstorm"). The TITLE must lead with it verbatim. The story may reference it naturally but should not feel like an ad.
 
-TITLE (keep it SHORT — aim <70 chars, hard max 90; no emoji, no clickbait):
-- Pattern: "<Subject Hook> — <Short Evocative Descriptor> | {duration_str} <Genre>"
-- Example: "Project Hail Mary — Adrift in the Silent Void | 1 Hour Space Ambient"
-- Emotional/sensory words beat neutral ones. Must contain the subject hook verbatim. Must use the duration "{duration_str}".
+STEP 2 — Pick the SCENE a general viewer can picture without having read the books: a place or moment from the film people already know, plus a time of day or a feeling (Last Light on Arrakis, Arrakeen at Night, Going Home After 20 Years). The brief may use lore words. Do NOT carry them over: no characters, planets or terms that only fans know, in the title or the story. "Sietch" is the example of what not to use; say "a hidden desert cave" if the scene needs it. Never abstract, never obtuse.
+
+TITLE (aim <70 chars, hard max 90; no emoji; never "OST", "soundtrack" or "official", because this is original music, not the film's score):
+- Pattern: "<Subject Hook> | <Scene> | {duration_str} <Promise>". No dashes.
+- Examples: "Dune | Last Light on Arrakis | {duration_str} Deep Focus Ambient", "The Odyssey | Going Home After 20 Years | {duration_str} Deep Work Ambient".
+- It has to earn the click: the Promise says what the hour is for, in words people search (Deep Focus, Deep Work, Sleep, Peaceful, Study). Emotional words beat neutral ones. Nothing false.
+- Must contain the subject hook verbatim. Must use the duration "{duration_str}".
 
 DESCRIPTION — JUST THE STORY (sound HUMAN, not AI; specific and grounded, no purple filler):
 - Open DIRECTLY with the story. NO opening hook/tagline like "X music for anyone who...", NO "Best for:" line, NO "subscribe/comment" CTA.
