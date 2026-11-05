@@ -1,0 +1,16 @@
+{"source": "YouTube Studio advanced mode, read by hand 2026-11-05, lifetime through Nov 4. thumb_text describes the current thumbnail, which may not be the one every impression saw.",
+ "channel": {"impressions": 27921, "ctr": 2.4, "suggested": [19967, 1.8], "browse": [5307, 2.7], "search": [1450, 5.5], "channel_pages": [781, 8.3], "playlists": [416, 1.9]},
+ "videos": [
+  {"id": "nAiWwRx1Tk0", "title": "Two Minds, One Light", "imp": 4946, "ctr": 1.4, "suggested": [3391, 0.7], "browse": [1404, 3.0], "thumb_text": "wide two-line caps"},
+  {"id": "y6YS18A8hYY", "title": "Last Light on Arrakis", "imp": 4110, "ctr": 1.8, "suggested": [3163, 1.7], "browse": [894, 1.7], "thumb_text": "lower-third caps"},
+  {"id": "7E-NO3zf7w4", "title": "Arrakis Desert Rain", "imp": 3505, "ctr": 2.3, "suggested": [3017, 1.9], "browse": [327, 2.1], "thumb_text": "none"},
+  {"id": "frJb60y4d5M", "title": "A Small Light in the Dark", "imp": 2657, "ctr": 2.6, "suggested": [1725, 2.4], "browse": [703, 2.1], "thumb_text": "none"},
+  {"id": "I1EbGRaQumk", "title": "Penelope at the Loom", "imp": 2574, "ctr": 1.7, "suggested": [1914, 1.1], "browse": [611, 2.3], "thumb_text": "lower-third caps"},
+  {"id": "wHOZ8ppszSI", "title": "The Sirens' Strait", "imp": 1805, "ctr": 2.6, "suggested": [1476, 2.2], "browse": [213, 2.8], "thumb_text": "lower-third caps"},
+  {"id": "tg1Ixcm_-6k", "title": "Beneath the Desert Temples", "imp": 1466, "ctr": 3.7, "thumb_text": "serif, ads ran"},
+  {"id": "JhV1RPOGAGw", "title": "Trapped on Calypso's Shore", "imp": 1297, "ctr": 3.9, "thumb_text": "upper caps, ads ran"},
+  {"id": "s0s476Lnjtk", "title": "Spacecraft Ambience", "imp": 903, "ctr": 3.0, "thumb_text": "none"},
+  {"id": "ofA7JRdzH8k", "title": "Sanctuary", "imp": 794, "ctr": 4.0, "thumb_text": "none"},
+  {"id": "kg-RRBuGsuQ", "title": "Dawn Over Arrakis", "imp": 791, "ctr": 3.3, "thumb_text": "wide two-line caps"},
+  {"id": "HvumlX9trg0", "title": "Going Home After 20 Years", "imp": 396, "ctr": 2.0, "thumb_text": "lower-third caps"},
+  {"id": "pr5JhPlr18c", "title": "Escher's Paradox", "imp": 364, "ctr": 9.1, "thumb_text": "none, mostly search traffic"}]}

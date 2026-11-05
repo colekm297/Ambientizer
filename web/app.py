@@ -4178,7 +4178,7 @@ def api_thumbnail_previews(job_id: str):
     config = job.get("config")
     default_hook = (config.title if config else (job.get("prompt", "")[:30] or "Ambient"))
     hook = (data.get("hook") or default_hook).strip()
-    subtitle = (data.get("subtitle") or f"Ambient · {_thumb_duration_label(job)}").strip()
+    subtitle = (data.get("subtitle", f"Ambient · {_thumb_duration_label(job)}") or "").strip()   # "" means no subtitle
     accent = data.get("accent") or "#f5c97a"
     position = data.get("position") if data.get("position") in ("upper", "center", "lower") else "lower"
     # Clamp on the wire too — defensive, render_thumbnail also clamps.
@@ -4226,7 +4226,7 @@ def api_thumbnail_set(job_id: str):
         return jsonify({"error": "Unknown style"}), 400
     config = job.get("config")
     hook = (data.get("hook") or (config.title if config else "Ambient")).strip()
-    subtitle = (data.get("subtitle") or f"Ambient · {_thumb_duration_label(job)}").strip()
+    subtitle = (data.get("subtitle", f"Ambient · {_thumb_duration_label(job)}") or "").strip()   # "" means no subtitle
     accent = data.get("accent") or "#f5c97a"
     position = data.get("position") if data.get("position") in ("upper", "center", "lower") else "lower"
     try: title_scale = max(0.5, min(2.0, float(data.get("title_scale", 1.0))))
