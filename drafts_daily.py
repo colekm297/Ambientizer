@@ -39,6 +39,7 @@ VERDICTS = HERE / "data" / "draft_verdicts.jsonl"
 PLAYLIST_FILE = HERE / "data" / "drafts_playlist.json"
 PLAYLIST_TITLE = "Drafts to review"
 PER_DAY = 1   # Cole, 2026-11-03: "one a day is fine"; he publishes the ones he likes himself
+ANCIENT_WORLDS = re.compile(r"dune|odyssey|lord of the rings|hobbit|greek|egypt|rome|norse|viking|arthur|narnia", re.I)
 MIN_FREE_GB = 24   # an hour at Seedance's 18 Mbps is 8 GB, and the fade step holds three copies at its peak
 # beat_check.py percussive share. Rain Over Arrakis (Cole: "the beat in it is just bad") scored 0.147 and his
 # drum-y 1-stars 0.142 and 0.393; every 3-star he has is 0.085 or under. Calibrated 2026-11-03.
@@ -252,7 +253,11 @@ def draft(p: dict) -> dict:
             break
     else:
         raise RuntimeError(f"loop seam failed twice (junction {seam['junction_spike']})")
-    r = jget(requests.post(f"{BASE}/api/visual/export/{jid}", json={"duration_minutes": 60}, timeout=60))
+    r = jget(requests.post(f"{BASE}/api/visual/export/{jid}", json={
+        "duration_minutes": 60,
+        # Cole, 2026-11-05 on the Sietch draft: "there was no intro". The channel name fades over the opening scene;
+        # only those seconds re-encode. The 2026-10-23 no-sting rule still holds: the hour opens on the scene.
+        "intro": {"enabled": True, "name": "The Space of Sound", "style": "overlay", "duration": 10, "size_scale": 0.75}}, timeout=60))
     if r.get("error") or wait_task(jid, 60 * 60).get("status") != "done":
         raise RuntimeError(f"export failed: {r}")
     for attempt in range(3):
@@ -268,12 +273,13 @@ def draft(p: dict) -> dict:
     # Channel titles read "Dune | Last Light on Arrakis | 1 Hour ...", and nothing of Cole's carries an em-dash.
     title = re.sub(r"\s*[—–]\s*", " | ", meta.get("title", "").strip())[:100]
     desc = re.sub(r"\s*[—–]\s*", ", ", meta.get("description", "")).rstrip() + f"\n\n{CTA}"
-    # A rated take's own title can be lore ("Sietch Cavern Ritual"), so without a world the thumbnail takes the
-    # title's scene. It renders here, after metadata; the export doesn't use it.
-    parts = title.split(" | ")
-    hook = p["world"] or (parts[1] if len(parts) > 1 else title)
+    # Cole, 2026-11-05: "basically always in Project Hail Mary font which makes no sense". One big word, the world's
+    # name, set in a face that suits it; the title beside the thumbnail carries the rest. No "Ambient Soundscape".
+    # Studio, lifetime, suggested CTR: wide two-line caps over a cluttered room 0.7%, no text on a lit vista 1.9-2.4%.
+    hook = title.split(" | ")[0]
     r = jget(requests.post(f"{BASE}/api/thumbnail/{jid}/set", json={
-        "style": "hailmary", "hook": hook, "subtitle": "Ambient Soundscape"}, timeout=60))
+        "style": "cinzel" if ANCIENT_WORLDS.search(hook) else "odyssey", "hook": hook, "subtitle": "",
+        "title_scale": 1.6}, timeout=60))
     if r.get("error"):
         raise RuntimeError(f"thumbnail failed: {r}")
     r = jget(requests.post(f"{BASE}/api/youtube/upload/{jid}", json={

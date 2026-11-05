@@ -254,6 +254,9 @@ def render_thumbnail(image_path: str, out_path: str, hook: str, subtitle: str = 
         title_size_px -= 2
         title_font = _font(sd["title"], title_size_px)
     tw = _measure(draw, hook, title_font, sd["tracking"])
+    if position == "lower":   # a scaled-up title pushed the subtitle off the frame's bottom edge
+        block = title_size_px + (22 + sub_size_px + 8 if subtitle else 0)
+        title_y = min(title_y, TH - block - 56)
     if align == "center":
         tx = (TW - tw) // 2
     else:
