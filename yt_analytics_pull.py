@@ -169,9 +169,9 @@ CORE_METRICS = (
 )
 # NOTE: impressions + impressionsClickThroughRate are NOT exposed by the public
 # YouTube Analytics API for regular channels (only Content Owner / Studio UI).
-# A query returns 400 "Unknown identifier". The only way to get CTR is the
-# manual Studio export: Studio → Analytics → Advanced mode → Export → choose the
-# Impressions / Impressions CTR columns. We attempt it anyway and degrade
+# A query returns 400 "Unknown identifier". CTR lives in Studio (Analytics → Advanced
+# mode, readable through Chrome) and in the Reporting API's channel_reach_basic_a1.
+# We attempt it anyway and degrade
 # gracefully if the channel happens to have access.
 IMPRESSION_METRICS = "impressions,impressionsClickThroughRate"
 
@@ -297,8 +297,8 @@ def main():
     impr = impressions_by_video(yta, channel_id, ts_start)
     if isinstance(impr, dict) and impr.get("_error"):
         print("  ℹ impressions/CTR not available via API (YouTube limits these "
-              "to Content Owners). Use Studio → Analytics → Advanced → Export "
-              "for CTR. Continuing without it.")
+              "to Content Owners). Read it in Studio → Analytics → Advanced or from "
+              "the Reporting API. Continuing without it.")
 
     print("Pulling per-video analytics…")
     for i, v in enumerate(videos, 1):

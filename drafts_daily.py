@@ -25,6 +25,7 @@ import glob
 import json
 import re
 import shutil
+import subprocess
 import time
 from pathlib import Path
 
@@ -38,6 +39,8 @@ LOG = HERE / "data" / "drafts.jsonl"
 VERDICTS = HERE / "data" / "draft_verdicts.jsonl"
 PLAYLIST_FILE = HERE / "data" / "drafts_playlist.json"
 PLAYLIST_TITLE = "Drafts to review"
+PREVIEWS = HERE / "output" / "_previews" / "drafts"
+APP_URL = "http://ambientizer-mac.tail07d072.ts.net:5050"
 PER_DAY = 1   # Cole, 2026-11-03: "one a day is fine"; he publishes the ones he likes himself
 ANCIENT_WORLDS = re.compile(r"dune|odyssey|lord of the rings|hobbit|greek|egypt|rome|norse|viking|arthur|narnia", re.I)
 MIN_FREE_GB = 24   # an hour at Seedance's 18 Mbps is 8 GB, and the fade step holds three copies at its peak
@@ -47,6 +50,12 @@ MAX_PERC = 0.10
 # Takes already in a release whose job record doesn't carry the YouTube id (built by the _build_*_master
 # scripts): Sirens eec20d97, Fair Wind 2bacadbf plus its two sister takes, Calypso, Dawn, the observatory.
 RELEASED = {"eec20d97", "2bacadbf", "324a1f7b", "1af58c0f", "16a924b4", "a38b5c83", "10919aaa", "94b60fc9"}
+# The film reaches digital and 4K on 2026-11-17, so Odyssey takes draft first until then. Date from Universal's site.
+ODYSSEY = re.compile(r"odyssey|odysseus|penelope|calypso|sirens?\b|ithaca", re.I)
+ODYSSEY_UNTIL = "2026-11-17"
+# First 10 s against the whole take, dB. The 2026-11-03 notebook's three takes that open near silent read -21 to -30,
+# and 9 others read -14 or above. The release builder handles heads, the drafts export doesn't.
+MIN_HEAD_DB = -18
 CTA = "If you liked this track, please consider liking and subscribing!"
 # Cole, 2026-09-26: "nobody fucking knows what a sietch is". 36 competitor Dune videos agree: places a film viewer
 # knows win, book lore loses (Irulan 0.20x, Salusa Secundus 0.44x). The metadata prompt asks; this enforces.
@@ -111,12 +120,36 @@ def take_secs(j: dict) -> float:
     return 0.0
 
 
-def beat_perc(j: dict) -> float | None:
-    from beat_check import beat_scores
+def take_audio(j: dict) -> str | None:
     for p in (((j.get("config") or {}).get("layers") or [{}])[0].get("generated_audio_path"), j.get("raw_output_path")):
         if p and Path(p).exists():
-            return beat_scores(p)["perc"]
+            return p
     return None
+
+
+def beat_perc(j: dict) -> float | None:
+    from beat_check import beat_scores
+    p = take_audio(j)
+    return beat_scores(p)["perc"] if p else None
+
+
+def head_gap(path: str) -> float:
+    """How far the first 10 s sit below the whole take, in dB. Negative is quieter."""
+    def mean_db(*trim):
+        err = subprocess.run(["ffmpeg", "-v", "info", "-nostats", *trim, "-i", path, "-af", "volumedetect", "-f", "null", "-"],
+                             capture_output=True, text=True).stderr
+        return float(re.search(r"mean_volume: (-?[\d.]+)", err).group(1))
+    return round(mean_db("-t", "10") - mean_db(), 1)
+
+
+def cut_preview(src: str, jid: str) -> str:
+    """The first 75 s at 720p, about 20 MB: enough to judge the scene, the loop and the sound without opening the hour.
+    Served by the app, so it plays on his phone over Tailscale."""
+    out = PREVIEWS / f"{jid}.mp4"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-t", "75", "-i", src, "-vf", "scale=-2:720", "-c:v", "libx264",
+                    "-preset", "veryfast", "-crf", "26", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", str(out)], check=True)
+    return f"{APP_URL}/previews/drafts/{out.name}"
 
 
 LOOP_PROMPT = """Write the motion prompt for a 12-second image-to-video shot of this still, for an ambient music
@@ -193,7 +226,8 @@ def queue() -> list[dict]:
             continue
         picks.append({"job_id": jid, "tier": tier, "key": key, "rating": rating, "title": title,
                       "world": (stock_order.get(jid, (0, {}))[1] or {}).get("world")})
-    picks.sort(key=lambda p: (p["tier"], p["key"]))
+    first = time.strftime("%Y-%m-%d") < ODYSSEY_UNTIL
+    picks.sort(key=lambda p: (not (first and ODYSSEY.search(f"{p['title']} {p['world']}")), p["tier"], p["key"]))
     return picks
 
 
@@ -296,8 +330,13 @@ def draft(p: dict) -> dict:
         time.sleep(10)
     else:
         raise RuntimeError("upload timed out")
-    vid = json.load(open(HERE / "saved_jobs" / f"{jid}.json")).get("youtube_video_id")
-    return {"title": title, "video_id": vid, "url": s.get("youtube_url")}
+    done = json.load(open(HERE / "saved_jobs" / f"{jid}.json"))
+    out = {"title": title, "video_id": done.get("youtube_video_id"), "url": s.get("youtube_url")}
+    try:
+        out["preview"] = cut_preview(str(HERE / done["visual_video_path"]), jid)
+    except Exception as e:   # the upload worked; a preview isn't worth failing the draft over
+        print(f"  preview failed: {str(e)[:200]}", flush=True)
+    return out
 
 
 def record_verdicts(yt) -> list[dict]:
@@ -369,6 +408,8 @@ def main():
             rec["status"] = "skipped: under 2 min or audio missing"
         elif perc > MAX_PERC:
             rec["status"] = f"skipped: beat (perc {perc})"
+        elif (gap := head_gap(take_audio(j))) < MIN_HEAD_DB:
+            rec["status"] = f"skipped: quiet head ({gap} dB)"
         else:
             try:
                 rec.update(draft(p), status="private")

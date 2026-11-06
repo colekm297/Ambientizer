@@ -121,6 +121,9 @@ def analyze(chan):
         fr = FRANCHISE_WORDS.search(v["title"])
         v["franchise"] = fr.group(0).lower() if fr else None
     chan["median_views_per_day"] = round(med, 1)
+    # views per subscriber per month: is the catalogue reaching past its audience? Fair across channel sizes.
+    if chan["subs"]:
+        chan["views_per_sub_month"] = round(sum(v["views_per_day"] for v in chan["videos"]) * 30 / chan["subs"], 2)
     # cadence: uploads in the last 90 days
     recent = [v for v in chan["videos"] if v["age_days"] <= 90]
     chan["uploads_per_month_recent"] = round(len(recent) / 3, 1)
@@ -188,6 +191,22 @@ def recurrence(yt, video, max_pages=10):
     lifetime_pace = video["comment_count"] / video["age_days"] * 365
     video["year_pace"] = round(year / lifetime_pace, 2)
     video["year_pace_clean"] = round((year - sum(months[k][0] for k in farm)) / lifetime_pace, 2)
+
+
+def own_suggesters(limit=15):
+    """The videos that actually send us suggested traffic, lifetime, from the Analytics API."""
+    creds = Credentials.from_authorized_user_info(json.load(open(HERE / "yt_analytics_token.json")))
+    yta = build("youtubeAnalytics", "v2", credentials=creds, cache_discovery=False)
+    rows = yta.reports().query(ids="channel==MINE", startDate="2026-01-01", endDate=dt.date.today().isoformat(),
+                               metrics="views", dimensions="insightTrafficSourceDetail", maxResults=25, sort="-views",
+                               filters="insightTrafficSourceType==RELATED_VIDEO").execute().get("rows", [])[:limit]
+    titles = {}
+    if rows:
+        for v in build("youtube", "v3", credentials=creds, cache_discovery=False).videos().list(
+                part="snippet", id=",".join(r[0] for r in rows)).execute().get("items", []):
+            titles[v["id"]] = (v["snippet"]["channelTitle"], v["snippet"]["title"])
+    return [{"video_id": r[0], "views": r[1], "channel": titles.get(r[0], ("?", "?"))[0], "title": titles.get(r[0], ("?", "?"))[1]}
+            for r in rows]
 
 
 def discover(yt, query, limit=8):
@@ -261,10 +280,17 @@ def main():
                   f"{v['outlier_score']:5.1f}x  age {v['age_days']:4.0f}d  {ch[:18]:18s}{fr}  {v['title'][:44]}{farm}")
         print()
     if own:
-        print(f"=== YOU — {own['subs']} subs, median {own['median_views_per_day']} views/day ===")
+        print(f"=== YOU — {own['subs']} subs, median {own['median_views_per_day']} views/day, "
+              f"{own.get('views_per_sub_month')} views/sub/month ===")
         for v in sorted(own["videos"], key=lambda v: -v["views_per_day"])[:6]:
             print(f"  {v['outlier_score']:5.1f}x  {v['views_per_day']:7.1f} v/d  "
                   f"age {v['age_days']:4.0f}d  {v['title'][:56]}")
+        print("\n=== WHO SUGGESTS YOU (lifetime views from each video's suggestions) ===")
+        try:
+            for r in own_suggesters():
+                print(f"  {r['views']:5d}  {r['channel'][:22]:22s}  {r['title'][:56]}")
+        except Exception as e:
+            print(f"  failed: {str(e)[:200]}")
 
 
 if __name__ == "__main__":
