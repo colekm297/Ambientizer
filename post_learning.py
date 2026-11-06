@@ -295,7 +295,7 @@ def cmd_lessons(a):
         "and publish timing, and to recommend concrete choices for the next release. Rules: numbers before claims; "
         "name the video ids behind every lesson; separate what the data shows from what you suspect; bought views "
         "(Calypso JhV1RPOGAGw, about 1,900 of its views were advertising) prove nothing; impressions and CTR are not "
-        "available, so judge thumbnails by views from browse and suggested traffic and subs gained, not by a CTR you "
+        "in this data, so judge thumbnails by views from browse and suggested traffic and subs gained, not by a CTR you "
         "cannot see; retention at 1 min is the thumbnail-and-title promise being kept or broken, retention at 30 min "
         "is the visual and the music holding. Small numbers: say when a difference is inside noise. Plain language, "
         "no hype, no em-dashes.")
