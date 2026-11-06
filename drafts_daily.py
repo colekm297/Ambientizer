@@ -279,7 +279,7 @@ def draft(p: dict) -> dict:
     hook = title.split(" | ")[0]
     r = jget(requests.post(f"{BASE}/api/thumbnail/{jid}/set", json={
         "style": "cinzel" if ANCIENT_WORLDS.search(hook) else "odyssey", "hook": hook, "subtitle": "",
-        "title_scale": 1.6}, timeout=60))
+        "title_scale": 1.6, "position": "upper"}, timeout=60))   # lower covers the subject and YouTube's timestamp
     if r.get("error"):
         raise RuntimeError(f"thumbnail failed: {r}")
     r = jget(requests.post(f"{BASE}/api/youtube/upload/{jid}", json={
