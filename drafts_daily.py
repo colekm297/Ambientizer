@@ -368,6 +368,18 @@ def record_verdicts(yt) -> list[dict]:
     return new
 
 
+def free_gb():
+    """Free space, after emptying caches that rebuild themselves if it's short (Cole, 2026-11-06). Never raises."""
+    free = shutil.disk_usage(HERE).free / 1e9
+    if free < MIN_FREE_GB:
+        try:
+            subprocess.run([str(Path.home() / "bin/free-caches")], timeout=600)
+        except Exception as e:
+            print(f"free-caches failed: {str(e)[:200]}", flush=True)
+        free = shutil.disk_usage(HERE).free / 1e9
+    return free
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--n", type=int, default=PER_DAY)
@@ -396,10 +408,7 @@ def main():
     for p in q:
         if made >= a.n:
             break
-        free = shutil.disk_usage(HERE).free / 1e9
-        if free < MIN_FREE_GB:
-            subprocess.run([str(Path.home() / "bin/free-caches")])  # try before giving up (Cole, 11-06)
-            free = shutil.disk_usage(HERE).free / 1e9
+        free = free_gb()
         if free < MIN_FREE_GB:
             print(f"STOP disk: {free:.1f} GB free", flush=True)
             break
