@@ -16,8 +16,9 @@ posts, from YouTube's own numbers, which are the only honest judge of a thumbnai
   backfill one-time: build ledger rows for the existing catalogue from brand/ref thumbnails and
            the live titles so there is evidence on day one
 
-Impressions and CTR are not in the API (Studio only). A thumbnail's outcome here is views by
-traffic source and subs gained; its CTR has to come from Studio's Test & compare by hand.
+Impressions and CTR aren't in the Analytics API. They exist in Studio (readable through Chrome, per video and per
+traffic source, see data/thumb_ctr_*.json) and in the Reporting API's channel_reach_basic_a1 (not enabled yet). Until
+that feed is wired in, a thumbnail's outcome here is views by traffic source and subs gained.
 
 Weekly: launchd com.cole.ambientizer-post-learning (Mondays 08:00) runs `pull` then `lessons`.
 """

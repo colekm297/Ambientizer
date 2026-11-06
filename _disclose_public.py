@@ -9,7 +9,8 @@ of them isn't public, and stops at the first video whose snippet, status or cont
 A rerun skips videos already logged. videos.list never returns the field, but videos.update echoes it, and the public watch page shows a
 "Made with AI" section once a label is live. The bare word howThisWasMadeSectionViewModel doesn't count: it can sit in
 a list of renderer names on any page. Log rows before 2026-11-06 08:30 hold public_label from that weaker test.
-That page also showed "Made with AI" on videos this script never wrote, so YouTube may add it by itself.
+That page also shows "Made with AI" on videos whose Studio radio is blank, so YouTube may add it by itself: only
+Studio's altered-content radio (under Show more) proves the declaration.
 
 Usage: .venv/bin/python _disclose_public.py            dry run of the 13: prints the list and the exact request bodies
        .venv/bin/python _disclose_public.py --write    only after Cole's yes

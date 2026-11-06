@@ -136,7 +136,7 @@ When you are a **Cloud Agent** (running in Cursor's cloud VM, not on Cole's Mac)
   `com.cole.ambientizer-post-learning` (Mondays 08:00) runs `pull` (per-video views, avg view %, subs, retention
   at 1/10/30/60 min, traffic sources incl. search terms and suggested-from neighbours → `data/post_outcomes.json`,
   dated snapshots in `post_outcomes_history.jsonl`) then `lessons` (Opus 5.5 rewrites `data/post_lessons.md`;
-  `docs/POST-EXPERIMENTS.md` is the report). CTR is Studio-only, so thumbnails are judged by browse/suggested views
+  `docs/POST-EXPERIMENTS.md` is the report). CTR isn't in the Analytics API (it's in Studio, readable through Chrome, and in the Reporting API once enabled), so here thumbnails are judged by browse/suggested views
   and subs; every release ships three thumbnail candidates in `output/release/<name>/` for Studio's Test & compare.
   First pull found Temples (tg1Ixcm_-6k) had 451 of 541 views from ads, so its +6 subs prove nothing.
 
