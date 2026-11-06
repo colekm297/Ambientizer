@@ -6,8 +6,10 @@ it (youtube_publisher.py); this covers what went up before that. Only that one f
 status field is sent back at its current value, read again just before each write. Acts only on the 13 IDs Cole
 was shown (videos published since, like Sietch, were labeled at upload and stay untouched). Refuses to write if any
 of them isn't public, and stops at the first video whose snippet, status or contentDetails changed beyond the label.
-A rerun skips videos already logged. videos.list never returns the field, so the proof is the public watch page: a labeled video carries
-howThisWasMadeSectionViewModel, an unlabeled one doesn't (seen 2026-11-06 on Sietch and two unlabeled videos).
+A rerun skips videos already logged. videos.list never returns the field, but videos.update echoes it, and the public watch page shows a
+"Made with AI" section once a label is live. The bare word howThisWasMadeSectionViewModel doesn't count: it can sit in
+a list of renderer names on any page. Log rows before 2026-11-06 08:30 hold public_label from that weaker test.
+That page also showed "Made with AI" on videos this script never wrote, so YouTube may add it by itself.
 
 Usage: .venv/bin/python _disclose_public.py            dry run of the 13: prints the list and the exact request bodies
        .venv/bin/python _disclose_public.py --write    only after Cole's yes
@@ -70,7 +72,8 @@ def public_label(video_id: str) -> bool:
     r = requests.get(f"https://www.youtube.com/watch?v={video_id}", timeout=30, headers={
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/140 Safari/537.36",
         "Accept-Language": "en-US"})
-    return "howThisWasMadeSectionViewModel" in r.text
+    i = r.text.find('"howThisWasMadeSectionViewModel":{')
+    return i >= 0 and "Made with AI" in r.text[i:i + 2500]
 
 
 def main():
@@ -111,7 +114,8 @@ def main():
         fresh = yt.videos().list(part=parts, id=v["id"]).execute()["items"][0]
         if fresh["status"]["privacyStatus"] != "public":
             raise SystemExit(f"{v['id']} is no longer public: stopping before writing it")
-        yt.videos().update(part="status", body=update_body(fresh)).execute()
+        label_before = public_label(v["id"])
+        echo = yt.videos().update(part="status", body=update_body(fresh)).execute()["status"].get("containsSyntheticMedia")
         full = yt.videos().list(part=parts, id=v["id"]).execute()["items"][0]
         after = full["status"]
         for _ in range(12):
@@ -123,7 +127,7 @@ def main():
                    if fresh[part].get(k) != full[part].get(k) and k != "containsSyntheticMedia"]
         with open(LOG, "a") as fh:
             fh.write(json.dumps({"video_id": v["id"], "title": v["snippet"]["title"], "privacy_after": after["privacyStatus"],
-                                 "public_label": shown, "changed": changed,
+                                 "public_label_before": label_before, "public_label": shown, "update_echo": echo, "changed": changed,
                                  "at": time.strftime("%Y-%m-%dT%H:%M:%S")}) + "\n")
         print("set", v["id"], after["privacyStatus"], "label:", shown, "changed:", changed, v["snippet"]["title"], flush=True)
         if not shown:
