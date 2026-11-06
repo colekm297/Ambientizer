@@ -121,9 +121,10 @@ def analyze(chan):
         fr = FRANCHISE_WORDS.search(v["title"])
         v["franchise"] = fr.group(0).lower() if fr else None
     chan["median_views_per_day"] = round(med, 1)
-    # views per subscriber per month: is the catalogue reaching past its audience? Fair across channel sizes.
+    # All views per subscriber per month, at each video's lifetime average: reach against audience size, comparable
+    # across channels. Not the 8-week bet's measure (views FROM subscribers), which only our own analytics can see.
     if chan["subs"]:
-        chan["views_per_sub_month"] = round(sum(v["views_per_day"] for v in chan["videos"]) * 30 / chan["subs"], 2)
+        chan["all_views_per_sub_month"] = round(sum(v["views_per_day"] for v in chan["videos"]) * 30 / chan["subs"], 2)
     # cadence: uploads in the last 90 days
     recent = [v for v in chan["videos"] if v["age_days"] <= 90]
     chan["uploads_per_month_recent"] = round(len(recent) / 3, 1)
@@ -191,6 +192,17 @@ def recurrence(yt, video, max_pages=10):
     lifetime_pace = video["comment_count"] / video["age_days"] * 365
     video["year_pace"] = round(year / lifetime_pace, 2)
     video["year_pace_clean"] = round((year - sum(months[k][0] for k in farm)) / lifetime_pace, 2)
+
+
+def own_subscriber_views(subs, days=28):
+    """Views from subscribers, per subscriber, per 30 days: the 8-week bet's measure (0.18 on 2026-11-04, goal 0.5)."""
+    creds = Credentials.from_authorized_user_info(json.load(open(HERE / "yt_analytics_token.json")))
+    yta = build("youtubeAnalytics", "v2", credentials=creds, cache_discovery=False)
+    today = dt.date.today()
+    rows = yta.reports().query(ids="channel==MINE", startDate=(today - dt.timedelta(days=days)).isoformat(),
+                               endDate=today.isoformat(), metrics="views", dimensions="subscribedStatus").execute().get("rows", [])
+    views = dict(rows)
+    return views, round(views.get("SUBSCRIBED", 0) / subs * 30 / days, 2)
 
 
 def own_suggesters(limit=15):
@@ -281,7 +293,13 @@ def main():
         print()
     if own:
         print(f"=== YOU — {own['subs']} subs, median {own['median_views_per_day']} views/day, "
-              f"{own.get('views_per_sub_month')} views/sub/month ===")
+              f"{own.get('all_views_per_sub_month')} all views/sub/month ===")
+        try:
+            views, per_sub = own_subscriber_views(own["subs"])
+            print(f"  from subscribers: {per_sub} views/sub/month (last 28 days: {views.get('SUBSCRIBED', 0)} subscribed, "
+                  f"{views.get('UNSUBSCRIBED', 0)} not)")
+        except Exception as e:
+            print(f"  subscriber views failed: {str(e)[:200]}")
         for v in sorted(own["videos"], key=lambda v: -v["views_per_day"])[:6]:
             print(f"  {v['outlier_score']:5.1f}x  {v['views_per_day']:7.1f} v/d  "
                   f"age {v['age_days']:4.0f}d  {v['title'][:56]}")
