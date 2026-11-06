@@ -398,6 +398,9 @@ def main():
             break
         free = shutil.disk_usage(HERE).free / 1e9
         if free < MIN_FREE_GB:
+            subprocess.run([str(Path.home() / "bin/free-caches")])  # try before giving up (Cole, 11-06)
+            free = shutil.disk_usage(HERE).free / 1e9
+        if free < MIN_FREE_GB:
             print(f"STOP disk: {free:.1f} GB free", flush=True)
             break
         j = json.load(open(HERE / "saved_jobs" / f"{p['job_id']}.json"))
