@@ -22,6 +22,9 @@ serve. Prefer rare, specific leads over consensus.
 - Comment farms inflate year_pace (Hollow Knight fell from 0.73 to about 0.27). Before believing any
   score above about 0.5, print its months and read the spike month. Farm signs: zero likes, generic
   praise, no mention of the subject.
+- 2026-11-06: recurrence() now also returns year_pace_clean and farm_months: months of 20+ threads, 90%+
+  with no like and no reply, are dropped. Reproduces Hollow Knight 0.27 and leaves Wet Land and Green alone.
+  It misses thin spread-out farming, so Zelda's 0.47 is still high. Keep reading text on any high score.
 - A floor score (year_pace_floor true, or my 12-page cap hit) is not comparable. Use reply-inclusive
   comments per day over the read window against lifetime per day instead.
 - Uploads under about 2 years old can't show lasting yet. Newer uploads also take demand from older

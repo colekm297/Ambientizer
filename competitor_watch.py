@@ -133,6 +133,12 @@ RETURNING = re.compile(
     r"(study|work|sleep|focus|read|cod)\w* (to|with) this|my go.?to)\b", re.I)
 
 
+# Scout, 2026-11-04: farmed comments arrive in bursts with nobody liking or answering them. Hollow Knight's 0.73 held
+# 2 such months (40 and 117 threads, 96%+ dead); the real listeners on Wet Land and Green never pass 62% and 100% only
+# at 6 threads. Tuned on 1 confirmed farm, so a flag to read, not proof.
+FARM_MIN_THREADS, FARM_DEAD_SHARE = 20, 0.9
+
+
 def recurrence(yt, video, max_pages=10):
     """HackerTube's test (Karpathy, 2026-10): what lasts beats what spiked. year_pace = comments in
     the last 365 days over the video's lifetime yearly pace; near 1 means people keep arriving as fast
@@ -142,9 +148,11 @@ def recurrence(yt, video, max_pages=10):
     model-labeled stance. Videos under 1 year old aren't scored: too young to tell.
     (v1 compared the newest 300 comments' pace to lifetime pace; the scout's first tick, 2026-11-03,
     showed it reads ~0.6 by construction when every comment fits in 300 and hides fades when 300
-    span years.)"""
+    span years.)
+    year_pace_clean drops months that look farmed (FARM_*), on the same denominator; farm_months names them."""
     now = dt.datetime.now(dt.timezone.utc)
     year, read, returning, page, capped = 0, 0, 0, None, True
+    months = {}   # "YYYY-MM": [comments incl. replies, threads, threads with no like and no reply]
     for _ in range(max_pages):
         try:
             r = yt.commentThreads().list(part="snippet", videoId=video["video_id"], maxResults=100,
@@ -159,7 +167,12 @@ def recurrence(yt, video, max_pages=10):
             read += 1
             returning += bool(RETURNING.search(c.get("textDisplay", "")))
             if (now - t).days <= 365:
-                year += 1 + it["snippet"].get("totalReplyCount", 0)
+                replies = it["snippet"].get("totalReplyCount", 0)
+                year += 1 + replies
+                m = months.setdefault(t.strftime("%Y-%m"), [0, 0, 0])
+                m[0] += 1 + replies
+                m[1] += 1
+                m[2] += not (replies or c.get("likeCount", 0))
             last = t
         page = r.get("nextPageToken")
         # stop once a page's oldest comment is past a year (a pinned old comment can head page one,
@@ -167,10 +180,14 @@ def recurrence(yt, video, max_pages=10):
         if not page or (last and (now - last).days > 365):
             capped = False
             break
-    video.update(comments_read=read, returning_comments=returning, year_pace=None, year_pace_floor=capped)
+    farm = sorted(k for k, m in months.items() if m[1] >= FARM_MIN_THREADS and m[2] / m[1] >= FARM_DEAD_SHARE)
+    video.update(comments_read=read, returning_comments=returning, year_pace=None, year_pace_clean=None,
+                 year_pace_floor=capped, farm_months=farm)
     if video["age_days"] < 365 or not video["comment_count"] or read < 10:
         return
-    video["year_pace"] = round(year / (video["comment_count"] / video["age_days"] * 365), 2)
+    lifetime_pace = video["comment_count"] / video["age_days"] * 365
+    video["year_pace"] = round(year / lifetime_pace, 2)
+    video["year_pace_clean"] = round((year - sum(months[k][0] for k in farm)) / lifetime_pace, 2)
 
 
 def discover(yt, query, limit=8):
@@ -236,11 +253,12 @@ def main():
         print()
     if a.recurrence:
         rows = [(c["title"], v) for c in channels for v in c["videos"] if v.get("year_pace") is not None]
-        print("=== LASTING (year_pace = last 365 days' comments / lifetime yearly pace; 1 = never faded, + = lower bound) ===")
-        for ch, v in sorted(rows, key=lambda r: -r[1]["year_pace"])[:20]:
+        print("=== LASTING (year_pace, farmed months removed = last 365 days' comments / lifetime yearly pace; 1 = never faded, + = lower bound) ===")
+        for ch, v in sorted(rows, key=lambda r: -r[1]["year_pace_clean"])[:20]:
             fr = f" [{v['franchise']}]" if v["franchise"] else ""
-            print(f"  {v['year_pace']:5.2f}{'+' if v['year_pace_floor'] else ' '} pace  {v['returning_comments']:3d}/{v['comments_read']:<3d} returning  "
-                  f"{v['outlier_score']:5.1f}x  age {v['age_days']:4.0f}d  {ch[:18]:18s}{fr}  {v['title'][:44]}")
+            farm = f" (raw {v['year_pace']:.2f}, farmed {','.join(v['farm_months'])})" if v["farm_months"] else ""
+            print(f"  {v['year_pace_clean']:5.2f}{'+' if v['year_pace_floor'] else ' '} pace  {v['returning_comments']:3d}/{v['comments_read']:<3d} returning  "
+                  f"{v['outlier_score']:5.1f}x  age {v['age_days']:4.0f}d  {ch[:18]:18s}{fr}  {v['title'][:44]}{farm}")
         print()
     if own:
         print(f"=== YOU — {own['subs']} subs, median {own['median_views_per_day']} views/day ===")
