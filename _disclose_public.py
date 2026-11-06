@@ -3,13 +3,15 @@
 
 YouTube Help requires it when AI "creates music that's the main focus of the video". New uploads already set
 it (youtube_publisher.py); this covers what went up before that. Only that one field changes: every other
-status field is sent back at its current value, read again just before each write. Refuses to write unless
-the list is exactly the 13 IDs Cole was shown, and stops at any video that isn't public. A rerun skips videos
-already logged. videos.list didn't return the field on the two drafts set 2026-11-04, so check in Studio
-afterward (altered content radio, under Show more).
+status field is sent back at its current value, read again just before each write. Acts only on the 13 IDs Cole
+was shown (videos published since, like Sietch, were labeled at upload and stay untouched). Refuses to write if any
+of them isn't public, and stops at the first video whose snippet, status or contentDetails changed beyond the label.
+A rerun skips videos already logged. videos.list never returns the field, so the proof is the public watch page: a labeled video carries
+howThisWasMadeSectionViewModel, an unlabeled one doesn't (seen 2026-11-06 on Sietch and two unlabeled videos).
 
 Usage: .venv/bin/python _disclose_public.py            dry run of the 13: prints the list and the exact request bodies
        .venv/bin/python _disclose_public.py --write    only after Cole's yes
+       Add --only ID to write one of them, the first-video check.
        Add --shorts to either to act on the 5 public Shorts INSTEAD of the 13, a separate yes.
 Log: data/disclose_public.jsonl (one line per write).
 """
@@ -20,6 +22,8 @@ import json
 import re
 import time
 from pathlib import Path
+
+import requests
 
 from drafts_daily import yt_client
 
@@ -62,18 +66,26 @@ def update_body(v: dict) -> dict:
     return {"id": v["id"], "status": body}
 
 
+def public_label(video_id: str) -> bool:
+    r = requests.get(f"https://www.youtube.com/watch?v={video_id}", timeout=30, headers={
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/140 Safari/537.36",
+        "Accept-Language": "en-US"})
+    return "howThisWasMadeSectionViewModel" in r.text
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--write", action="store_true")
     ap.add_argument("--shorts", action="store_true", help="the 5 public Shorts instead of the 13")
+    ap.add_argument("--only", help="write just this one video")
     a = ap.parse_args()
     yt = yt_client()
     vids = channel_videos(yt)
     public = [v for v in vids if v["status"]["privacyStatus"] == "public"]
     long_form = [v for v in public if seconds(v["contentDetails"]["duration"]) > MIN_SECS]
     shorts = [v for v in public if v not in long_form]
-    targets = sorted(shorts if a.shorts else long_form, key=lambda v: v["snippet"]["publishedAt"])
     wanted = SHORTS if a.shorts else EXPECTED
+    targets = sorted((v for v in public if v["id"] in wanted), key=lambda v: v["snippet"]["publishedAt"])
     other = [v for v in vids if v["status"]["privacyStatus"] != "public"]
     for n, v in enumerate(targets, 1):
         print(f"{n:2d}. https://youtu.be/{v['id']}  {v['contentDetails']['duration']:12s} {v['snippet']['publishedAt'][:10]}  {v['snippet']['title']}")
@@ -88,20 +100,36 @@ def main():
         print("bodies keep public status:", not bad)
         return
     if {v["id"] for v in targets} != wanted:
-        raise SystemExit(f"the public list no longer matches the {len(wanted)} Cole was shown: stopping, nothing written")
+        raise SystemExit(f"not all {len(wanted)} videos Cole was shown are public: stopping, nothing written")
+    if a.only and a.only not in wanted:
+        raise SystemExit(f"{a.only} isn't one of the {len(wanted)} Cole was shown: stopping, nothing written")
     done = {json.loads(l)["video_id"] for l in LOG.read_text().splitlines() if l.strip()} if LOG.exists() else set()
     for v in targets:
-        if v["id"] in done:
+        if v["id"] in done or (a.only and v["id"] != a.only):
             continue
-        fresh = yt.videos().list(part="status", id=v["id"]).execute()["items"][0]
+        parts = "snippet,status,contentDetails"
+        fresh = yt.videos().list(part=parts, id=v["id"]).execute()["items"][0]
         if fresh["status"]["privacyStatus"] != "public":
             raise SystemExit(f"{v['id']} is no longer public: stopping before writing it")
         yt.videos().update(part="status", body=update_body(fresh)).execute()
-        after = yt.videos().list(part="status", id=v["id"]).execute()["items"][0]["status"]
+        full = yt.videos().list(part=parts, id=v["id"]).execute()["items"][0]
+        after = full["status"]
+        for _ in range(12):
+            shown = public_label(v["id"])
+            if shown:
+                break
+            time.sleep(10)
+        changed = [f"{part}.{k}: {fresh[part].get(k)!r} -> {full[part].get(k)!r}" for part in parts.split(",") for k in set(fresh[part]) | set(full[part])
+                   if fresh[part].get(k) != full[part].get(k) and k != "containsSyntheticMedia"]
         with open(LOG, "a") as fh:
             fh.write(json.dumps({"video_id": v["id"], "title": v["snippet"]["title"], "privacy_after": after["privacyStatus"],
+                                 "public_label": shown, "changed": changed,
                                  "at": time.strftime("%Y-%m-%dT%H:%M:%S")}) + "\n")
-        print("set", v["id"], after["privacyStatus"], v["snippet"]["title"], flush=True)
+        print("set", v["id"], after["privacyStatus"], "label:", shown, "changed:", changed, v["snippet"]["title"], flush=True)
+        if not shown:
+            raise SystemExit(f"{v['id']}: no label on the public page after 2 minutes: stopping")
+        if changed:
+            raise SystemExit(f"{v['id']} changed beyond the label: {changed}: stopping")
         if after["privacyStatus"] != "public":
             raise SystemExit(f"{v['id']} is no longer public: stopping")
 
