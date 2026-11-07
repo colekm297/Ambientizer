@@ -26,3 +26,15 @@ Also tell him: the 11-03 draft "Dune | Ember-Lit Ritual in the Hidden Sietch" is
 - Titles: A Small Light and Dawn changed, public pages read back. Only title fields changed. Log: `data/title_changes.jsonl`.
 - Reporting API on for project 247866141133. One job, `channel_reach_basic_a1`, id f8986e22-8ca8-44d2-9637-0edab3a1bf96, created with `yt_analytics_token.json`. Nothing downloads its reports yet: `post_learning` has to read them next.
 - Chrome account was not switched.
+
+## 2026-11-07 06:30 PT: current state, checked against the API, launchd and Studio (answer test)
+This replaces older lines below or above it where they differ, including "other 5 wait" and "nothing downloads".
+- Public 19: 14 long-form, 5 Shorts. Newest QtzjbUNs5lI, "Dune | Ember-Lit Ritual in the Hidden Sietch | 1 Hour Desert Ambient".
+- Private 5: drafts YyaOKVjFs8s (Rain Over Arrakis), U4S-hZzRBZA (Inception, Folding City), MR8ulRDFyHE (Dusk on a Hidden Island); held 2dElNNIY91w (Hail Mary), GsNmBR0BGF0 (Frodo). The Drafts playlist also still holds public Sietch.
+- Titles changed 11-06: frJb60y4d5M "Project Hail Mary | A Small Light in the Dark | 1 Hour Space Ambient"; kg-RRBuGsuQ "Dune | Dawn Over Arrakis | 1 Hour Desert Ambient Music".
+- Label: Studio Yes on the 13 and Sietch. The 5 Shorts were not declared by us; item 9 excluded them.
+- Reach: `reach_reports.py` runs from Monday's pull; no report has arrived; first check after 2026-11-09 08:00.
+- Open inbox for this project: 36 (Odyssey playlist and Sirens retitle, Chief relays), 48 (traffic-source report job).
+- Schedulers: drafts 10:00, daily experiment 07:30 (running despite the 10-28 hold, see below), scout 08:30, post-learning Mon 08:00. Stock-burn was a one-time Nov 4 calendar job.
+- Generation hold: Cole's 10-28 "hold on more generation" has no recorded lift, but the daily job has made takes since 10-31. Raised with Chief 11-07; not changed.
+- Work lives on `living-still-harden`, which is 113 commits ahead of `main`, although CLAUDE.md and AGENTS rule 5 say main. Unreconciled; ask Chief before merging.

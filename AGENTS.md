@@ -118,7 +118,7 @@ When you are a **Cloud Agent** (running in Cursor's cloud VM, not on Cole's Mac)
   is blocked by autoplay policy and a long `await` inside `javascript_tool` can wedge the tab. Measure the
   request path with `curl -w %{time_starttransfer}` through the tailnet URL and prove playability by
   fetching the first seconds (`curl --max-time 2.5`) and decoding them with ffmpeg/ffprobe.
-- **YouTube Analytics API facts.** Impressions and CTR are not exposed (400); Studio is the only source.
+- **YouTube Analytics API facts.** Impressions and CTR are not exposed (400). They come from the Reporting API (`reach_reports.py`) and Studio.
   Data lags about two days. `subscribedStatus` works as a filter with a video filter but not as a
   dimension for `subscribersGained`. Traffic-source detail (`insightTrafficSourceDetail`) shows which
   outside videos we are suggested next to and the exact search terms.
@@ -222,4 +222,4 @@ take, heard as one loop in the app, looped to the hour. No stitching. Cole picks
 - **Recurrence:** `year_pace` = last-365-day comments / (lifetime rate x 365). A pinned old comment heads page one, so stop on the page's oldest comment. Comment reads need youtube_token.json (force-ssl scope).
 - **Retry design:** keep a paid still or loop on retry; stop after 3 failures in a row; a dead API key must never mark every take failed.
 - **Thinking runs:** report only `date`-measured minutes. The "real end" is the last `date` you actually read.
-- **YouTube:** an upload costs 1,600 quota units. AI disclosure is `status.containsSyntheticMedia` (not set yet, see the handoff). Reach per video lives in the Reporting API (`channel_reach_basic_a1`), which is disabled now.
+- **YouTube:** an upload costs 1,600 quota units. AI disclosure is `status.containsSyntheticMedia`, set at upload; Studio's altered-content radio is the only proof, since `videos.list` never returns it. Reach per video lives in the Reporting API (`channel_reach_basic_a1`, job f8986e22-8ca8-44d2-9637-0edab3a1bf96, enabled 2026-11-06), read by `reach_reports.py`.

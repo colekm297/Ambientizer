@@ -24,7 +24,7 @@ This replaces the 2026-09-13 handoff entirely. Back then the open items were a F
 ## Where things are
 
 - Live public: Fair Wind (HvumlX9trg0), Dusk (y6YS18A8hYY), plus the older catalog. Nothing new has been published since 09-11.
-- Private, held: 2dElNNIY91w (Hail Mary). Private, dead, Cole's delete call: 1Eolx51Xr60, xpuDzlkZYRA.
+- Private, held: 2dElNNIY91w (Hail Mary). (1Eolx51Xr60 and xpuDzlkZYRA no longer exist; API checked 2026-11-07.)
 - The app is at http://ambientizer-mac.tail07d072.ts.net:5050 (Mac and iPhone).
 - Dailies so far: 43199a6e "Interstellar · Daily · The Endurance Passes Saturn" (unrated), and a083d482 "Lord of the Rings · Daily · Frodo Sails West", the design-panel pick. Cole played Frodo at 06:57 on 2026-10-15; it's unrated so far.
 
