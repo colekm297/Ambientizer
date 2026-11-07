@@ -16,9 +16,11 @@ posts, from YouTube's own numbers, which are the only honest judge of a thumbnai
   backfill one-time: build ledger rows for the existing catalogue from brand/ref thumbnails and
            the live titles so there is evidence on day one
 
-Impressions and CTR aren't in the Analytics API. They exist in Studio (readable through Chrome, per video and per
-traffic source, see data/thumb_ctr_*.json) and in the Reporting API's channel_reach_basic_a1 (not enabled yet). Until
-that feed is wired in, a thumbnail's outcome here is views by traffic source and subs gained.
+Impressions and CTR aren't in the Analytics API. Per video they come from the Reporting API's channel_reach_basic_a1
+(reach_reports.py, data/reach.json, no traffic-source split). Studio's lifetime numbers by traffic source are read by
+hand through Chrome into data/thumb_ctr_*.json, and the newest of those files is used alongside.
+
+Published drafts join the ledger by themselves at each pull.
 
 Weekly: launchd com.cole.ambientizer-post-learning (Mondays 08:00) runs `pull` then `lessons`.
 """
@@ -142,6 +144,30 @@ def cmd_record(a):
     print(json.dumps(row, indent=1))
 
 
+def record_published_drafts(public_ids) -> list[str]:
+    """Cole publishes drafts himself, so nothing logs them at upload. Add any public draft the ledger doesn't have yet."""
+    path = DATA / "drafts.jsonl"
+    if not path.exists():
+        return []
+    have = {r.get("video_id") for r in ledger()}
+    added = []
+    for d in (json.loads(l) for l in path.read_text().splitlines() if l.strip()):
+        vid = d.get("video_id")
+        if vid not in public_ids or vid in have:
+            continue
+        thumb = HERE / "output" / f"{d['job_id']}_thumbnail.jpg"
+        row = {"video_id": vid, "job_id": d["job_id"], "recorded": dt.date.today().isoformat(), "title": d.get("title", ""),
+               "world": d["title"].split(" | ")[0] if d.get("title") else None, "thumb_style": "world_word_top",
+               "visual_style": "seedance_living_still", "notes": "Daily draft, published by Cole.", "source": "draft",
+               "music_stars": d.get("rating"), **title_attrs(d.get("title", ""))}
+        if thumb.exists():
+            row["thumb"] = thumb_attrs(thumb)
+        upsert(row)
+        have.add(vid)
+        added.append(vid)
+    return added
+
+
 # ───────────────────────────── pull ─────────────────────────────
 
 def clients():
@@ -217,11 +243,22 @@ def cmd_pull(a):
             rec["subs_since_last_pull"] = (rec.get("subs_gained") or 0) - (p.get("subs_gained") or 0)
         out["videos"][vid] = rec
         print(f"  {vid} {v['title'][:50]:50s} views {rec.get('views')} avg% {rec.get('avg_view_pct')} subs +{rec.get('subs_gained')}", flush=True)
+    added = record_published_drafts(set(out["videos"]))
+    if added:
+        print(f"ledger: added published drafts {added}", flush=True)
+    try:   # a broken reach feed shouldn't cost the week's other numbers
+        import reach_reports
+        reach = reach_reports.sync(y.get_credentials())
+        print(f"reach: {reach['new_reports']} new reports, {reach['first_date']} to {reach['last_date']}", flush=True)
+        for vid, rec in out["videos"].items():
+            rec["reach"] = reach["videos"].get(vid)
+    except Exception as e:
+        print(f"reach failed: {str(e)[:300]}", flush=True)
     DATA.mkdir(exist_ok=True)
     OUTCOMES.write_text(json.dumps(out, indent=1))
     with HISTORY.open("a") as fh:
         fh.write(json.dumps({"date": today, "channel": out["channel"],
-                             "videos": {k: {kk: vv for kk, vv in r.items() if kk in ("views", "avg_view_pct", "subs_gained", "minutes_watched")}
+                             "videos": {k: {kk: vv for kk, vv in r.items() if kk in ("views", "avg_view_pct", "subs_gained", "minutes_watched", "reach")}
                                         for k, r in out["videos"].items()}}) + "\n")
     print(f"pulled {len(out['videos'])} public videos -> {OUTCOMES}")
 
@@ -267,14 +304,26 @@ def cmd_backfill(a):
 
 # ───────────────────────────── lessons + report ─────────────────────────────
 
+def studio_ctr() -> dict:
+    """The newest hand-read Studio file, by video id: lifetime impressions and CTR, overall, suggested and browse."""
+    files = sorted(DATA.glob("thumb_ctr_*.json"))
+    if not files:
+        return {}
+    d = json.loads(files[-1].read_text())
+    return {v["id"]: {**{k: v.get(k) for k in ("imp", "ctr", "suggested", "browse", "thumb_text")}, "read": files[-1].stem[10:]}
+            for v in d["videos"]}
+
+
 def joined() -> list[dict]:
     outcomes = json.loads(OUTCOMES.read_text()) if OUTCOMES.exists() else {"videos": {}}
+    studio = studio_ctr()
     rows = []
     for r in ledger():
         o = outcomes["videos"].get(r["video_id"], {})
         rows.append({**r, "outcome": {k: o.get(k) for k in ("published_at", "views", "views_since_last_pull", "avg_view_pct",
                                                             "subs_gained", "subs_since_last_pull", "retention", "sources",
-                                                            "search_terms", "suggested_from", "likes", "comments")}})
+                                                            "search_terms", "suggested_from", "likes", "comments", "reach")},
+                     "studio_ctr": studio.get(r["video_id"])})
     rows.sort(key=lambda r: (r.get("outcome", {}).get("published_at") or r.get("published_at") or ""), reverse=True)
     return rows
 
@@ -294,9 +343,12 @@ def cmd_lessons(a):
         "Cole, the owner, decides; your job is to turn the numbers into lessons about titles, thumbnails, visual loops "
         "and publish timing, and to recommend concrete choices for the next release. Rules: numbers before claims; "
         "name the video ids behind every lesson; separate what the data shows from what you suspect; bought views "
-        "(Calypso JhV1RPOGAGw, about 1,900 of its views were advertising) prove nothing; impressions and CTR are not "
-        "in this data, so judge thumbnails by views from browse and suggested traffic and subs gained, not by a CTR you "
-        "cannot see; retention at 1 min is the thumbnail-and-title promise being kept or broken, retention at 30 min "
+        "(Calypso JhV1RPOGAGw, about 1,900 of its views were advertising) prove nothing; judge thumbnails by CTR with "
+        "its impressions beside it: outcome.reach is the Reporting API by video (impressions, ctr_pct, over all days held "
+        "and the last 7 and 28), studio_ctr is lifetime from Studio with [impressions, CTR] for suggested and browse. "
+        "Suggested and browse run at very different CTRs, so a change in the mix can move the total with no change in the "
+        "thumbnail, and a thumbnail changed mid-life means lifetime figures mix two thumbnails. Under about 1,000 impressions, "
+        "say it's noise; retention at 1 min is the thumbnail-and-title promise being kept or broken, retention at 30 min "
         "is the visual and the music holding. Small numbers: say when a difference is inside noise. Plain language, "
         "no hype, no em-dashes.")
     user = (
@@ -326,20 +378,22 @@ def cmd_lessons(a):
 def write_report(rows, outcomes):
     lines = ["# Post experiments: titles, thumbnails, visuals, timing", "",
              "What was chosen for each release and what YouTube did with it. Choices are logged by "
-             "`post_learning.py record` at upload; outcomes come from the Analytics API every Monday "
+             "`post_learning.py record` at upload; outcomes come from the Analytics and Reporting APIs every Monday "
              "(`post_learning.py pull`); lessons are rewritten by Claude after each pull.", "",
              f"Last pull: {outcomes.get('pulled_at', 'never')}. Channel: {json.dumps(outcomes.get('channel'))}", "",
-             "| Published | Video | Title format | Thumb style | Visual | Views | +since last | Avg % | Subs | r@1m | r@30m | Top source |",
-             "|---|---|---|---|---|---|---|---|---|---|---|---|"]
+             "| Published | Video | Title format | Thumb style | Visual | Views | +since last | Avg % | Subs | r@1m | r@30m | Top source | Impr 28d | CTR 28d | Studio CTR |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for r in rows:
         o = r.get("outcome", {}) or {}
         ret = o.get("retention") or {}
         srcs = o.get("sources") or []
         top = f"{srcs[0]['insightTrafficSourceType']} {srcs[0]['views']}" if srcs else ""
+        reach = (o.get("reach") or {}).get("last_28d") or {}
+        studio = r.get("studio_ctr") or {}
         lines.append(f"| {(o.get('published_at') or r.get('published_at') or '')[:10]} | {r['video_id']} {str(r.get('title',''))[:38]} | "
                      f"{r.get('title_format','')} | {r.get('thumb_style','')} | {r.get('visual_style','')} | {o.get('views','')} | "
                      f"{o.get('views_since_last_pull','')} | {o.get('avg_view_pct','')} | {o.get('subs_gained','')} | "
-                     f"{ret.get('r_1min','')} | {ret.get('r_30min','')} | {top} |")
+                     f"{ret.get('r_1min','')} | {ret.get('r_30min','')} | {top} | {reach.get('impressions','')} | {reach.get('ctr_pct','')} | {studio.get('ctr','')} |")
     lines += ["", "## Lessons", "", LESSONS.read_text() if LESSONS.exists() else "(none yet)"]
     REPORT.write_text("\n".join(lines) + "\n")
 
