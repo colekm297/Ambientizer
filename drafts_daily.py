@@ -43,7 +43,7 @@ PREVIEWS = HERE / "output" / "_previews" / "drafts"
 APP_URL = "http://ambientizer-mac.tail07d072.ts.net:5050"
 PER_DAY = 1   # Cole, 2026-11-03: "one a day is fine"; he publishes the ones he likes himself
 ANCIENT_WORLDS = re.compile(r"dune|odyssey|lord of the rings|hobbit|greek|egypt|rome|norse|viking|arthur|narnia", re.I)
-MIN_FREE_GB = 24   # an hour at Seedance's 18 Mbps is 8 GB, and the fade step holds three copies at its peak
+MIN_FREE_GB = 30   # an hour at Seedance's 18 Mbps is 8 GB, and the intro and fade steps hold three copies at their peak (25.9 GB on 2026-11-06)
 # beat_check.py percussive share. Rain Over Arrakis (Cole: "the beat in it is just bad") scored 0.147 and his
 # drum-y 1-stars 0.142 and 0.393; every 3-star he has is 0.085 or under. Calibrated 2026-11-03.
 MAX_PERC = 0.10
@@ -368,10 +368,10 @@ def record_verdicts(yt) -> list[dict]:
     return new
 
 
-def free_gb():
+def free_gb(floor=MIN_FREE_GB):
     """Free space, after emptying caches that rebuild themselves if it's short (Cole, 2026-11-06). Never raises."""
     free = shutil.disk_usage(HERE).free / 1e9
-    if free < MIN_FREE_GB:
+    if free < floor:
         try:
             subprocess.run([str(Path.home() / "bin/free-caches")], timeout=600)
         except Exception as e:

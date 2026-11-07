@@ -24,13 +24,14 @@ from pathlib import Path
 import anthropic
 import requests
 
-from drafts_daily import MIN_FREE_GB, free_gb
+from drafts_daily import free_gb
 
 HERE = Path(__file__).resolve().parent
 BASE = "http://127.0.0.1:5050"
 LEDGER = HERE / "data" / "daily_experiments.jsonl"
 REPORT = HERE / "docs" / "DAILY-EXPERIMENTS.md"
 MIN_CREDITS = 100_000  # leave headroom on ElevenLabs before spending ~18k on a take
+MIN_FREE_GB = 24   # a take leaves about 300 MB; the draft job needs more for its hour
 
 
 def log(msg):
@@ -196,7 +197,7 @@ def main():
     if any(r["date"] == today for r in rows) and "--force" not in sys.argv:
         log("already ran today"); write_report(rows); return
     cr = requests.get(f"{BASE}/api/credits", timeout=30).json()
-    free = free_gb()   # same floor and cache cleanup as the daily draft; a take leaves about 300 MB
+    free = free_gb(MIN_FREE_GB)   # same cache cleanup as the daily draft
     if free < MIN_FREE_GB:
         log(f"skipping: disk low ({free:.1f} GB free)"); return
     if cr.get("remaining", 0) < MIN_CREDITS:

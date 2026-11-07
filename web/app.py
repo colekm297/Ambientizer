@@ -70,6 +70,20 @@ def media_available(path) -> bool:
     return bool(path and store.enabled and store.lookup(path))
 
 
+def local_media(path):
+    """Local path for code that reads the bytes itself, where send_media's redirect can't help: pulls an
+    evicted file back from R2 first and leaves it local. None if it can't be had."""
+    if path and os.path.exists(path):
+        return path
+    store = _get_media_store()
+    try:
+        if path and store.enabled and store.lookup(path) and store.restore(path):
+            return path
+    except Exception as e:
+        print(f"  [media] restore failed for {path}: {e}")
+    return None
+
+
 def send_media(path, **kwargs):
     """send_file for possibly-offloaded media. Local disk wins; if the file was
     evicted to the cloud bucket, 302 to a short-lived signed URL instead — R2
@@ -2442,7 +2456,7 @@ def ai_feedback(job_id: str):
     if not job:
         return jsonify({"error": "Job not found"}), 404
 
-    audio_path = (
+    audio_path = local_media(
         _resolve_audio_path(job.get("audio_path"))
         or _resolve_audio_path(job.get("output_path"))
         or _resolve_audio_path(job.get("raw_output_path"))
@@ -3057,7 +3071,7 @@ def export_extended(job_id: str):
     if not job:
         return jsonify({"error": "Job not found"}), 404
 
-    audio_path = (
+    audio_path = local_media(
         _resolve_audio_path(job.get("audio_path"))
         or _resolve_audio_path(job.get("output_path"))
         or _resolve_audio_path(job.get("raw_output_path"))
@@ -4830,6 +4844,12 @@ def export_visual_video(job_id: str):
 
     data = request.get_json(force=True, silent=True) or {}
     target_minutes = float(data.get("duration_minutes", 0))
+    # The intro and fade steps each hold three copies of the video at their peak: an 8.63 GB hour needs 25.9 GB
+    # free. Assumes about 20 Mbps, and 10 minutes when no length is given.
+    need_gb = (target_minutes * 60 or 600) * 3 * 20e6 / 8 / 1e9
+    free_gb = shutil.disk_usage(PROJECT_ROOT).free / 1e9
+    if free_gb < need_gb:
+        return jsonify({"error": f"Not enough disk for this export: {free_gb:.1f} GB free, needs {need_gb:.1f} GB"}), 507
     # Optional branded channel intro (overlay style) — see intro_compositor.py.
     intro = data.get("intro") or {}
     intro_enabled = bool(intro.get("enabled")) and bool((intro.get("name") or "").strip())
@@ -4845,6 +4865,7 @@ def export_visual_video(job_id: str):
                 or _resolve_audio_path(job.get("output_path"))
                 or _resolve_audio_path(job.get("raw_output_path"))
             )
+            resolved_audio = local_media(resolved_audio)
         if not resolved_audio:
             raise RuntimeError("No audio available")
 
