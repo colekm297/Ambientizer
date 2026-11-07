@@ -37,6 +37,7 @@ BASE = "http://127.0.0.1:5050"
 LOG = HERE / "data" / "drafts.jsonl"
 VERDICTS = HERE / "data" / "draft_verdicts.jsonl"
 PLAYLIST_FILE = HERE / "data" / "drafts_playlist.json"
+CHOSEN = HERE / "data" / "chosen_versions.json"   # {original job: the version the owner picked}
 PLAYLIST_TITLE = "Drafts to review"
 PREVIEWS = HERE / "output" / "_previews" / "drafts"
 APP_URL = os.environ.get("AMBIENTIZER_APP_URL", "http://127.0.0.1:5050")
@@ -225,6 +226,7 @@ def queue() -> list[dict]:
         for l in Path(f).read_text().splitlines():
             r = json.loads(l)
             stock_order.setdefault(r["job_id"], (r.get("done_at", ""), r))
+    chosen = json.loads(CHOSEN.read_text()) if CHOSEN.exists() else {}
     picks = []
     for f in glob.glob(str(HERE / "saved_jobs" / "*.json")):
         try:
@@ -244,6 +246,7 @@ def queue() -> list[dict]:
             tier, key = 2, stock_order[jid][0]
         else:
             continue
+        jid = chosen.get(jid, jid)   # a version picked over the original stands in for it
         picks.append({"job_id": jid, "tier": tier, "key": key, "rating": rating, "title": title,
                       "world": (stock_order.get(jid, (0, {}))[1] or {}).get("world")})
     first = time.strftime("%Y-%m-%d") < ODYSSEY_UNTIL

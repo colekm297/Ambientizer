@@ -5396,6 +5396,8 @@ def _draft_rows() -> list[dict]:
             if line.strip():
                 r = json.loads(line)
                 status[r["video_id"]] = r["status"]
+    chosen_file = PROJECT_ROOT / "data" / "chosen_versions.json"
+    chosen = json.loads(chosen_file.read_text()) if chosen_file.exists() else {}
     rows = []
     for line in log.read_text().splitlines() if log.exists() else []:
         r = json.loads(line) if line.strip() else {}
@@ -5403,7 +5405,11 @@ def _draft_rows() -> list[dict]:
             continue
         with jobs_lock:
             cfg = (jobs.get(r["job_id"]) or {}).get("config")
-        rows.append({"video_id": r["video_id"], "job_id": r["job_id"], "video_title": r.get("title", ""),
+        pick = chosen.get(r["job_id"])
+        with jobs_lock:
+            pcfg = (jobs.get(pick) or {}).get("config") if pick else None
+        rows.append({"chosen_id": pick, "chosen": (getattr(pcfg, "title", "") or "").strip() if pick else "",
+                     "video_id": r["video_id"], "job_id": r["job_id"], "video_title": r.get("title", ""),
                      "song": (getattr(cfg, "title", "") or "").strip() or r.get("take_title", ""),
                      "status": status.get(r["video_id"], "private"), "at": r.get("at", "")[:10],
                      "url": r.get("url") or f"https://www.youtube.com/watch?v={r['video_id']}"})
