@@ -3702,10 +3702,6 @@
     if (jobId) viewJob(jobId);
   });
 
-  // /#job=<id> opens that song, for links from the drafts page.
-  const _linkedJob = (location.hash.match(/^#job=([\w-]+)$/) || [])[1];
-  if (_linkedJob) viewJob(_linkedJob, false);
-
   if (favStars) {
     // Hover preview, restore on leave.
     favStars.querySelectorAll(".fav-star").forEach((star) => {
@@ -6737,7 +6733,9 @@
     if (currentJobId || !historySelect) return;
     let target = "";
     try {
-      const saved = localStorage.getItem("ambientizer_last_track");
+      // /#job=<id> opens that song, for links from the drafts page; otherwise the last one played.
+      const linked = (location.hash.match(/^#job=([\w-]+)$/) || [])[1];
+      const saved = linked || localStorage.getItem("ambientizer_last_track");
       if (saved && [...historySelect.options].some(o => o.value === saved)) target = saved;
     } catch (e) {}
     if (!target) target = historySelect.value;  // most recent
