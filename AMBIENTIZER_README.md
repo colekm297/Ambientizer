@@ -19,12 +19,12 @@ User prompt → ThemeInterpreter (Claude) → SoundscapeConfig JSON
 | Component | Technology |
 |-----------|-----------|
 | Backend | Python 3.13, Flask (single `app.py` with 50+ routes) |
-| LLM (prompt → config) | Anthropic Claude (Sonnet 4) |
+| LLM (prompt → config) | Anthropic Claude (Opus 5.5) |
 | Audio generation | ElevenLabs SFX v2 + Music v1 APIs |
 | Audio processing | pydub, pedalboard, librosa, numpy, pyloudnorm |
-| Reference analysis | Google Gemini 2.5 (native YouTube URL processing) |
+| Reference analysis | Google Gemini 4 Argon (native YouTube URL processing) |
 | Client mixer | Vanilla JS + Web Audio API (`LiveMixer` class) |
-| Visuals | xAI Grok image generation, Ken Burns animation |
+| Visuals | xAI Grok and gpt-image-2 stills, Seedance loops via fal, Ken Burns animation |
 | Video processing | FFmpeg / ffprobe |
 | YouTube | Google OAuth2 + YouTube Data API v3 |
 | Styling | Custom CSS (dark theme, ~3000 lines) |
@@ -78,7 +78,7 @@ Ambientizer/
 
 ### 2. Reference Analysis (`POST /api/analyze-reference`)
 - User provides a YouTube URL
-- Gemini 2.5 processes the video natively (no download)
+- Gemini processes the video natively (no download)
 - Returns: overall feel, layer breakdown, mix qualities, recreate prompts
 - Feeds into ThemeInterpreter for grounded generation
 

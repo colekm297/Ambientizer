@@ -32,8 +32,6 @@ ENABLE_CLAUDEAI_MCP_SERVERS=false perl -e 'alarm 1800; exec @ARGV' /opt/homebrew
   "[scout-tick] Automation, not Cole. Today is $(date +%F). Follow data/scout/PROMPT.md exactly: one lead, findings, rewrite the scratchpad, write today's tick report."
 echo "$(date '+%F %T') tick end (exit $?)"
 
-git add data/scout && git commit -q -m "scout tick $(date +%F)" -- data/scout && git push -q 2>&1 | tail -1
-
 # Check right away so a stop today doesn't wait for tomorrow's run.
 [[ $(status stop) == yes ]] && retire "scratchpad says stop"
 (( $(status dry_streak) >= 3 )) && retire "3 dry ticks in a row"

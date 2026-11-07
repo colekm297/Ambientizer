@@ -11,7 +11,7 @@ See [`AMBIENTIZER_README.md`](./AMBIENTIZER_README.md) for the full architecture
 - **Prompt → multi-layer SoundscapeConfig** via Claude. Each layer gets its own Eleven Music (music_v2) prompt, fade behavior, panning, and effects chain.
 - **Browser-native live mixer.** Per-layer gain, mute, solo, FX tweaking, and a master fade preview that matches the YouTube export sample-for-sample.
 - **Loudness-normalized mastering** (ffmpeg, pyloudnorm), with track selection by ear.
-- **Visuals tab.** Generates a scene image with xAI Grok, animates it (Ken Burns / custom video), then renders an MP4 at the correct length.
+- **Visuals tab.** Generates a scene image with xAI Grok (gpt-image-2 on fal as the fallback), animates it (locked-camera Seedance loops via fal, Ken Burns, or a custom video), then renders an MP4 at the correct length.
 - **YouTube publish.** OAuth-based upload with auto-compressed thumbnails (handles the 2 MB cap transparently) and resumable retries.
 - **Distribute tab.**
   - **Shorts factory** — Gemini picks the most atmospheric segment, ffmpeg renders vertical 9:16 with blurred letterbox or Ken-Burns-on-image.
@@ -25,12 +25,13 @@ See [`AMBIENTIZER_README.md`](./AMBIENTIZER_README.md) for the full architecture
 | Layer | Tech |
 |---|---|
 | Backend | Python 3.13, Flask |
-| LLM | Anthropic Claude (Sonnet 4) |
-| Audio gen | ElevenLabs Eleven Music (music_v2) + Sound Effects v2 |
+| LLM | Anthropic Claude (Opus 5.5) |
+| Audio gen | ElevenLabs Eleven Music (music_v2, music_v2_5) + Sound Effects v3 |
 | Audio DSP | pydub, pedalboard, librosa, pyloudnorm |
-| Reference analysis | Google Gemini 2.5 |
+| Reference analysis | Google Gemini 4 Argon |
 | Client | Vanilla JS + Web Audio API |
-| Visuals | xAI Grok image generation |
+| Visuals | xAI Grok and gpt-image-2 stills, Seedance loops via fal |
+| Media storage | Cloudflare R2 (verified offload of finished media) |
 | Video / stream | ffmpeg, ffprobe |
 | YouTube | Google OAuth2 + YouTube Data API v3 |
 
@@ -43,6 +44,8 @@ See [`AMBIENTIZER_README.md`](./AMBIENTIZER_README.md) for the full architecture
   - [Google Gemini](https://aistudio.google.com/apikey) — required
   - [ElevenLabs](https://elevenlabs.io/app/settings/api-keys) — required
   - [xAI Grok](https://console.x.ai/) — optional (only needed for the Visuals tab)
+  - [fal](https://fal.ai/) — optional (Seedance loops and the image fallback)
+  - Cloudflare R2 — optional (moves finished media off the local disk)
 - A Google Cloud OAuth 2.0 client (Desktop app) with the YouTube Data API enabled, if you want the YouTube publishing / Distribute features.
 
 ## Setup
@@ -85,7 +88,7 @@ Then open <http://127.0.0.1:5050>.
 ```
 Ambientizer/
 ├── web/                    Flask app, frontend, templates
-│   ├── app.py              ~4000 lines, 70+ REST routes
+│   ├── app.py              ~6600 lines, 100+ REST routes
 │   ├── static/{app,mixer}.js, style.css
 │   └── templates/index.html
 ├── theme_interpreter.py    Claude: prompt → SoundscapeConfig
@@ -93,22 +96,32 @@ Ambientizer/
 ├── audio_engine.py         DSP: mixing, looping, effects
 ├── audio_critic.py         Gemini/Claude audio critique
 ├── mix_master.py           AI-driven mastering chain
-├── visual_generator.py     xAI Grok image gen + Ken Burns
+├── visual_generator.py     Scene stills + Ken Burns
+├── fal_loop.py             Seedance loops and seam checks
+├── llm.py                  Single entry point for Claude calls
+├── media_store.py          R2 offload, verified by ETag, plus restore
 ├── youtube_publisher.py    OAuth + resumable upload + thumbnail compressor
 ├── upload_worker.py        Detached upload subprocess
 ├── distribute_shorts.py    Shorts segment picker + vertical renderer
 ├── distribute_stream.py    24/7 RTMP live stream worker
 ├── reference_analyzer.py   Gemini reference-track ingest
 ├── orchestrator.py         CLI / batch runner
+├── drafts_daily.py         Daily job: one take becomes a private 1-hour video
+├── daily_experiment.py     Daily job: one new designed take
+├── post_learning.py        Weekly read of what published videos did
+├── reach_reports.py        YouTube Reporting API: impressions and CTR
+├── build_release.py        Builds a release master
 ├── schemas.py              Dataclasses + enums
 └── requirements.txt
 ```
+
+Files starting with an underscore are one-off scripts from specific releases and experiments, kept for reference.
 
 ## Notes
 
 - This is a personal project I built for my own channel; treat it as reference code, not a polished library. Many features assume a single user and a single local machine.
 - The Reddit / Community draft generators produce text only — actual posting through those APIs is rate-limited and TOS-sensitive, so the app deliberately stops at "click to copy". Discord posts are direct because webhooks are explicitly user-controlled.
-- Generated content (`generated_samples/`, `output/`, `saved_jobs/`, `interpreter_logs/`, `loop_demos/`) is gitignored. Your prompts and outputs never leave your machine.
+- Generated content (`generated_samples/`, `output/`, `saved_jobs/`, `data/`, `interpreter_logs/`, `loop_demos/`) is gitignored. Your prompts and outputs never leave your machine.
 
 ## License
 
