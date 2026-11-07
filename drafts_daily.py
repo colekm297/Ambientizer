@@ -249,12 +249,16 @@ def yt_client():
 
 
 def offload(jid: str) -> None:
-    """The finished mp4 (about 8 GB) is on YouTube now; move the local copy to R2 like the release media."""
+    """Move the finished mp4 (about 8 GB) to R2 like the release media, once it's on YouTube or its upload has failed."""
     from media_store import get_store
     store = get_store()
     p = json.load(open(HERE / "saved_jobs" / f"{jid}.json")).get("visual_video_path")
     if store.enabled and p and Path(p).exists():
-        ok = store.upload(p) and store.evict(p)
+        try:
+            ok = store.upload(p) and store.evict(p)
+        except Exception as e:   # the video is already up, or already failed: this must not change the draft's result
+            print(f"  offload error: {str(e)[:200]}", flush=True)
+            ok = False
         print(f"  {'offloaded' if ok else 'OFFLOAD FAILED (kept local)'} {Path(p).name}", flush=True)
     elif not store.enabled:
         print("  OFFLOAD SKIPPED: R2 keys missing", flush=True)
@@ -433,6 +437,7 @@ def main():
             except Exception as e:
                 rec["status"] = f"failed: {str(e)[:300]}"
                 streak += 1
+                offload(p["job_id"])   # a failed upload stranded the hour on 11-04 and 11-07, and the next run hit the floor
                 if "quota" in str(e).lower():
                     print("STOP: YouTube quota", flush=True)
                     with open(LOG, "a") as fh:
