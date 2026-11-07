@@ -41,7 +41,7 @@ web/static/warp_tests/
 yt_analytics_token.json
 logs/
 
-# Working notes, run data and agent instructions: local only, not published (Cole, 2026-11-07)
+# Working notes, run data, one-off scripts and agent files: local only
 data/
 docs/
 HANDOFF*.md
@@ -50,4 +50,10 @@ CLAUDE.md
 WORKS-WITH-COLE.md
 prompt_library.md
 .cursor/
-_ssd_backup.sh
+/_*
+.agents/
+skills-lock.json
+ROADMAP.md
+scout_tick.sh
+stock_burn.py
+run_panel_winner.py
