@@ -20,3 +20,9 @@ Also tell him: the 11-03 draft "Dune | Ember-Lit Ritual in the Hidden Sietch" is
 **Waiting on Cole (bring through Chief, don't do without him):** the disclosure flag, the Odyssey playlist and retitles before Nov 17, the human bed, enabling the Reporting API, the packaging rules in draft metadata.
 
 **2026-11-06 AI label backfill (Cole's tap on inbox item 9):** Studio's altered-content radio, read today, says Yes on 8 of 13: written by `_disclose_public.py` Spacecraft, Arrakis Desert Rain, Escher, Sanctuary, A Small Light, Temples; already Yes without a write, Sirens and Penelope. Blank: Two Minds, Dawn, Calypso, Going Home, Last Light. Writing Temples (tg1Ixcm_-6k) changed snippet.defaultAudioLanguage; it now reads en, the old value wasn't recorded, not restored. Run stopped there. The other 5 wait on his inbox tap; write them one at a time with `--write --only ID`, never bare `--write`, which would also hit Sirens and Penelope. The public "Made with AI" section also appears on videos Studio shows blank and on all 5 Shorts, so Studio's radio is the proof of a declaration, not the public page.
+
+## 2026-11-06 17:51 PT: inbox 41, 42, 43 done (Cole's taps, read with `ask show`)
+- AI label: Studio radio Yes on all 13 (read back on the 5 written today). Audio language changed from unset to `en` on Two Minds, Dawn, Calypso; unchanged on Going Home and Last Light (en-US). Before-state: `data/items_41_42_before.json`. Log: `data/disclose_public.jsonl`.
+- Titles: A Small Light and Dawn changed, public pages read back. Only title fields changed. Log: `data/title_changes.jsonl`.
+- Reporting API on for project 247866141133. One job, `channel_reach_basic_a1`, id f8986e22-8ca8-44d2-9637-0edab3a1bf96, created with `yt_analytics_token.json`. Nothing downloads its reports yet: `post_learning` has to read them next.
+- Chrome account was not switched.
