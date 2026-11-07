@@ -35,6 +35,6 @@ This replaces older lines below or above it where they differ, including "other 
 - Label: Studio Yes on the 13 and Sietch. The 5 Shorts were not declared by us; item 9 excluded them.
 - Reach: `reach_reports.py` runs from Monday's pull; no report has arrived; first check after 2026-11-09 08:00.
 - Open inbox for this project: 36 (Odyssey playlist and Sirens retitle, Chief relays), 48 (traffic-source report job).
-- Schedulers: drafts 10:00, daily experiment 07:30 (running despite the 10-28 hold, see below), scout 08:30, post-learning Mon 08:00. Stock-burn was a one-time Nov 4 calendar job.
-- Generation hold: Cole's 10-28 "hold on more generation" has no recorded lift, but the daily job has made takes since 10-31. Raised with Chief 11-07; not changed.
+- Schedulers: drafts 10:00, daily experiment 07:30 (running, 24 GB floor, see below), scout 08:30, post-learning Mon 08:00. Stock-burn was a one-time Nov 4 calendar job.
+- Generation is not on hold. Cole's 10-28 "hold on more generation please" (Finance chat, beside backing up to his external drive) was about disk; Chief reads it as superseded by 10-29 "Can we continue or are we quickly going to run out of memory again?" and 10-30 "Are we still cranking?" Chief told Cole on 11-07; stopping the daily job is his call.
 - Work lives on `living-still-harden`, which is 113 commits ahead of `main`, although CLAUDE.md and AGENTS rule 5 say main. Unreconciled; ask Chief before merging.

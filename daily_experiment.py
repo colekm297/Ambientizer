@@ -24,6 +24,8 @@ from pathlib import Path
 import anthropic
 import requests
 
+from drafts_daily import MIN_FREE_GB, free_gb
+
 HERE = Path(__file__).resolve().parent
 BASE = "http://127.0.0.1:5050"
 LEDGER = HERE / "data" / "daily_experiments.jsonl"
@@ -194,6 +196,9 @@ def main():
     if any(r["date"] == today for r in rows) and "--force" not in sys.argv:
         log("already ran today"); write_report(rows); return
     cr = requests.get(f"{BASE}/api/credits", timeout=30).json()
+    free = free_gb()   # same floor and cache cleanup as the daily draft; a take leaves about 300 MB
+    if free < MIN_FREE_GB:
+        log(f"skipping: disk low ({free:.1f} GB free)"); return
     if cr.get("remaining", 0) < MIN_CREDITS:
         log(f"skipping: ElevenLabs credits low ({cr.get('remaining')})"); return
     exp = design(rows)
