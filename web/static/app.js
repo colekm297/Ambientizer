@@ -3702,6 +3702,10 @@
     if (jobId) viewJob(jobId);
   });
 
+  // /#job=<id> opens that song, for links from the drafts page.
+  const _linkedJob = (location.hash.match(/^#job=([\w-]+)$/) || [])[1];
+  if (_linkedJob) viewJob(_linkedJob, false);
+
   if (favStars) {
     // Hover preview, restore on leave.
     favStars.querySelectorAll(".fav-star").forEach((star) => {

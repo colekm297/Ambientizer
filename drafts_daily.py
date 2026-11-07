@@ -142,14 +142,18 @@ def head_gap(path: str) -> float:
 
 
 def check_joins(path: str) -> None:
-    """Stop before upload if the opening's timestamps bunch up or jump: that's a bad splice, heard as a click."""
+    """Stop before upload if timestamps at the opening or end bunch up or jump: that's a bad splice, heard as a click."""
+    end = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path],
+                               capture_output=True, text=True, check=True).stdout)
     for stream in ("a:0", "v:0"):
         out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", stream, "-show_entries", "packet=pts_time",
-                              "-read_intervals", "%+40", "-of", "csv=p=0", path], capture_output=True, text=True, check=True).stdout
+                              "-read_intervals", f"%+40,{end - 40}%", "-of", "csv=p=0", path],
+                             capture_output=True, text=True, check=True).stdout
         pts = sorted(float(x.strip(",")) for x in out.split() if x.strip(",") not in ("", "N/A"))
         gaps = [b - a for a, b in zip(pts, pts[1:])]
         typical = sorted(gaps)[len(gaps) // 2]
-        bad = [round(pts[i], 3) for i, g in enumerate(gaps) if g < typical / 2 or g > typical * 2]
+        bad = [round(pts[i], 3) for i, g in enumerate(gaps)
+               if g < typical / 2 or (g > typical * 2 and g < 30)]   # 30 s or more is the skip between the two ends
         if bad:
             raise RuntimeError(f"bad join in {stream}: {len(bad)} timestamp gaps from {bad[0]} s")
 

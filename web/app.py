@@ -5386,6 +5386,36 @@ def youtube_save_metadata(job_id: str):
     return jsonify({"ok": True})
 
 
+def _draft_rows() -> list[dict]:
+    """Every private draft that reached YouTube, newest first, with the song it came from."""
+    log = PROJECT_ROOT / "data" / "drafts.jsonl"
+    verdicts = PROJECT_ROOT / "data" / "draft_verdicts.jsonl"
+    status = {}
+    if verdicts.exists():
+        for line in verdicts.read_text().splitlines():
+            if line.strip():
+                r = json.loads(line)
+                status[r["video_id"]] = r["status"]
+    rows = []
+    for line in log.read_text().splitlines() if log.exists() else []:
+        r = json.loads(line) if line.strip() else {}
+        if not r.get("video_id"):
+            continue
+        with jobs_lock:
+            cfg = (jobs.get(r["job_id"]) or {}).get("config")
+        rows.append({"video_id": r["video_id"], "job_id": r["job_id"], "video_title": r.get("title", ""),
+                     "song": (getattr(cfg, "title", "") or "").strip() or r.get("take_title", ""),
+                     "status": status.get(r["video_id"], "private"), "at": r.get("at", "")[:10],
+                     "url": r.get("url") or f"https://www.youtube.com/watch?v={r['video_id']}"})
+    return rows[::-1]
+
+
+@app.route("/drafts")
+def drafts_page():
+    """Which song is which draft."""
+    return render_template("drafts.html", rows=_draft_rows())
+
+
 @app.route("/upload")
 def upload_page():
     """Standalone upload progress window."""
