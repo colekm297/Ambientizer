@@ -40,3 +40,14 @@ web/static/warp_tests/
 .cleanup_quarantine/
 yt_analytics_token.json
 logs/
+
+# Working notes, run data and agent instructions: local only, not published (Cole, 2026-11-07)
+data/
+docs/
+HANDOFF*.md
+AGENTS.md
+CLAUDE.md
+WORKS-WITH-COLE.md
+prompt_library.md
+.cursor/
+_ssd_backup.sh

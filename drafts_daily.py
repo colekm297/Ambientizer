@@ -57,7 +57,7 @@ ODYSSEY_UNTIL = "2026-11-17"
 # and 9 others read -14 or above. The release builder handles heads, the drafts export doesn't.
 MIN_HEAD_DB = -18
 CTA = "If you liked this track, please consider liking and subscribing!"
-# Cole, 2026-09-26: "nobody fucking knows what a sietch is". 36 competitor Dune videos agree: places a film viewer
+# Cole, 2026-09-26: nobody knows what a sietch is. 36 competitor Dune videos agree: places a film viewer
 # knows win, book lore loses (Irulan 0.20x, Salusa Secundus 0.44x). The metadata prompt asks; this enforces.
 LORE = re.compile(r"\b(sietch|irulan|alia|salusa|secundus|giedi|caladan|bene gesserit|kwisatz|haderach|shai[- ]hulud"
                   r"|lisan|mahdi|muad.?dib|ornithopter|melange|crysknife)\b", re.I)
