@@ -112,7 +112,8 @@ YOUTUBE_CATEGORIES = {
 DEFAULT_CATEGORY = "10"
 
 # YouTube limits total tag length to 500 characters; tags containing spaces are
-# internally quoted, so each space-bearing tag costs +2 toward that budget, and
+# internally quoted, so each space-bearing tag costs +2 toward that budget, each
+# comma between tags counts too (503 with commas was refused on 2026-11-07), and
 # '<'/'>' are rejected outright. Auto-generated long-tail tag sets routinely blow
 # past 500 chars → "invalidTags". Sanitize: strip bad chars, drop empties/overlong,
 # then greedily keep tags until the character budget is hit.
@@ -128,7 +129,7 @@ def _sanitize_tags(tags) -> list[str]:
         t = str(raw).replace("<", "").replace(">", "").replace('"', "").strip()
         if not t or len(t) > TAGS_MAX_PER_TAG:
             continue
-        cost = len(t) + (2 if " " in t else 0)
+        cost = len(t) + (2 if " " in t else 0) + 1
         if used + cost > TAGS_CHAR_BUDGET:
             break
         out.append(t)
