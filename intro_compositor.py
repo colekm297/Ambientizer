@@ -351,7 +351,8 @@ def add_video_fades(video: str, out: str, fade_in: float = 10.0, fade_out: float
                 head = str(tmp / "head.mp4")
                 _run([FFMPEG, "-y", "-t", f"{start}", "-i", video, "-vf", f"fade=t=in:st=0:d={fi}", *venc, head])
                 parts.append(f"file '{head}'")
-            parts.append(f"file '{_quote(video)}'\ninpoint {start}\noutpoint {end}")
+            # Half a frame early, or the concat keeps the keyframe at `end` as well as the tail's first frame.
+            parts.append(f"file '{_quote(video)}'\ninpoint {start}\noutpoint {end - 0.5 / fps}")
             if end < total:
                 tail = str(tmp / "tail.mp4")
                 _run([FFMPEG, "-y", "-ss", f"{end}", "-i", video,
