@@ -233,7 +233,8 @@ def render_title_png(out_png: str, width: int, height: int, name: str,
 
 
 def _quote(path: str) -> str:
-    return path.replace("'", "'\\''")
+    """For a concat list, which reads relative paths from its own folder and quietly drops what it can't find."""
+    return os.path.abspath(path).replace("'", "'\\''")
 
 
 def _keyframes(video: str, around: float, total: float, span: float = 60.0) -> list[float]:

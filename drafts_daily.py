@@ -145,6 +145,10 @@ def check_joins(path: str) -> None:
     """Stop before upload if timestamps at the opening or end bunch up or jump: that's a bad splice, heard as a click."""
     end = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path],
                                capture_output=True, text=True, check=True).stdout)
+    lengths = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=duration", "-of", "csv=p=0", path],
+                             capture_output=True, text=True, check=True).stdout.split()
+    if max(map(float, lengths)) - min(map(float, lengths)) > 1:
+        raise RuntimeError(f"audio and video lengths differ: {lengths}")
     for stream in ("a:0", "v:0"):
         out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", stream, "-show_entries", "packet=pts_time",
                               "-read_intervals", f"%+40,{end - 40}%", "-of", "csv=p=0", path],
