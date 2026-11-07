@@ -158,7 +158,8 @@ def check_joins(path: str) -> None:
         gaps = [b - a for a, b in zip(pts, pts[1:])]
         typical = sorted(gaps)[len(gaps) // 2]
         bad = [round(pts[i], 3) for i, g in enumerate(gaps)
-               if g < typical / 2 or (g > typical * 2 and g < 30)]   # 30 s or more is the skip between the two ends
+               # A half-frame step is the splice's half-frame-early outpoint by design; piled packets sit near 0.
+               if g < typical * 0.4 or (g > typical * 2 and g < 30)]   # 30 s or more is the skip between the two ends
         if bad:
             raise RuntimeError(f"bad join in {stream}: {len(bad)} timestamp gaps from {bad[0]} s")
 
