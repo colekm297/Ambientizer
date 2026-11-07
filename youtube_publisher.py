@@ -354,6 +354,16 @@ class YouTubePublisher:
                     time.sleep(wait)
                 else:
                     raise
+            except (OSError, httplib2.HttpLib2Error) as e:
+                # A dropped connection (broken pipe, reset, timeout) loses only the chunk in flight: the resumable
+                # session lives on, and next_chunk asks the server where to pick up. Without this a 9 GB upload
+                # died at 50% on 2026-11-07 and left a half-made video behind.
+                retry += 1
+                if retry > MAX_RETRIES * 2:
+                    raise
+                wait = min(2 ** retry, 120)
+                status(0, f"Connection dropped ({type(e).__name__}); resuming in {wait}s ({retry}/{MAX_RETRIES * 2})...")
+                time.sleep(wait)
 
         video_id = response["id"]
         status(95, "Upload complete. Setting thumbnail...")
