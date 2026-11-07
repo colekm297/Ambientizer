@@ -141,6 +141,19 @@ def head_gap(path: str) -> float:
     return round(mean_db("-t", "10") - mean_db(), 1)
 
 
+def check_joins(path: str) -> None:
+    """Stop before upload if the opening's timestamps bunch up or jump: that's a bad splice, heard as a click."""
+    for stream in ("a:0", "v:0"):
+        out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", stream, "-show_entries", "packet=pts_time",
+                              "-read_intervals", "%+40", "-of", "csv=p=0", path], capture_output=True, text=True, check=True).stdout
+        pts = sorted(float(x.strip(",")) for x in out.split() if x.strip(",") not in ("", "N/A"))
+        gaps = [b - a for a, b in zip(pts, pts[1:])]
+        typical = sorted(gaps)[len(gaps) // 2]
+        bad = [round(pts[i], 3) for i, g in enumerate(gaps) if g < typical / 2 or g > typical * 2]
+        if bad:
+            raise RuntimeError(f"bad join in {stream}: {len(bad)} timestamp gaps from {bad[0]} s")
+
+
 def cut_preview(src: str, jid: str) -> str:
     """The first 75 s at 720p, about 20 MB: enough to judge the scene, the loop and the sound without opening the hour.
     Served by the app, so it plays on a phone over the private network."""
@@ -297,6 +310,7 @@ def draft(p: dict) -> dict:
         "intro": {"enabled": True, "name": "The Space of Sound", "style": "overlay", "duration": 10, "size_scale": 0.75}}, timeout=60))
     if r.get("error") or wait_task(jid, 60 * 60).get("status") != "done":
         raise RuntimeError(f"export failed: {r}")
+    check_joins(json.load(open(HERE / "saved_jobs" / f"{jid}.json"))["visual_video_path"])
     for attempt in range(3):
         meta = jget(requests.post(f"{BASE}/api/youtube/auto-metadata/{jid}", timeout=180))
         if meta.get("error"):

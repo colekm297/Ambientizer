@@ -232,6 +232,46 @@ def render_title_png(out_png: str, width: int, height: int, name: str,
     return out_png
 
 
+def _quote(path: str) -> str:
+    return path.replace("'", "'\\''")
+
+
+def _keyframes(video: str, around: float, total: float, span: float = 60.0) -> list[float]:
+    """Video keyframe times near `around`. Reads packet flags only, so an hour costs nothing."""
+    r = subprocess.run([FFPROBE, "-v", "error", "-select_streams", "v:0", "-show_entries", "packet=pts_time,flags",
+                        "-read_intervals", f"{max(0.0, around - span)}%{min(total, around + span)}",
+                        "-of", "csv=p=0", video], capture_output=True, text=True, check=True).stdout
+    times = []
+    for line in r.splitlines():
+        f = line.split(",")
+        if len(f) >= 2 and f[0] not in ("", "N/A") and f[1].startswith("K"):
+            times.append(float(f[0]))
+    return sorted(times)
+
+
+def _keyframe_after(video: str, t: float, total: float) -> float:
+    """First keyframe at or after t, or the end of the video."""
+    return next((k for k in _keyframes(video, t, total) if k >= t), total)
+
+
+def _keyframe_before(video: str, t: float, total: float) -> float:
+    """Last keyframe at or before t, or the end of the video if there's none nearby."""
+    return next((k for k in reversed(_keyframes(video, t, total)) if k <= t), total)
+
+
+def _splice(parts: list[str], audio_from: str, out: str, tmp: Path, has_audio: bool) -> None:
+    """Join video segments and carry the audio over whole from the original. Cutting and rejoining AAC at a
+    seek point repeats about a second of audio, heard as a click at the join."""
+    listf = tmp / "concat.txt"
+    listf.write_text("\n".join(parts) + "\n")
+    cmd = [FFMPEG, "-y", "-f", "concat", "-safe", "0", "-i", str(listf)]
+    if has_audio:
+        cmd += ["-i", audio_from, "-map", "0:v:0", "-map", "1:a:0"]
+    else:
+        cmd += ["-map", "0:v:0"]
+    _run(cmd + ["-c", "copy", out])
+
+
 def add_intro_overlay(video: str, out: str, name: str, subtitle: str = "",
                       duration: float = 10.0, fade: float = 1.5,
                       font_key: str = DEFAULT_FONT, color=None,
@@ -252,6 +292,9 @@ def add_intro_overlay(video: str, out: str, name: str, subtitle: str = "",
                                      font_key, accent=accent, size_scale=size_scale)
 
         head_mp4 = str(tmp / "head.mp4")
+        can_copy = info["vcodec"] == "h264" and info["pix_fmt"] in ("yuv420p", "yuvj420p")
+        # Re-encode up to a keyframe so the copied tail starts exactly where the head ends.
+        cut = _keyframe_after(video, head, total) if can_copy else total
         # Overlay the title with alpha fade in/out only on the head segment.
         filt = (
             f"[1:v]format=rgba,"
@@ -259,38 +302,15 @@ def add_intro_overlay(video: str, out: str, name: str, subtitle: str = "",
             f"fade=t=out:st={head - fade}:d={fade}:alpha=1[ttl];"
             f"[0:v][ttl]overlay=0:0:format=auto[v]"
         )
-        head_cmd = [
-            FFMPEG, "-y",
-            "-t", f"{head}", "-i", video,
-            "-loop", "1", "-t", f"{head}", "-i", title_png,
-            "-filter_complex", filt,
-            "-map", "[v]",
-        ]
-        if info["has_audio"]:
-            head_cmd += ["-map", "0:a:0", "-c:a", "aac", "-b:a", "320k"]
-        head_cmd += ["-c:v", "libx264", "-preset", "medium", "-crf", "18",
-                     "-pix_fmt", "yuv420p", "-r", f"{fps}", head_mp4]
-        _run(head_cmd)
-
-        # Tail: everything after `head`. Stream-copy if codec is concat-compatible.
-        tail_mp4 = str(tmp / "tail.mp4")
-        can_copy = info["vcodec"] == "h264" and info["pix_fmt"] in ("yuv420p", "yuvj420p")
-        tail_cmd = [FFMPEG, "-y", "-ss", f"{head}", "-i", video]
-        if can_copy:
-            tail_cmd += ["-c", "copy"]
-        else:
-            tail_cmd += ["-c:v", "libx264", "-preset", "fast", "-crf", "18",
-                         "-pix_fmt", "yuv420p"]
-            if info["has_audio"]:
-                tail_cmd += ["-c:a", "aac", "-b:a", "320k"]
-        tail_cmd += [tail_mp4]
-        _run(tail_cmd)
-
-        # Concat (demuxer, stream-copy — both segments are H.264 yuv420p now).
-        listf = tmp / "concat.txt"
-        listf.write_text(f"file '{head_mp4}'\nfile '{tail_mp4}'\n")
-        _run([FFMPEG, "-y", "-f", "concat", "-safe", "0", "-i", str(listf),
-              "-c", "copy", out])
+        _run([FFMPEG, "-y", "-t", f"{cut}", "-i", video,
+              "-loop", "1", "-t", f"{cut}", "-i", title_png,
+              "-filter_complex", filt, "-map", "[v]", "-an",
+              "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-bf", "0",
+              "-pix_fmt", "yuv420p", "-r", f"{fps}", head_mp4])
+        parts = [f"file '{head_mp4}'"]
+        if cut < total:
+            parts.append(f"file '{_quote(video)}'\ninpoint {cut}")
+        _splice(parts, video, out, tmp, info["has_audio"])
         return out
     finally:
         for p in tmp.glob("*"):
@@ -312,33 +332,32 @@ def add_video_fades(video: str, out: str, fade_in: float = 10.0, fade_out: float
     if fi <= 0 and fo <= 0:
         return video
     can_copy = info["vcodec"] == "h264" and info["pix_fmt"] in ("yuv420p", "yuvj420p")
-    acopy = ["-c:a", "copy"] if info["has_audio"] else []
-    venc = ["-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p", "-r", f"{fps}"]
+    # No B-frames: their negative start offset collides with the copied middle's timestamps at the join.
+    venc = ["-c:v", "libx264", "-preset", "medium", "-crf", "18", "-bf", "0", "-pix_fmt", "yuv420p", "-r", f"{fps}", "-an"]
     tmp = Path(tempfile.mkdtemp(prefix="vfade_"))
     try:
-        segs = []
-        if fi > 0:
-            head = str(tmp / "head.mp4")
-            _run([FFMPEG, "-y", "-t", f"{fi}", "-i", video,
-                  "-vf", f"fade=t=in:st=0:d={fi}", *venc, *acopy, head])
-            segs.append(head)
-        mid = str(tmp / "mid.mp4")
-        midcmd = [FFMPEG, "-y", "-ss", f"{fi}"]
-        if fo > 0:
-            midcmd += ["-to", f"{total - fo}"]
-        midcmd += ["-i", video]
-        midcmd += (["-c", "copy"] if can_copy else [*venc, *acopy])
-        midcmd += [mid]
-        _run(midcmd)
-        segs.append(mid)
-        if fo > 0:
-            tail = str(tmp / "tail.mp4")
-            _run([FFMPEG, "-y", "-ss", f"{total - fo}", "-i", video,
-                  "-vf", f"fade=t=out:st=0:d={fo}", *venc, *acopy, tail])
-            segs.append(tail)
-        listf = tmp / "c.txt"
-        listf.write_text("".join(f"file '{s}'\n" for s in segs))
-        _run([FFMPEG, "-y", "-f", "concat", "-safe", "0", "-i", str(listf), "-c", "copy", out])
+        # The head and tail end on keyframes so the copied middle lines up with them exactly.
+        start = _keyframe_after(video, fi, total) if can_copy and fi > 0 else 0.0
+        end = _keyframe_before(video, total - fo, total) if can_copy and fo > 0 else total
+        if not can_copy or start >= end:
+            whole = str(tmp / "whole.mp4")
+            vf = [f"fade=t=in:st=0:d={fi}"] if fi > 0 else []
+            vf += [f"fade=t=out:st={total - fo}:d={fo}"] if fo > 0 else []
+            _run([FFMPEG, "-y", "-i", video, "-vf", ",".join(vf), *venc, whole])
+            parts = [f"file '{whole}'"]
+        else:
+            parts = []
+            if start > 0:
+                head = str(tmp / "head.mp4")
+                _run([FFMPEG, "-y", "-t", f"{start}", "-i", video, "-vf", f"fade=t=in:st=0:d={fi}", *venc, head])
+                parts.append(f"file '{head}'")
+            parts.append(f"file '{_quote(video)}'\ninpoint {start}\noutpoint {end}")
+            if end < total:
+                tail = str(tmp / "tail.mp4")
+                _run([FFMPEG, "-y", "-ss", f"{end}", "-i", video,
+                      "-vf", f"fade=t=out:st={total - fo - end}:d={fo}", *venc, tail])
+                parts.append(f"file '{tail}'")
+        _splice(parts, video, out, tmp, info["has_audio"])
         return out
     finally:
         for p in tmp.glob("*"):
