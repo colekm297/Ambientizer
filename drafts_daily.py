@@ -37,7 +37,7 @@ BASE = "http://127.0.0.1:5050"
 LOG = HERE / "data" / "drafts.jsonl"
 VERDICTS = HERE / "data" / "draft_verdicts.jsonl"
 PLAYLIST_FILE = HERE / "data" / "drafts_playlist.json"
-CHOSEN = HERE / "data" / "chosen_versions.json"   # {original job: the version the owner picked}
+CHOSEN = HERE / "data" / "chosen_versions.json"   # {original job: {"chosen": version picked, "others": versions not}}
 PLAYLIST_TITLE = "Drafts to review"
 PREVIEWS = HERE / "output" / "_previews" / "drafts"
 APP_URL = os.environ.get("AMBIENTIZER_APP_URL", "http://127.0.0.1:5050")
@@ -226,7 +226,9 @@ def queue() -> list[dict]:
         for l in Path(f).read_text().splitlines():
             r = json.loads(l)
             stock_order.setdefault(r["job_id"], (r.get("done_at", ""), r))
-    chosen = json.loads(CHOSEN.read_text()) if CHOSEN.exists() else {}
+    families = json.loads(CHOSEN.read_text()) if CHOSEN.exists() else {}
+    chosen = {orig: f["chosen"] for orig, f in families.items()}
+    passed_over = {v for f in families.values() for v in f.get("others", []) + [f["chosen"]]}
     picks = []
     for f in glob.glob(str(HERE / "saved_jobs" / "*.json")):
         try:
@@ -234,6 +236,8 @@ def queue() -> list[dict]:
         except Exception:
             continue
         jid = Path(f).stem
+        if jid in passed_over:   # versions only enter through their original
+            continue
         if j.get("status") != "complete" or jid in done or jid in RELEASED or j.get("youtube_video_id") or j.get("youtube_url"):
             continue
         rating = j.get("rating") or 0
@@ -246,7 +250,9 @@ def queue() -> list[dict]:
             tier, key = 2, stock_order[jid][0]
         else:
             continue
-        jid = chosen.get(jid, jid)   # a version picked over the original stands in for it
+        if jid in chosen:   # the version picked over the original stands in for it
+            jid = chosen[jid]
+            title = (json.load(open(HERE / "saved_jobs" / f"{jid}.json")).get("config") or {}).get("title") or title
         picks.append({"job_id": jid, "tier": tier, "key": key, "rating": rating, "title": title,
                       "world": (stock_order.get(jid, (0, {}))[1] or {}).get("world")})
     first = time.strftime("%Y-%m-%d") < ODYSSEY_UNTIL

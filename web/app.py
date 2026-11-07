@@ -5397,7 +5397,7 @@ def _draft_rows() -> list[dict]:
                 r = json.loads(line)
                 status[r["video_id"]] = r["status"]
     chosen_file = PROJECT_ROOT / "data" / "chosen_versions.json"
-    chosen = json.loads(chosen_file.read_text()) if chosen_file.exists() else {}
+    chosen = {k: v["chosen"] for k, v in json.loads(chosen_file.read_text()).items()} if chosen_file.exists() else {}
     rows = []
     for line in log.read_text().splitlines() if log.exists() else []:
         r = json.loads(line) if line.strip() else {}
