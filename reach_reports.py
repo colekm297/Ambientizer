@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """reach_reports.py: per-video thumbnail impressions and CTR from YouTube's Reporting API, so nobody has to read Studio.
 
-Cole's yes, inbox 43, 2026-11-06: one read-only daily job, channel_reach_basic_a1. Reports land about 48 hours after
+One read-only daily job, channel_reach_basic_a1. Reports land about 48 hours after
 the job was created, with 30 days of history a couple of days later. YouTube keeps history reports for 30 days and
 daily ones for 60, so the raw CSVs stay in data/reach/raw. A report restated for the same period arrives under a new
 id: the newest createTime wins. CSV columns are read from the header, as YouTube asks.

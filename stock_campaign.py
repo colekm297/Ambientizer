@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
 """stock_campaign.py: spend ElevenLabs credits on a library of takes before the plan drops.
 
-Cole, 2026-10-28: Pro downgrades to Creator on Nov 5 (19:53 PT) and the ~1.3M rolled-over credits
-expire then. "Start the process to using all of or as much of the credits as we can before we lose them."
-
 Each item in a wave file ({world, name, prompt, kind}) becomes one 10-min music_v2_5 take in the app,
 titled "Stock · <world> · <name>". Two run at once (music concurrency on this account is 2, whatever the plan page says; retries cover
 for the daily take and the learning lessons' TTS). Before each submit the remaining credits must stay
-above RESERVE. After a take lands, Gemini screens it for defects Cole hates (drums, arpeggios, busy
-lead, dead air) and the flag goes in the title, so he can skip duds.
+above RESERVE. After a take lands, Gemini screens it for defects (drums, arpeggios, busy
+lead, dead air) and the flag goes in the title, so duds can be skipped.
 
 Usage:
   .venv/bin/python stock_campaign.py data/stock/wave1.json [--parallel 4] [--reserve 120000]
@@ -220,7 +217,7 @@ def main() -> None:
     if log.exists():
         done = {(r["name"], r["prompt"]) for r in map(json.loads, log.read_text().splitlines())}
     todo = [i for i in items if (i["name"], i["prompt"]) not in done]
-    # Cole, 2026-10-30: his best-rated takes came from v2, so mix models instead of all-v2.5, weighted to v2.
+    # The best-rated takes came from v2, so mix models instead of all-v2.5, weighted to v2.
     # An item can pin its own "model"; the rest rotate v2, v1, v2, v2.5.
     for n, it in enumerate(todo):
         it.setdefault("model", MODEL_ROTATION[n % len(MODEL_ROTATION)])

@@ -276,8 +276,8 @@ class SoundscapeOrchestrator:
                 layer_plan=layer_plan,
                 approach=approach,
             )
-        # Cole 2026-10-24: the world in his prompt is "the NUMBER one thing". Planners (and reference
-        # analyses above all) rewrite it away, so every musical layer leads with what he typed.
+        # The world named in the prompt matters most. Planners (and reference
+        # analyses above all) rewrite it away, so every musical layer leads with what was typed.
         typed = (prompt or "").strip().rstrip(".")
         if planner_mode != "raw" and typed and len(typed) <= 200:
             for layer in config.layers:

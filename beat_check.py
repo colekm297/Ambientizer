@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """beat_check.py: does a take have a beat? Free, local, no Gemini.
 
-Cole, 2026-11-03, on the first private draft (Rain Over Arrakis): "the beat in it is just bad." His keepers
+Drafts should have no beat under them: the keepers
 are beatless (see the screen list in stock_campaign.SCREEN). Two numbers from librosa over the first 4
 minutes: perc = share of energy in the percussive half of a harmonic/percussive split, and pulse = how
 strongly the onset curve repeats at one tempo (peak of the normalized onset autocorrelation between

@@ -40,9 +40,8 @@ from PIL import Image, ImageFilter
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 # Lite is the budget tier and it shows: its two endpoints render texture 48-57%
-# apart at 1080p, which costs a rework every time. Cole's call on 2026-08-10,
-# and the arithmetic is his: "a dollar per but it works every time is much
-# better ROI than fifty cents and six reworks."
+# apart at 1080p, which costs a rework every time. A dollar that works every time beats
+# fifty cents and six reworks.
 MODELS = {
     "lite": {
         "leg_a": "fal-ai/veo3.1/lite/image-to-video",
@@ -269,7 +268,7 @@ def _detail(arr: np.ndarray) -> float:
     """Mean gradient magnitude — how much fine texture a frame carries.
 
     This is the number that separated every good Sirens build from every bad one
-    and was not measured until Cole found the failure on a TV. Brightness metrics
+    and was not measured until the failure showed up on a TV. Brightness metrics
     cannot see it: the shipped 1080p cell swung 84% in detail while its mean luma
     moved 3.7%, and a sharpness jump on rock and water reads to the eye as the
     lights coming up.
@@ -469,8 +468,7 @@ def seam_report(video: str, source_frame: Optional[str] = None) -> dict:
         # coasts from full speed down to a near stall scores healthy on both.
         # The shipped Sirens cell swung 2.7x here: the swell decelerated over
         # eight seconds, nearly stopped at the wrap, then snapped back to speed,
-        # once every twelve seconds. Cole: "the ocean looks really good but like
-        # not smooth motion at all."
+        # once every twelve seconds, which reads as unsmooth motion.
         #
         # Two causes, both ours. Leg A opens on a still, so it starts frozen and
         # has to accelerate. Leg B was TOLD to calm down — "the swell relaxes

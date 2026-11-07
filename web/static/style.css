@@ -4456,7 +4456,7 @@ body { padding-bottom: 120px; }   /* clear the fixed bar */
     .gp-transport { gap: 12px; }
     .gp-transport .transport-btn { width: 52px; height: 52px; }
 
-    /* Phones (Cole, 2026-10-30): the one-row transport was ~600px wide, which made the fixed bar wider
+    /* Phones: the one-row transport was ~600px wide, which made the fixed bar wider
        than the screen, so the whole page slid sideways and iOS zoomed out. Two rows instead: buttons and
        loop on top, then a full-width seek bar with the times either side. Volume is the phone's own
        buttons (iOS ignores page volume on audio elements anyway). */

@@ -1,19 +1,17 @@
 #!/usr/bin/env python3
-"""drafts_daily.py: turn takes into finished 1-hour videos, uploaded PRIVATE, for Cole to review on YouTube.
+"""drafts_daily.py: turn takes into finished 1-hour videos, uploaded PRIVATE, for review on YouTube.
 
-Cole, 2026-11-03: "can we just start posting stuff... start private but i get to see the whole thing easily
-and just ok what i like delete what i don't." So the music pick moves to the end: every day a few takes
-become full videos (scene image, living still, thumbnail, metadata) and land private in a playlist
-called "Drafts to review" on his channel. He watches there, makes the keepers public and deletes the
-rest in YouTube Studio. Nothing here ever makes a video public or deletes one.
+The music pick comes last: every day a take becomes a full video (scene image, living still, thumbnail,
+metadata) and lands private in a playlist called "Drafts to review". The channel owner watches there,
+makes the keepers public and deletes the rest in YouTube Studio. Nothing here ever makes a video public or deletes one.
 
-Order: his 3-star takes, then 2-star, then the stock-campaign takes (oldest first). Never 1-star, never
-a take already on YouTube, never one under 2 minutes. Same app flow as _publish_3star.py.
+Order: 3-star takes, then 2-star, then the stock-campaign takes (oldest first). Never 1-star, never
+a take already on YouTube, never one under 2 minutes.
 Cost per video: gpt-image-2 still ($0.16), one Seedance 1.5 Pro loop, three Claude calls; the export is local.
 Takes with a beat (beat_check.py) are skipped.
 YouTube quota: an upload is 1,600 units of the 10,000/day, so PER_DAY stays at 5.
 
-Cole's publish or delete is his verdict on a draft, and each run records it (read only, never acts on it).
+The owner's publish or delete is the verdict on a draft, and each run records it (read only, never acts on it).
 
 Usage: .venv/bin/python drafts_daily.py [--n 5] [--dry-run] [--verdicts]
 Log: data/drafts.jsonl (one line per attempt), data/draft_verdicts.jsonl (one line per status change).
@@ -23,6 +21,7 @@ from __future__ import annotations
 import argparse
 import glob
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -40,12 +39,12 @@ VERDICTS = HERE / "data" / "draft_verdicts.jsonl"
 PLAYLIST_FILE = HERE / "data" / "drafts_playlist.json"
 PLAYLIST_TITLE = "Drafts to review"
 PREVIEWS = HERE / "output" / "_previews" / "drafts"
-APP_URL = "http://ambientizer-mac.tail07d072.ts.net:5050"
-PER_DAY = 1   # Cole, 2026-11-03: "one a day is fine"; he publishes the ones he likes himself
+APP_URL = os.environ.get("AMBIENTIZER_APP_URL", "http://127.0.0.1:5050")
+PER_DAY = 1
 ANCIENT_WORLDS = re.compile(r"dune|odyssey|lord of the rings|hobbit|greek|egypt|rome|norse|viking|arthur|narnia", re.I)
 MIN_FREE_GB = 30   # an hour at Seedance's 18 Mbps is 8 GB, and the intro and fade steps hold three copies at their peak (25.9 GB on 2026-11-06)
-# beat_check.py percussive share. Rain Over Arrakis (Cole: "the beat in it is just bad") scored 0.147 and his
-# drum-y 1-stars 0.142 and 0.393; every 3-star he has is 0.085 or under. Calibrated 2026-11-03.
+# beat_check.py percussive share. Rain Over Arrakis, which had an audible beat, scored 0.147 and the
+# drum-y 1-stars 0.142 and 0.393; every 3-star is 0.085 or under. Calibrated 2026-11-03.
 MAX_PERC = 0.10
 # Takes already in a release whose job record doesn't carry the YouTube id (built by the _build_*_master
 # scripts): Sirens eec20d97, Fair Wind 2bacadbf plus its two sister takes, Calypso, Dawn, the observatory.
@@ -57,7 +56,7 @@ ODYSSEY_UNTIL = "2026-11-17"
 # and 9 others read -14 or above. The release builder handles heads, the drafts export doesn't.
 MIN_HEAD_DB = -18
 CTA = "If you liked this track, please consider liking and subscribing!"
-# Cole, 2026-09-26: nobody knows what a sietch is. 36 competitor Dune videos agree: places a film viewer
+# General viewers don't know lore terms. 36 competitor Dune videos agree: places a film viewer
 # knows win, book lore loses (Irulan 0.20x, Salusa Secundus 0.44x). The metadata prompt asks; this enforces.
 LORE = re.compile(r"\b(sietch|irulan|alia|salusa|secundus|giedi|caladan|bene gesserit|kwisatz|haderach|shai[- ]hulud"
                   r"|lisan|mahdi|muad.?dib|ornithopter|melange|crysknife)\b", re.I)
@@ -144,7 +143,7 @@ def head_gap(path: str) -> float:
 
 def cut_preview(src: str, jid: str) -> str:
     """The first 75 s at 720p, about 20 MB: enough to judge the scene, the loop and the sound without opening the hour.
-    Served by the app, so it plays on his phone over Tailscale."""
+    Served by the app, so it plays on a phone over the private network."""
     out = PREVIEWS / f"{jid}.mp4"
     out.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(["ffmpeg", "-y", "-v", "error", "-t", "75", "-i", src, "-vf", "scale=-2:720", "-c:v", "libx264",
@@ -169,7 +168,7 @@ The still was made from this description:
 def seedance_loop(jid: str) -> str:
     """The living still the releases use (memory: Seedance pipeline, 2026-08-28): Seedance 1.5 Pro, the same
     still as first and last frame, camera fixed, 12 s at 1080p, shipped raw. The app's "motion" clip warps
-    the whole frame, which is what Cole saw on the first draft ("the entire background is just moving")."""
+    the whole frame, which reads as the entire background moving."""
     import anthropic
     import fal_loop as fl
     from llm import llm_create, llm_text
@@ -235,7 +234,7 @@ def playlist_id(yt) -> str:
     if PLAYLIST_FILE.exists():
         return json.loads(PLAYLIST_FILE.read_text())["id"]
     r = yt.playlists().insert(part="snippet,status", body={
-        "snippet": {"title": PLAYLIST_TITLE, "description": "Private drafts for Cole to review."},
+        "snippet": {"title": PLAYLIST_TITLE, "description": "Private drafts to review."},
         "status": {"privacyStatus": "private"}}).execute()
     PLAYLIST_FILE.write_text(json.dumps({"id": r["id"], "title": PLAYLIST_TITLE}))
     return r["id"]
@@ -293,7 +292,7 @@ def draft(p: dict) -> dict:
         raise RuntimeError(f"loop seam failed twice (junction {seam['junction_spike']})")
     r = jget(requests.post(f"{BASE}/api/visual/export/{jid}", json={
         "duration_minutes": 60,
-        # Cole, 2026-11-05 on the Sietch draft: "there was no intro". The channel name fades over the opening scene;
+        # The channel name fades over the opening scene;
         # only those seconds re-encode. The 2026-10-23 no-sting rule still holds: the hour opens on the scene.
         "intro": {"enabled": True, "name": "The Space of Sound", "style": "overlay", "duration": 10, "size_scale": 0.75}}, timeout=60))
     if r.get("error") or wait_task(jid, 60 * 60).get("status") != "done":
@@ -308,10 +307,10 @@ def draft(p: dict) -> dict:
         print(f"  metadata attempt {attempt}: lore words {lore}", flush=True)
     else:
         raise RuntimeError(f"metadata kept using lore words: {lore}")
-    # Channel titles read "Dune | Last Light on Arrakis | 1 Hour ...", and nothing of Cole's carries an em-dash.
+    # Channel titles read "Dune | Last Light on Arrakis | 1 Hour ...", with no em-dashes.
     title = re.sub(r"\s*[—–]\s*", " | ", meta.get("title", "").strip())[:100]
     desc = re.sub(r"\s*[—–]\s*", ", ", meta.get("description", "")).rstrip() + f"\n\n{CTA}"
-    # Cole, 2026-11-05: "basically always in Project Hail Mary font which makes no sense". One big word, the world's
+    # One big word, the world's
     # name, set in a face that suits it; the title beside the thumbnail carries the rest. No "Ambient Soundscape".
     # Studio, lifetime, suggested CTR: wide two-line caps over a cluttered room 0.7%, no text on a lit vista 1.9-2.4%.
     hook = title.split(" | ")[0]
@@ -373,7 +372,7 @@ def record_verdicts(yt) -> list[dict]:
 
 
 def free_gb(floor=MIN_FREE_GB):
-    """Free space, after emptying caches that rebuild themselves if it's short (Cole, 2026-11-06). Never raises."""
+    """Free space, after emptying caches that rebuild themselves if it's short . Never raises."""
     free = shutil.disk_usage(HERE).free / 1e9
     if free < floor:
         try:

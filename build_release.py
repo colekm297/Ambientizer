@@ -1,5 +1,5 @@
 # build_release.py: the standard 1-hour master (2026-10-23 process plan, experiment 2: fix the first minute).
-# Same construction as _build_penelope_master.py (natural head first, acrossfade cell, concat-copied loop tiles,
+# Construction: (natural head first, acrossfade cell, concat-copied loop tiles,
 # card overlays on re-encoded segments only), with three first-minute changes:
 #   1. no brand sting: the video opens on the scene and the take's own first second;
 #   2. the subscribe card moves from 0:07 to CARD_AT (default 5:00), after a viewer has decided to stay;
@@ -13,7 +13,7 @@ import numpy as np
 import soundfile as sf
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
-HERE = "/Users/colemonroe/Projects/Ambientizer"
+HERE = os.path.dirname(os.path.abspath(__file__))
 ap = argparse.ArgumentParser()
 ap.add_argument("name"); ap.add_argument("audio"); ap.add_argument("--video")
 ap.add_argument("--cta2", required=True); ap.add_argument("--next-title", required=True); ap.add_argument("--next-thumb", required=True)

@@ -115,8 +115,6 @@ Ambientizer/
 └── requirements.txt
 ```
 
-Files starting with an underscore are one-off scripts from specific releases and experiments, kept for reference.
-
 ## Notes
 
 - This is a personal project I built for my own channel; treat it as reference code, not a polished library. Many features assume a single user and a single local machine.

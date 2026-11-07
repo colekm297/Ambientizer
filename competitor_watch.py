@@ -31,7 +31,7 @@ from googleapiclient.discovery import build
 
 HERE = Path(__file__).resolve().parent
 
-# The competitive set. Start with channels Cole actually loses suggested-slots
+# The competitive set. Start with channels that actually take suggested slots
 # to; extend via --discover. Handle = fallback if the ID ever goes stale.
 COMPETITORS = {
     "UCmGU7IuCWuFRhM8WXvOEM4A": "Symbology Cinematics",

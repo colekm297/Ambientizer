@@ -2729,7 +2729,7 @@ def _serve_audio_file(path: str, job_id: str):
                     or os.path.getmtime(mp3_path) < os.path.getmtime(path)):
                 # First play of this track: don't make the listener wait for the whole
                 # encode (a 20-min flat doubled to 40 min took 18 s at 320k before the first
-                # byte; Cole saw 20-30 s per first play, 2026-10-15). Start the encode in the
+                # byte; first plays took 20-30 s). Start the encode in the
                 # background and stream the growing file now; it lands in the cache for the
                 # Range-capable path above on every later play.
                 state = _start_stream_encode(path, mp3_path, doubled)
@@ -3158,7 +3158,7 @@ def api_audio_extended(job_id: str):
     return send_media(path, mimetype="audio/wav", as_attachment=True)
 
 
-# World tags so the song list says at a glance which story a track belongs to (Cole, 2026-09-27).
+# World tags so the song list says at a glance which story a track belongs to.
 # An explicit job["world"] always wins; otherwise it is inferred from the title/prompt.
 _WORLD_KEYWORDS = [
     ("Hail Mary", ("hail mary", "tau ceti", "rocky", "grace and rocky", "astrophage", "eridian")),
@@ -5274,7 +5274,7 @@ def youtube_auto_metadata(job_id: str):
         except Exception:
             pass
     if video_duration_sec == 0:
-        video_duration_sec = 3600  # default to 1 hour — Cole publishes 1-hour videos
+        video_duration_sec = 3600  # default to 1 hour
 
     hours = video_duration_sec // 3600
     if hours >= 1:
@@ -6028,7 +6028,7 @@ def api_seo_v2(job_id: str):
         except Exception:
             pass
     if video_duration_sec == 0:
-        video_duration_sec = 3600  # default to 1 hour — Cole publishes 1-hour videos
+        video_duration_sec = 3600  # default to 1 hour
     _h = video_duration_sec // 3600
     duration_str = (
         ("1 Hour" if _h == 1 else f"{_h} Hours") if _h >= 1

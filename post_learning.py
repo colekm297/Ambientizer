@@ -2,7 +2,7 @@
 """post_learning.py — the learning loop for everything around a release that is not the music:
 the title, the thumbnail, the visual loop, and when it went out.
 
-The music already learns from Cole's stars (daily_experiment.py). This does the same job for
+The music already learns from its star ratings (daily_experiment.py). This does the same job for
 posts, from YouTube's own numbers, which are the only honest judge of a thumbnail or a title.
 
   record   log the choices made for one published video (title format, thumbnail style and
@@ -145,7 +145,7 @@ def cmd_record(a):
 
 
 def record_published_drafts(public_ids) -> list[str]:
-    """Cole publishes drafts himself, so nothing logs them at upload. Add any public draft the ledger doesn't have yet."""
+    """Drafts are published by hand, so nothing logs them at upload. Add any public draft the ledger doesn't have yet."""
     path = DATA / "drafts.jsonl"
     if not path.exists():
         return []
@@ -158,7 +158,7 @@ def record_published_drafts(public_ids) -> list[str]:
         thumb = HERE / "output" / f"{d['job_id']}_thumbnail.jpg"
         row = {"video_id": vid, "job_id": d["job_id"], "recorded": dt.date.today().isoformat(), "title": d.get("title", ""),
                "world": d["title"].split(" | ")[0] if d.get("title") else None, "thumb_style": "world_word_top",
-               "visual_style": "seedance_living_still", "notes": "Daily draft, published by Cole.", "source": "draft",
+               "visual_style": "seedance_living_still", "notes": "Daily draft, published by the owner.", "source": "draft",
                "music_stars": d.get("rating"), **title_attrs(d.get("title", ""))}
         if thumb.exists():
             row["thumb"] = thumb_attrs(thumb)
@@ -340,7 +340,7 @@ def cmd_lessons(a):
     system = (
         "You run the learning loop for the non-music half of The Space of Sound, a YouTube channel of one-hour "
         "ambient videos set in story worlds people love (Dune, The Odyssey, Project Hail Mary, The Lord of the Rings). "
-        "Cole, the owner, decides; your job is to turn the numbers into lessons about titles, thumbnails, visual loops "
+        "The owner decides; your job is to turn the numbers into lessons about titles, thumbnails, visual loops "
         "and publish timing, and to recommend concrete choices for the next release. Rules: numbers before claims; "
         "name the video ids behind every lesson; separate what the data shows from what you suspect; bought views "
         "(Calypso JhV1RPOGAGw, about 1,900 of its views were advertising) prove nothing; judge thumbnails by CTR with "

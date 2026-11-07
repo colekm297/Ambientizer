@@ -1,5 +1,4 @@
-"""One door for every Claude call in the app (2026-10-14, Cole: "update the models to the most recent
-frontier ... and its opus 5.5").
+"""One door for every Claude call in the app, pinned to the current frontier model.
 
 Why a helper instead of swapping model strings: Claude Opus 5.5 always thinks (thinking can't be
 disabled), so a response can begin with thinking blocks, and thinking counts against max_tokens.

@@ -29,7 +29,7 @@ try:
 except Exception:
     gemini_limiter = None
 
-FALLBACK_MODELS = ["gemini-4-argon", "gemini-3.8-flash", "gemini-2.5-pro", "gemini-2.5-flash"]  # frontier first (Cole, 2026-10-14)
+FALLBACK_MODELS = ["gemini-4-argon", "gemini-3.8-flash", "gemini-2.5-pro", "gemini-2.5-flash"]  # frontier first
 
 RUBRIC = """You are a discerning QUALITY critic for AMBIENT "living still" loops — a
 single photo brought subtly to life (the real clouds billowing, water shimmering,

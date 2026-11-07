@@ -27,38 +27,38 @@ User prompt → ThemeInterpreter (Claude) → SoundscapeConfig JSON
 | Visuals | xAI Grok and gpt-image-2 stills, Seedance loops via fal, Ken Burns animation |
 | Video processing | FFmpeg / ffprobe |
 | YouTube | Google OAuth2 + YouTube Data API v3 |
-| Styling | Custom CSS (dark theme, ~3000 lines) |
+| Styling | Custom CSS (dark theme) |
 
 ## Project Structure
 
 ```
 Ambientizer/
 ├── web/
-│   ├── app.py                 # Flask server — 2566 lines, 50+ REST endpoints
+│   ├── app.py                 # Flask server, 50+ REST endpoints
 │   ├── static/
-│   │   ├── app.js             # Frontend logic — 3341 lines
-│   │   ├── mixer.js           # LiveMixer (Web Audio API) — 530 lines
-│   │   └── style.css          # Dark theme UI — 3021 lines
+│   │   ├── app.js             # Frontend logic
+│   │   ├── mixer.js           # LiveMixer (Web Audio API)
+│   │   └── style.css          # Dark theme UI
 │   └── templates/
-│       ├── index.html          # Main SPA — 542 lines
+│       ├── index.html          # Main SPA
 │       └── upload.html         # YouTube upload progress page
-├── schemas.py                  # Data models (dataclasses + enums) — 286 lines
-├── theme_interpreter.py        # Claude: prompt → SoundscapeConfig — 391 lines
-├── sample_generator.py         # ElevenLabs API wrapper + caching — 388 lines
-├── audio_engine.py             # DSP: mixing, looping, effects — 1059 lines
-├── audio_critic.py             # Gemini/Claude audio critique — 355 lines
-├── mix_master.py               # AI-driven mastering chain — 359 lines
-├── feedback_adjuster.py        # NL feedback → config changes — 310 lines
-├── config_adjuster.py          # Critique-driven config revision — 225 lines
-├── orchestrator.py             # Pipeline coordinator — 319 lines
-├── reference_analyzer.py       # Gemini YouTube analysis — 162 lines
-├── visual_generator.py         # Grok image + FFmpeg video — 277 lines
-├── youtube_publisher.py        # YouTube OAuth + upload — 240 lines
-├── upload_worker.py            # Detached YouTube upload subprocess — 83 lines
-├── gemini_limiter.py           # Local Gemini rate tracking — 132 lines
-├── retry_utils.py              # Exponential backoff decorator — 63 lines
-├── bootstrap_samples.py        # Synthetic sample generator (dev) — 602 lines
-├── test_engine.py              # Audio engine smoke test — 124 lines
+├── schemas.py                  # Data models (dataclasses + enums)
+├── theme_interpreter.py        # Claude: prompt → SoundscapeConfig
+├── sample_generator.py         # ElevenLabs API wrapper + caching
+├── audio_engine.py             # DSP: mixing, looping, effects
+├── audio_critic.py             # Gemini/Claude audio critique
+├── mix_master.py               # AI-driven mastering chain
+├── feedback_adjuster.py        # NL feedback → config changes
+├── config_adjuster.py          # Critique-driven config revision
+├── orchestrator.py             # Pipeline coordinator
+├── reference_analyzer.py       # Gemini YouTube analysis
+├── visual_generator.py         # Grok image + FFmpeg video
+├── youtube_publisher.py        # YouTube OAuth + upload
+├── upload_worker.py            # Detached YouTube upload subprocess
+├── gemini_limiter.py           # Local Gemini rate tracking
+├── retry_utils.py              # Exponential backoff decorator
+├── bootstrap_samples.py        # Synthetic sample generator (dev)
+├── test_engine.py              # Audio engine smoke test
 ├── requirements.txt            # Python dependencies
 ├── .env                        # API keys (not committed)
 ├── generated_samples/          # Cached audio + stems + spend logs
@@ -277,5 +277,5 @@ python orchestrator.py --interactive   # discovery conversation mode
 - **Stem separation**: Works well for conventional music (distinct instruments). Ambient/textural audio gets classified entirely as "Other" by the ElevenLabs model.
 - **Thread safety**: `jobs` dict is modified outside lock in some paths (single-user localhost mitigates risk).
 - **No structured logging**: all output is `print()` statements.
-- **`app.py` is monolithic**: 2500+ lines, could benefit from Flask Blueprints.
+- **`app.py` is monolithic**: about 6,600 lines, could benefit from Flask Blueprints.
 - **Gemini YouTube analysis**: Sensitive to URL format and video accessibility. Rate limits can cause transient 429s even with paid tier.

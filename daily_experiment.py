@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""One new song experiment a day for Cole to rate in the app (his ask, 2026-10-14).
+"""One new song experiment a day to rate in the app.
 
-Metric: stars Cole gives these takes per week. Each morning this:
-  1. reads every past daily experiment and the rating Cole gave it (live from saved_jobs),
-     plus his 3-star prompts and the house rules in docs/HOW-A-TRACK-IS-MADE.md;
+Metric: stars these takes earn per week. Each morning this:
+  1. reads every past daily experiment and its rating (live from saved_jobs),
+     plus the 3-star prompts and the house rules in docs/HOW-A-TRACK-IS-MADE.md;
   2. asks Claude for ONE new experiment (world, title, what it tests, prompt) that learns
      from what scored and tries something not tried recently;
-  3. generates it the way Cole makes tracks: raw prompt, text mode, music_v2_5, 10 minutes;
-  4. titles it in the app ("<World> · Daily · <title>") so it sits at the top of his list;
+  3. generates it the house way: raw prompt, text mode, music_v2_5, 10 minutes;
+  4. titles it in the app ("<World> · Daily · <title>") so it sits at the top of the list;
   5. appends to data/daily_experiments.jsonl and rewrites docs/DAILY-EXPERIMENTS.md
      (per-week star totals).
 Nothing is published. Run by launchd com.cole.ambientizer-daily.
@@ -54,12 +54,12 @@ def ledger():
     if not LEDGER.exists():
         return []
     rows = [json.loads(l) for l in LEDGER.read_text().splitlines() if l.strip()]
-    for r in rows:  # ratings are live: Cole rates in the app whenever he listens
+    for r in rows:  # ratings are live: they can change in the app at any time
         r["stars"] = int(job_json(r["job_id"]).get("rating", 0) or 0)
     return rows
 
 
-def coles_best_prompts():
+def best_prompts():
     out = []
     for p in glob.glob(str(HERE / "saved_jobs" / "*.json")):
         try:
@@ -72,7 +72,7 @@ def coles_best_prompts():
 
 
 def rated_evidence(days=90):
-    """Every take Cole has starred recently, dailies and his own, with the full prompt and stars.
+    """Every take starred recently, dailies and others, with the full prompt and stars.
     This is the training signal: the designer sees exactly what earned 3 stars and what earned 1."""
     cutoff = (dt.date.today() - dt.timedelta(days=days)).isoformat()
     out = []
@@ -96,7 +96,7 @@ def write_report(rows):
         y, w, _ = dt.date.fromisoformat(r["date"]).isocalendar()
         weeks.setdefault(f"{y}-W{w:02d}", []).append(r)
     lines = ["# Daily experiments", "",
-             "One generated take a day for Cole to rate in the app. The number that matters is stars per week.",
+             "One generated take a day to rate in the app. The number that matters is stars per week.",
              "Written by `daily_experiment.py`; ratings are read live from the app.", "",
              "| Week | Takes | Rated | Stars | Avg of rated |", "|---|---|---|---|---|"]
     for wk in sorted(weeks, reverse=True):
@@ -114,9 +114,9 @@ SCHEMA = {
     "type": "object",
     "properties": {
         "world": {"type": "string", "description": "Story world, e.g. Dune, Odyssey, Hail Mary, Interstellar, or a plain atmosphere name if no IP"},
-        "title": {"type": "string", "description": "Short plain title Cole will see in his list, under 40 characters, no jargon"},
+        "title": {"type": "string", "description": "Short plain title for the song list, under 40 characters, no jargon"},
         "testing": {"type": "string", "description": "One plain sentence: what this experiment tests that recent ones did not"},
-        "prompt": {"type": "string", "description": "The full ElevenLabs music prompt, written in the shape of Cole's best prompts"},
+        "prompt": {"type": "string", "description": "The full ElevenLabs music prompt, written in the shape of the best prompts"},
         "mode": {"type": "string", "enum": ["exploit", "explore"], "description": "exploit = one change from a take that scored well; explore = a new direction"},
         "parent_job_id": {"type": "string", "description": "For exploit: the job_id of the rated take this varies; empty for explore"},
         "lessons": {"type": "string", "description": "The full updated lessons file: what the ratings have taught so far, each lesson with the job ids and stars that support it, plus open questions. Rewrite it whole; keep what still holds, revise what new ratings contradict."},
@@ -135,9 +135,9 @@ def design(rows):
     explore_share = "about 1 day in 2" if n_rated < 10 else "about 1 day in 4"
     system = (
         "You design one experimental ambient track a day for The Space of Sound, a YouTube channel of one-hour "
-        "ambient videos set in story worlds people love. Cole, the owner, rates each take 0-3 stars in his app; "
+        "ambient videos set in story worlds people love. The owner rates each take 0-3 stars in the app; "
         "your goal is the most stars per week. Touchstones for the sound: Brian Eno, Stars of the Lid, Hiroshi "
-        "Yoshimura's Music for Nine Postcards. Rules he has given: write from a specific, well-known moment, not "
+        "Yoshimura's Music for Nine Postcards. House rules: write from a specific, well-known moment, not "
         "an obscure setting word (nobody knows what a sietch is); percussion-heavy is bad, at most one soft, "
         "distant pulse far back in the mix; no stitched or multi-part structures; boring takes that go nowhere "
         "fail, so give each take a hook and a journey across its 10 minutes; nothing dark or dread-filled under "
@@ -147,9 +147,9 @@ def design(rows):
         "to an IP (rain on a window, a train at night) when the log suggests it is worth testing.")
     user = (
         f"House guide (read the 3-star pattern section closely):\n\n{guide}\n\n"
-        f"Cole's 3-star prompts, verbatim:\n\n" + "\n\n---\n\n".join(coles_best_prompts()) +
+        f"The 3-star prompts, verbatim:\n\n" + "\n\n---\n\n".join(best_prompts()) +
         f"\n\nWhat the ratings have taught so far (your own notes from earlier runs):\n{lessons}\n\n"
-        f"Every take Cole has starred in the last 90 days, best first, with the exact prompt:\n{json.dumps(evidence, indent=1)}\n\n"
+        f"Every take starred in the last 90 days, best first, with the exact prompt:\n{json.dumps(evidence, indent=1)}\n\n"
         f"Full daily experiment log (0 stars = not rated yet, not a dislike):\n{json.dumps(history, indent=1)}\n\n"
         f"Policy: explore {explore_share}; otherwise exploit, meaning take one of the best-rated takes above and change "
         f"exactly one thing, and name its job_id as parent. Compare prompts of high and low scorers to find what "
