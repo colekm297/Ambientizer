@@ -38,3 +38,12 @@ This replaces older lines below or above it where they differ, including "other 
 - Schedulers: drafts 10:00, daily experiment 07:30 (running, 24 GB floor, see below), scout 08:30, post-learning Mon 08:00. Stock-burn was a one-time Nov 4 calendar job.
 - Generation is not on hold. Cole's 10-28 "hold on more generation please" (Finance chat, beside backing up to his external drive) was about disk; Chief reads it as superseded by 10-29 "Can we continue or are we quickly going to run out of memory again?" and 10-30 "Are we still cranking?" Chief told Cole on 11-07; stopping the daily job is his call.
 - Work lives on `living-still-harden`, which is 113 commits ahead of `main`, although CLAUDE.md and AGENTS rule 5 say main. Unreconciled; ask Chief before merging.
+
+## 2026-11-07 10:25 PT: disk (Chief's survey, two checkers)
+This replaces "24 GB floor" above for the draft job.
+- Floors: draft 30 GB, daily experiment 24, stock 20. Visual export returns 507 if free is under 3 copies at 20 Mbps (27 GB per hour). Measured low on today's export: 10.75 GB from 29.6, sampled every 20 s, 9.32 GB hour.
+- Today's draft: 25d3ff28 failed the seam gate, 12c8abb4 exported then got invalidTags (the budget ignored commas, fixed). `_retry_draft.py 12c8abb4` uploads that hour private, log `logs/retry_draft_12c8abb4.log`. A failed upload now offloads the hour.
+- Item 56 (Chief, waiting on Cole's tap): 5.25 GB of `*_loop.wav`, `*_export_loop.wav`, `generated_samples/*_cell*.wav`, `*.garbled-mono-misread`. Delete nothing before `ask show 56` is relayed.
+- WAV batch (Chief will post a tap): `data/offload/wav-batch-2026-11-07.jsonl`, 311 files, 35.865 GB, $0.54/month. One file uploaded as an upload-only trial (8d6702fe raw), byte-identical, still local, not evicted. Evict nothing until the tap; its first step is one evicted file restored and played through the app.
+- Daily experiment: 104,500 credits, one more run on 11-08, then skips until after the Dec 5 19:53 PT reset.
+- The experiment leaves 0.31 GB a take, and it was 8.7% of the 45.33 GB of audio written in the 14 days to 11-07. `output/` plus `generated_samples/` are about 9% of the used disk.
