@@ -254,6 +254,13 @@ def cmd_pull(a):
             rec["reach"] = reach["videos"].get(vid)
     except Exception as e:
         print(f"reach failed: {str(e)[:300]}", flush=True)
+    try:   # impressions and CTR split by traffic source (suggested vs browse vs search), from the combined job
+        by_source = reach_reports.sync_by_source(y.get_credentials())
+        print(f"reach by source: {by_source['new_reports']} new reports, {by_source['first_date']} to {by_source['last_date']}", flush=True)
+        for vid, rec in out["videos"].items():
+            rec["reach_by_source"] = by_source["videos"].get(vid)
+    except Exception as e:
+        print(f"reach by source failed: {str(e)[:300]}", flush=True)
     DATA.mkdir(exist_ok=True)
     OUTCOMES.write_text(json.dumps(out, indent=1))
     with HISTORY.open("a") as fh:
@@ -322,7 +329,7 @@ def joined() -> list[dict]:
         o = outcomes["videos"].get(r["video_id"], {})
         rows.append({**r, "outcome": {k: o.get(k) for k in ("published_at", "views", "views_since_last_pull", "avg_view_pct",
                                                             "subs_gained", "subs_since_last_pull", "retention", "sources",
-                                                            "search_terms", "suggested_from", "likes", "comments", "reach")},
+                                                            "search_terms", "suggested_from", "likes", "comments", "reach", "reach_by_source")},
                      "studio_ctr": studio.get(r["video_id"])})
     rows.sort(key=lambda r: (r.get("outcome", {}).get("published_at") or r.get("published_at") or ""), reverse=True)
     return rows
