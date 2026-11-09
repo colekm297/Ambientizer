@@ -368,15 +368,22 @@ def cmd_lessons(a):
         f"Next release: recommended title format, thumbnail style, visual, publish day and hour (PT), each in one line "
         f"with the evidence, Open tests (one variable each).")
     client = anthropic.Anthropic()
-    # Opus 5.5 thinks inside max_tokens; the first run at 16000 cut the file off mid-sentence.
+    # Opus 5.5 thinks inside max_tokens. At 32000 on 2026-11-09 thinking took all but 3,553 chars and the cut-off
+    # text overwrote the 2026-11-02 file, which the next run then read as its lessons. So: 64000, one retry at
+    # medium effort if that still runs out, and a truncated answer never replaces the file.
     # The SDK refuses a non-streaming call whose max_tokens implies more than 10 minutes unless a timeout is
-    # given explicitly; 32000 tokens with a 25-minute timeout passes the guard and leaves room for thinking.
-    resp = llm_create(client, effort="high", max_tokens=32000, timeout=1500, system=system,
-                      messages=[{"role": "user", "content": user}])
-    text = llm_text(resp).strip()
-    print(f"stop_reason={getattr(resp, 'stop_reason', None)} chars={len(text)}", flush=True)
-    if getattr(resp, "stop_reason", None) == "max_tokens":
-        text += "\n\n(Output hit the token limit; this file is incomplete. Raise max_tokens in post_learning.py.)"
+    # given explicitly; the 25-minute timeout passes that guard.
+    for effort in ("high", "medium"):
+        resp = llm_create(client, effort=effort, max_tokens=64000, timeout=1500, system=system,
+                          messages=[{"role": "user", "content": user}])
+        text = llm_text(resp).strip()
+        print(f"effort={effort} stop_reason={getattr(resp, 'stop_reason', None)} chars={len(text)}", flush=True)
+        if getattr(resp, "stop_reason", None) != "max_tokens":
+            break
+    else:
+        partial = LESSONS.with_suffix(".partial.md")
+        partial.write_text(text + "\n")
+        raise SystemExit(f"lessons hit the token limit twice; kept {LESSONS}, cut-off text in {partial}")
     LESSONS.write_text(f"LESSONS (updated {dt.date.today().isoformat()})\n\n{text}\n")
     write_report(rows, outcomes)
     print(f"lessons written -> {LESSONS}\nreport -> {REPORT}")
