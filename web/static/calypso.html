@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Calypso compare</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; background: #0f1115; color: #e8e6e1; font: 15px/1.35 -apple-system, system-ui, sans-serif; }
+  main { max-width: 520px; margin: 0 auto; padding: 12px 12px calc(16px + env(safe-area-inset-bottom)); min-width: 0; }
+  .player { position: sticky; top: 0; background: #0f1115; padding: 6px 0 10px; z-index: 1; }
+  .now { font-weight: 600; min-height: 1.35em; }
+  audio { width: 100%; margin-top: 6px; }
+  .jump { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+  .jump button { flex: 1 0 auto; background: #1c2029; color: #e8e6e1; border: 1px solid #2c3240; border-radius: 8px; padding: 7px 0; font: inherit; white-space: nowrap; min-width: max-content; padding-inline: 10px; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 10px; margin-bottom: 6px; background: #171a21; border: 1px solid #232835; cursor: pointer; }
+  li.on { border-color: #c9a35b; background: #1f1c15; }
+  li .t { min-width: 0; flex: 1; }
+  li .n { font-weight: 600; }
+  li .d { color: #9a978f; font-size: 13px; }
+  li .tag { white-space: nowrap; font-size: 12px; color: #c9a35b; }
+</style>
+</head>
+<body>
+<main>
+  <div class="player">
+    <div class="now" id="now">Tap a take</div>
+    <audio id="a" controls preload="none"></audio>
+    <div class="jump">
+      <button data-t="0">0:00</button>
+      <button data-t="150">2:30</button>
+      <button data-t="165">2:45</button>
+      <button data-t="300">5:00</button>
+      <button data-t="450">7:30</button>
+    </div>
+  </div>
+  <ul id="list"></ul>
+</main>
+<script>
+// Switching takes keeps the playhead, so the same moment can be heard across versions.
+const TAKES = [
+  ["a38b5c83", "Original", "Your 3-star. Already public", "public"],
+  ["5d328afd", "Voice", "Your pick 11-07. Voice at 2:45", "uploaded"],
+  ["12c8abb4", "No melody", "Same as Voice, no voice", "uploaded"],
+  ["211c5955", "Refrain 2", "Longer, warmer voice moment at 2:30", "new"],
+  ["6a64e07c", "Refrain 1", "Voice moments at 2:30, 5:00, 7:30", "new"],
+  ["b76af219", "Sparse voice", "Slower, fewer notes", "new"],
+  ["a5934397", "Dusk island", "Different take, voice from the hill", "uploaded"],
+];
+const a = document.getElementById("a"), list = document.getElementById("list"), now = document.getElementById("now");
+let cur = null;
+TAKES.forEach(([id, name, desc, tag]) => {
+  const li = document.createElement("li");
+  li.innerHTML = `<div class="t"><div class="n">${name}</div><div class="d">${desc}</div></div><span class="tag">${tag}</span>`;
+  li.onclick = () => {
+    if (cur === id) { a.paused ? a.play() : a.pause(); return; }
+    const t = a.currentTime || 0;
+    cur = id;
+    document.querySelectorAll("li").forEach(x => x.classList.remove("on"));
+    li.classList.add("on");
+    now.textContent = name;
+    a.src = `/api/audio/${id}?fmt=mp3`;
+    a.addEventListener("loadedmetadata", () => { a.currentTime = Math.min(t, a.duration - 1); a.play(); }, { once: true });
+    a.load();
+  };
+  list.appendChild(li);
+});
+document.querySelectorAll(".jump button").forEach(b => b.onclick = () => { if (cur) { a.currentTime = +b.dataset.t; a.play(); } });
+</script>
+</body>
+</html>
