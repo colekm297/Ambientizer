@@ -3448,7 +3448,14 @@
 
   function _libraryRatingOf(j) {
     const r = j.rating || 0;
-    return r > 0 ? r : (j.favorite ? 1 : 0);
+    return r !== 0 ? r : (j.favorite ? 1 : 0);
+  }
+  // Stars for 1-3, "0" for heard-not-noteworthy, "-1"/"-2" for bad; unrated shows nothing.
+  function _ratingBadge(j) {
+    const r = _libraryRatingOf(j);
+    if (r > 0) return `<span class="lib-stars">${"★".repeat(r)}</span>`;
+    if (r < 0) return `<span class="lib-stars neg">${r}</span>`;
+    return j.rated ? `<span class="lib-stars heard">0</span>` : "";
   }
 
   // The currently active filtered+sorted browsing order (array of job_ids).
@@ -3519,8 +3526,7 @@
       const row = document.createElement("div");
       row.className = "library-row" + (j.job_id === curId ? " is-current" : "");
       row.dataset.jobId = j.job_id;
-      const rating = _libraryRatingOf(j);
-      const stars = rating > 0 ? "★".repeat(rating) : "";
+      const stars = _ratingBadge(j);
       const score = j.ai_score ? `<span class="lib-score">AI ${j.ai_score}/10</span>` : "";
       const mode = j.music_generation_mode || "text";
       const modeTag = mode === "stitch" ? "Stitch" : mode === "composition_plan" ? "Plan" : "Text";
@@ -3535,7 +3541,7 @@
       row.innerHTML = `
         <div class="lib-row-main">
           <span class="lib-title">${escapeHtml(title)}</span>
-          ${stars ? `<span class="lib-stars">${stars}</span>` : ""}
+          ${stars}
           ${visualBadge}
         </div>
         <div class="lib-row-sub">
@@ -3655,8 +3661,8 @@
         else if (diff < 86400000) timeStr = Math.floor(diff / 3600000) + "h ago";
         else timeStr = d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
       }
-      const _rt = (j.rating > 0) ? j.rating : (j.favorite ? 1 : 0);
-      const star = _rt > 0 ? "\u2605".repeat(_rt) + " " : "";
+      const _rt = (j.rating !== 0 && j.rating != null) ? j.rating : (j.favorite ? 1 : 0);
+      const star = _rt > 0 ? "\u2605".repeat(_rt) + " " : _rt < 0 ? `${_rt} ` : (j.rated ? "0 " : "");
       const dot = j.status === "complete" ? "\u2713" : j.status === "running" ? "\u25CB" : "\u2717";
       // Prefer the short evocative title; fall back to the prompt if absent.
       const label = (j.title && j.title.trim()) ? j.title.trim() : j.prompt;
@@ -3674,24 +3680,31 @@
   }
 
   // Paint the 3 stars filled (gold) up to `n`; the rest empty.
-  function _paintStars(n) {
+  function _paintStars(n, rated) {
     if (!favStars) return;
+    if (rated === undefined) rated = favStars.dataset.rated === "1";
     favStars.querySelectorAll(".fav-star").forEach((s) => {
       s.classList.toggle("filled", parseInt(s.dataset.val, 10) <= n);
+    });
+    favStars.querySelectorAll(".fav-chip").forEach((c) => {
+      c.classList.toggle("on", rated && n <= 0 && parseInt(c.dataset.val, 10) === n);
     });
   }
   function _ratingOf(job) {
     if (!job) return 0;
     const r = job.rating || 0;
-    return r > 0 ? r : (job.favorite ? 1 : 0);  // legacy favorites (rating 0) = 1 star
+    return r !== 0 ? r : (job.favorite ? 1 : 0);  // legacy favorites (rating 0) = 1 star
   }
   function _updateFavBtn(jobId) {
     const job = _historyCache.find((j) => j.job_id === jobId);
     if (job) {
       favStars.dataset.jobId = job.job_id;
       favStars.dataset.rating = String(_ratingOf(job));
+      favStars.dataset.rated = (job.rated || _ratingOf(job) !== 0) ? "1" : "0";
       favStars.style.display = "";
       _paintStars(_ratingOf(job));
+      const nb = document.getElementById("fav-note-btn");
+      if (nb) nb.classList.toggle("has-note", !!(job.rating_note || "").trim());
     } else if (favStars) {
       favStars.style.display = "none";
     }
@@ -3709,13 +3722,14 @@
     });
     favStars.addEventListener("mouseleave", () => _paintStars(parseInt(favStars.dataset.rating || "0", 10)));
     favStars.addEventListener("click", async (e) => {
-      const star = e.target.closest(".fav-star");
+      const star = e.target.closest(".fav-star, .fav-chip");
       if (!star) return;
       const jobId = favStars.dataset.jobId;
       if (!jobId) return;
       const val = parseInt(star.dataset.val, 10);
       const cur = parseInt(favStars.dataset.rating || "0", 10);
-      const rating = (val === cur) ? 0 : val;  // click current top star to clear
+      const isRated = favStars.dataset.rated === "1";
+      const rating = (isRated && val === cur) ? null : val;  // tap the current value again to clear
       try {
         const r = await fetch(`/api/favorite/${jobId}`, {
           method: "POST", headers: { "Content-Type": "application/json" },
@@ -3723,7 +3737,7 @@
         });
         const data = await r.json();
         const cached = _historyCache.find((j) => j.job_id === jobId);
-        if (cached) { cached.rating = data.rating; cached.favorite = data.favorite; }
+        if (cached) { cached.rating = data.rating; cached.favorite = data.favorite; cached.rated = data.rated; }
         if (window._currentTrackData && window._currentTrackData.job_id === jobId) {
           window._currentTrackData.rating = data.rating;
           window._currentTrackData.favorite = data.favorite;
@@ -3734,6 +3748,52 @@
       } catch (err) { console.error("Rating error:", err); }
     });
   }
+
+  // Notes ride with ratings: saved on the job and appended to data/cole_notes.jsonl for Claude.
+  const noteBtn = document.getElementById("fav-note-btn");
+  const noteSheet = document.getElementById("fav-note-sheet");
+  const noteText = document.getElementById("fav-note-text");
+  if (noteBtn && noteSheet) {
+    noteBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const job = _historyCache.find((j) => j.job_id === favStars.dataset.jobId);
+      if (!job) return;
+      noteText.value = job.rating_note || "";
+      noteSheet.classList.remove("hidden");
+      noteText.focus();
+    });
+    document.getElementById("fav-note-cancel").addEventListener("click", () => noteSheet.classList.add("hidden"));
+    document.getElementById("fav-note-save").addEventListener("click", async () => {
+      const jobId = favStars.dataset.jobId;
+      if (!jobId) return;
+      try {
+        const r = await fetch(`/api/favorite/${jobId}`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ note: noteText.value }),
+        });
+        const data = await r.json();
+        const cached = _historyCache.find((j) => j.job_id === jobId);
+        if (cached) cached.rating_note = data.rating_note;
+        _updateFavBtn(jobId);
+        noteSheet.classList.add("hidden");
+      } catch (err) { console.error("Note error:", err); }
+    });
+  }
+
+  // New takes made by scripts or the daily job appear without a page refresh.
+  setInterval(async () => {
+    if (document.hidden) return;
+    try {
+      const res = await fetch("/api/history");
+      const fresh = await res.json();
+      const sig = (l) => l.map((j) => `${j.job_id}:${j.status}:${j.rating}:${j.rated ? 1 : 0}`).join("|");
+      if (sig(fresh) === sig(_historyCache)) return;
+      _historyCache = fresh;
+      _renderHistoryDropdown();
+      if (!libraryOverlay.classList.contains("hidden")) _renderLibraryList();
+      else _libraryOrder = _computeLibraryItems().map((j) => j.job_id);
+    } catch (err) { /* offline for a moment; try again next tick */ }
+  }, 20000);
 
   if (filterFavBtn) {
     filterFavBtn.addEventListener("click", () => {

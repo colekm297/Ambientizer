@@ -1090,11 +1090,22 @@
                 <span id="now-playing-label" class="now-playing-label">No tracks yet</span>
             </button>
             <a href="/drafts" class="btn-now-playing" title="Which song is which draft" style="text-decoration:none">Drafts</a>
-            <span id="fav-stars" class="fav-stars" data-job-id="" title="Rate 1-3 stars (click same star to clear)">
+            <span id="fav-stars" class="fav-stars" data-job-id="" title="-2 bad, -1 weak, 0 heard (not noteworthy), 1-3 stars. Tap again to clear. ✎ adds a note.">
+                <span class="fav-chip" data-val="-2">&minus;2</span>
+                <span class="fav-chip" data-val="-1">&minus;1</span>
+                <span class="fav-chip" data-val="0">0</span>
                 <span class="fav-star" data-val="1">&#9733;</span>
                 <span class="fav-star" data-val="2">&#9733;</span>
                 <span class="fav-star" data-val="3">&#9733;</span>
+                <span id="fav-note-btn" class="fav-note-btn" title="Add a note for Claude">&#9998;</span>
             </span>
+            <div id="fav-note-sheet" class="fav-note-sheet hidden">
+                <textarea id="fav-note-text" rows="3" placeholder="What did you hear? Goes to Claude."></textarea>
+                <div class="fav-note-actions">
+                    <button id="fav-note-cancel" type="button">Cancel</button>
+                    <button id="fav-note-save" type="button" class="primary">Save note</button>
+                </div>
+            </div>
         </div>
         <div id="live-transport" class="live-transport gp-transport">
             <button id="btn-skip-prev" class="transport-btn transport-skip" title="Previous track in current Library list">

@@ -4599,3 +4599,19 @@ body { padding-bottom: 120px; }   /* clear the fixed bar */
 .intro-field { display: flex; flex-direction: column; gap: 3px; font-size: 0.78rem; color: var(--text-secondary); }
 .intro-field input[type="color"] { width: 42px; height: 30px; padding: 0; border: none; background: none; }
 .intro-field input[type="number"] { width: 64px; }
+
+/* -2..0 chips and the note button beside the stars */
+.fav-chip { font-size: 0.72rem; color: var(--text-muted); opacity: 0.5; padding: 2px 4px; border: 1px solid transparent; border-radius: 6px; white-space: nowrap; }
+.fav-chip:hover { opacity: 0.9; }
+.fav-chip.on { opacity: 1; color: #e8e6e1; border-color: #6b7280; }
+.fav-chip.on[data-val="-1"], .fav-chip.on[data-val="-2"] { color: #ff8a80; border-color: #a5504a; }
+.fav-note-btn { font-size: 0.95rem; padding: 2px 4px; margin-left: 2px; opacity: 0.5; color: var(--text-muted); }
+.fav-note-btn.has-note { opacity: 1; color: #c9a35b; }
+.fav-note-sheet { position: fixed; left: 12px; right: 12px; width: auto; bottom: calc(80px + env(safe-area-inset-bottom)); max-width: 520px; margin: 0 auto; z-index: 1000; background: #171a21; border: 1px solid #2c3240; border-radius: 12px; padding: 10px; box-shadow: 0 8px 30px rgba(0,0,0,.5); }
+.fav-note-sheet.hidden { display: none; }
+.fav-note-sheet textarea { width: 100%; box-sizing: border-box; background: #0f1115; color: #e8e6e1; border: 1px solid #2c3240; border-radius: 8px; padding: 8px; font: inherit; font-size: 16px; resize: vertical; }
+.fav-note-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
+.fav-note-actions button { white-space: nowrap; background: #1c2029; color: #e8e6e1; border: 1px solid #2c3240; border-radius: 8px; padding: 7px 14px; font: inherit; }
+.fav-note-actions button.primary { background: #c9a35b; color: #111; border-color: #c9a35b; }
+.lib-stars.neg { color: #ff8a80; }
+.lib-stars.heard { color: var(--text-muted); }

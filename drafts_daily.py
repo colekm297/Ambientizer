@@ -243,7 +243,7 @@ def queue() -> list[dict]:
             continue
         rating = j.get("rating") or 0
         title = (j.get("config") or {}).get("title") or j.get("title") or ""
-        if rating == 1:
+        if rating == 1 or rating < 0 or (rating == 0 and j.get("rated")):   # 1 star, bad, or heard and passed over
             continue
         if rating >= 2:
             tier, key = (0 if rating == 3 else 1), j.get("created_at", "")

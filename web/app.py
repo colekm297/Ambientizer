@@ -421,6 +421,8 @@ def _save_job(job_id: str):
         "world": job.get("world", ""),
         "favorite": job.get("favorite", False),
         "rating": job.get("rating", 0),
+        "rated": job.get("rated", False),
+        "rating_note": job.get("rating_note", ""),
         "ai_score": job.get("ai_score"),
         "ai_subscores": job.get("ai_subscores"),
         "ai_character": job.get("ai_character"),
@@ -453,10 +455,13 @@ def _save_job(job_id: str):
             pass
 
 
-def _load_saved_jobs():
-    """Load all saved jobs from disk on startup."""
+def _load_saved_jobs(only_new: bool = False):
+    """Load all saved jobs from disk on startup. only_new picks up jobs that scripts wrote since,
+    so a take made outside the app shows up without a restart."""
     loaded = 0
     for path in JOBS_DIR.glob("*.json"):
+        if only_new and path.stem in jobs:
+            continue
         try:
             with open(path) as f:
                 data = json.load(f)
@@ -524,6 +529,9 @@ def _load_saved_jobs():
                 "favorite": data.get("favorite", False),
                 # Legacy favorites (pre-rating) default to 1 star so they don't vanish.
                 "rating": (data.get("rating") or (1 if data.get("favorite") else 0)),
+                # rating 0 means unrated unless `rated` is set: then it's "heard, not noteworthy".
+                "rated": data.get("rated", bool(data.get("rating") or data.get("favorite"))),
+                "rating_note": data.get("rating_note", ""),
                 "ai_score": data.get("ai_score"),
                 "ai_subscores": data.get("ai_subscores"),
                 "ai_character": data.get("ai_character"),
@@ -542,6 +550,22 @@ def _load_saved_jobs():
 
     if loaded:
         print(f"  Loaded {loaded} saved job(s) from {JOBS_DIR}")
+    return loaded
+
+
+_last_rescan = [0.0]
+
+
+def _rescan_saved_jobs():
+    """At most every 10 s: load script-written jobs the app hasn't seen."""
+    if time.time() - _last_rescan[0] < 10:
+        return
+    _last_rescan[0] = time.time()
+    try:
+        with jobs_lock:
+            _load_saved_jobs(only_new=True)
+    except Exception as e:
+        print(f"  [rescan] {e}")
 
 
 _load_saved_jobs()
@@ -1866,6 +1890,8 @@ def api_status(job_id: str):
         "music_model": job.get("music_model") or (getattr(config, "music_model", None) if config else None),
         "mastering": job.get("mastering"),
         "rating": (job.get("rating") or (1 if job.get("favorite") else 0)),
+        "rated": job.get("rated", False),
+        "rating_note": job.get("rating_note", ""),
         "music_length_sec": getattr(config, "music_length_sec", None) if config else None,
         "duration_sec": getattr(config, "duration_sec", None) if config else None,
         "stitch_cell_sec": job.get("stitch_cell_sec") or (getattr(config, "stitch_cell_sec", None) if config else None),
@@ -3202,6 +3228,7 @@ def set_job_meta(job_id: str):
 @app.route("/api/history")
 def api_history():
     """Return ALL generation jobs for the library search/filter/sort panel."""
+    _rescan_saved_jobs()
     with jobs_lock:
         visible_history = sorted(jobs.values(), key=lambda j: j["created_at"], reverse=True)
 
@@ -3224,6 +3251,8 @@ def api_history():
             "created_at": j["created_at"],
             "favorite": j.get("favorite", False),
             "rating": j.get("rating", 0),
+            "rated": j.get("rated", False),
+            "rating_note": j.get("rating_note", ""),
             "ai_score": j.get("ai_score"),
             "ai_character": j.get("ai_character"),
             "visual_image_url": f"/api/visual/image/{j['job_id']}/view" if j.get("visual_image_path") else None,
@@ -3237,9 +3266,10 @@ def api_history():
 
 @app.route("/api/favorite/<job_id>", methods=["POST"])
 def toggle_favorite(job_id: str):
-    """Set a 0-3 star rating on a job. Body {"rating": 0-3}. With no body, falls
-    back to a legacy toggle (off -> 1 star, any stars -> off). `favorite` stays in
-    sync as rating > 0 so all existing favorite filters keep working."""
+    """Rate a job. Body {"rating": -2..3} (0 = heard, not noteworthy; negatives = bad), {"rating": null}
+    to clear back to unrated, and/or {"note": "..."}. With no body, falls back to the legacy toggle.
+    `favorite` stays rating > 0 so existing favorite filters keep working. Every rating or note
+    is appended to data/cole_notes.jsonl, which the sessions and the daily designer read."""
     with jobs_lock:
         job = jobs.get(job_id)
     if not job:
@@ -3247,18 +3277,37 @@ def toggle_favorite(job_id: str):
 
     data = request.get_json(silent=True) or {}
     cur = int(job.get("rating", 1 if job.get("favorite") else 0) or 0)
+    rated = job.get("rated", cur != 0)
+    rating = cur
     if "rating" in data:
-        try:
-            rating = max(0, min(3, int(data["rating"])))
-        except (TypeError, ValueError):
-            rating = cur
-    else:
+        if data["rating"] is None:
+            rating, rated = 0, False
+        else:
+            try:
+                rating, rated = max(-2, min(3, int(data["rating"]))), True
+            except (TypeError, ValueError):
+                pass
+    elif "note" not in data:
         rating = 0 if cur > 0 else 1  # legacy toggle
+        rated = rating > 0
+    note = job.get("rating_note", "")
+    if "note" in data:
+        note = str(data["note"] or "").strip()[:2000]
     with jobs_lock:
         jobs[job_id]["rating"] = rating
+        jobs[job_id]["rated"] = rated
         jobs[job_id]["favorite"] = rating > 0
+        jobs[job_id]["rating_note"] = note
     _save_job(job_id)
-    return jsonify({"favorite": rating > 0, "rating": rating})
+    try:
+        cfg = job.get("config")
+        with open(PROJECT_ROOT / "data" / "cole_notes.jsonl", "a") as f:
+            f.write(json.dumps({"at": datetime.now().isoformat(timespec="seconds"), "job_id": job_id,
+                                "title": (getattr(cfg, "title", "") or "").strip() or job.get("prompt", "")[:80],
+                                "rating": rating if rated else None, "note": note}) + "\n")
+    except Exception as e:
+        print(f"  [notes] {e}")
+    return jsonify({"favorite": rating > 0, "rating": rating, "rated": rated, "rating_note": note})
 
 
 # ────────────────────────────────────────────────────────
