@@ -4339,7 +4339,7 @@ body { padding-bottom: 120px; }   /* clear the fixed bar */
     display: flex;
     align-items: center;
     gap: 26px;
-    padding: 20px max(24px, calc((100vw - 1240px) / 2 + 24px));
+    padding: 20px 24px;
     background: rgba(12, 12, 20, 0.94);
     backdrop-filter: blur(22px);
     border-top: 1px solid var(--border-strong);
@@ -4418,9 +4418,9 @@ body { padding-bottom: 120px; }   /* clear the fixed bar */
 .gp-transport .transport-skip:hover { color: var(--text); background: rgba(255, 255, 255, 0.08); }
 /* Thicker, easier-to-grab seek bar */
 .gp-transport .transport-seek {
-    min-width: 120px;
-    height: 8px;
-    border-radius: 4px;
+    min-width: 220px;
+    height: 10px;
+    border-radius: 5px;
 }
 .gp-transport .transport-seek::-webkit-slider-thumb { width: 20px; height: 20px; }
 .gp-transport .transport-seek::-moz-range-thumb { width: 20px; height: 20px; }
@@ -4617,3 +4617,12 @@ body { padding-bottom: 120px; }   /* clear the fixed bar */
 .lib-stars.heard { color: var(--text-muted); }
 
 .library-drafts-link { color: #58a6ff; text-decoration: none; font-size: 0.9rem; white-space: nowrap; margin-right: 8px; }
+
+/* Mid widths: the song selector takes its own row so the transport row, and the seek bar in it, get the full width. */
+@media (min-width: 721px) and (max-width: 1280px) {
+    .global-player { flex-wrap: wrap; row-gap: 12px; padding-top: 14px; padding-bottom: 14px; }
+    .gp-left { flex: 1 1 100%; }
+    .gp-transport { flex: 1 1 100%; gap: 12px; }
+    .gp-transport .transport-volume { width: 56px; }
+    body { padding-bottom: 190px; }
+}
