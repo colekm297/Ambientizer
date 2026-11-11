@@ -4367,7 +4367,7 @@ body { padding-bottom: 120px; }   /* clear the fixed bar */
 /* The ONE track-navigation entry point: current track + opens the Library. */
 .btn-now-playing {
     flex: 1;
-    min-width: 0;
+    min-width: 260px;
     display: flex;
     align-items: center;
     gap: 10px;
@@ -4388,10 +4388,10 @@ body { padding-bottom: 120px; }   /* clear the fixed bar */
 }
 .now-playing-icon { flex-shrink: 0; opacity: 0.7; }
 .now-playing-label {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
     min-width: 0;
+    font-size: 0.92rem;
+    line-height: 1.2;
+    overflow-wrap: anywhere;
 }
 
 /* Transport inside the bar — bigger, clearer; this is the heart of the app. */
@@ -4615,3 +4615,5 @@ body { padding-bottom: 120px; }   /* clear the fixed bar */
 .fav-note-actions button.primary { background: #c9a35b; color: #111; border-color: #c9a35b; }
 .lib-stars.neg { color: #ff8a80; }
 .lib-stars.heard { color: var(--text-muted); }
+
+.library-drafts-link { color: #58a6ff; text-decoration: none; font-size: 0.9rem; white-space: nowrap; margin-right: 8px; }
