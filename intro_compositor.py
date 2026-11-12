@@ -88,6 +88,9 @@ def probe(video: str) -> dict:
         "vcodec": vinfo.get("codec_name", ""),
         "pix_fmt": vinfo.get("pix_fmt", ""),
         "has_audio": has_audio,
+        # Re-encoded heads and tails must share the copied middle's clock: concat reads every part on the first
+        # part's time base, and on 11-12 a 1/12288 head ahead of a 1/24000 Seedance hour stretched it to 1h57m.
+        "timescale": int((vinfo.get("time_base") or "1/12288").split("/")[1]),
     }
 
 
@@ -307,7 +310,7 @@ def add_intro_overlay(video: str, out: str, name: str, subtitle: str = "",
               "-loop", "1", "-t", f"{cut}", "-i", title_png,
               "-filter_complex", filt, "-map", "[v]", "-an",
               "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-bf", "0",
-              "-pix_fmt", "yuv420p", "-r", f"{fps}", head_mp4])
+              "-pix_fmt", "yuv420p", "-r", f"{fps}", "-video_track_timescale", str(info["timescale"]), head_mp4])
         parts = [f"file '{head_mp4}'"]
         if cut < total:
             parts.append(f"file '{_quote(video)}'\ninpoint {cut}")
@@ -334,7 +337,8 @@ def add_video_fades(video: str, out: str, fade_in: float = 10.0, fade_out: float
         return video
     can_copy = info["vcodec"] == "h264" and info["pix_fmt"] in ("yuv420p", "yuvj420p")
     # No B-frames: their negative start offset collides with the copied middle's timestamps at the join.
-    venc = ["-c:v", "libx264", "-preset", "medium", "-crf", "18", "-bf", "0", "-pix_fmt", "yuv420p", "-r", f"{fps}", "-an"]
+    venc = ["-c:v", "libx264", "-preset", "medium", "-crf", "18", "-bf", "0", "-pix_fmt", "yuv420p", "-r", f"{fps}", "-an",
+            "-video_track_timescale", str(info["timescale"])]
     tmp = Path(tempfile.mkdtemp(prefix="vfade_"))
     try:
         # The head and tail end on keyframes so the copied middle lines up with them exactly.
