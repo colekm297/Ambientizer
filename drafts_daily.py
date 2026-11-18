@@ -25,6 +25,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -168,22 +169,22 @@ def check_joins(path: str) -> None:
 
 
 LOOPS = HERE / "output" / "_previews" / "loops"
-HOLD_READY = True
-HELD = HERE / "output" / "_previews" / "loops_held"   # made, but the kind of thing Cole already turned down
 COLE_VERDICTS = HERE / "data" / "cole_verdicts.jsonl"   # every verdict Cole has given, his words; read before making or showing
+# step + spread from tools/movement.py, dB. 043a31ef scored 2.80 and 09499e7d 4.04, both called boring by Cole;
+# the lowest take he liked, 12c8abb4 (2 stars), scored 5.07; the threshold sits between (inference, 2026-11-18).
+MIN_MOVEMENT = 4.2
+REVIEW_ASK = "10-minute loop, played twice. Worth publishing? Thumb up or down, a note if something bugs you."
 
 
-def turned_down(prompt: str) -> dict | None:
-    """The first rejection in Cole's record whose pattern this prompt matches (every string in it present), else None."""
-    if not COLE_VERDICTS.exists():
+def moves(j: dict) -> float | None:
+    """step + spread across the take; None when the audio isn't local."""
+    sys.path.insert(0, str(HERE / "tools"))
+    from movement import movement
+    a = take_audio(j)
+    if not a:
         return None
-    low = (prompt or "").lower()
-    for l in COLE_VERDICTS.read_text().splitlines():
-        if l.strip():
-            r = json.loads(l)
-            if r.get("verdict") == "no" and r.get("pattern") and all(x.lower() in low for x in r["pattern"]):
-                return r
-    return None
+    m = movement(a)
+    return round(m["step_db"] + m["spread_db"], 2)
 
 
 def loop_x2(jid: str, title: str, vid: Path | None = None) -> dict:
@@ -195,8 +196,7 @@ def loop_x2(jid: str, title: str, vid: Path | None = None) -> dict:
     wav, vid = HERE / "output" / f"{jid}_export_loop.wav", vid or HERE / "output" / f"{jid}_seedance.mp4"
     loop_s = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(wav)],
                                   capture_output=True, text=True, check=True).stdout.strip())
-    no = turned_down(json.load(open(HERE / "saved_jobs" / f"{jid}.json")).get("prompt", ""))
-    folder = HELD if no else LOOPS   # Chief 2026-11-18: check against his record before anything goes up for review
+    folder = LOOPS
     folder.mkdir(parents=True, exist_ok=True)
     out = folder / f"{jid}.mp4"
     subprocess.run(["ffmpeg", "-y", "-v", "error", "-stream_loop", "-1", "-i", str(vid), "-stream_loop", "1", "-i", str(wav),
@@ -208,8 +208,6 @@ def loop_x2(jid: str, title: str, vid: Path | None = None) -> dict:
     if abs(got - 2 * loop_s) > 1:
         raise RuntimeError(f"loop file is {got:.1f} s, want {2 * loop_s:.1f}")
     meta = {"seam_s": round(loop_s, 3), "loop_s": round(loop_s, 3), "title": title, "duration_s": round(got, 3)}
-    if no:
-        meta["held"] = f"like {no['job_id']}, which Cole turned down {no['date']}: {no['words']}"
     (folder / f"{jid}.json").write_text(json.dumps(meta))
     return meta
 
@@ -350,7 +348,7 @@ def queue() -> list[dict]:
             jid = chosen[jid]
             title = (json.load(open(HERE / "saved_jobs" / f"{jid}.json")).get("config") or {}).get("title") or title
         v = fam.get(family(title))
-        if v == "no" or turned_down(j.get("prompt", "")):
+        if v == "no":
             continue
         picks.append({"job_id": jid, "tier": -1 if v == "yes" else tier, "key": key, "rating": rating, "title": title,
                       "world": (stock_order.get(jid, (0, {}))[1] or {}).get("world")})
@@ -557,6 +555,8 @@ def main():
             rec["status"] = "skipped: under 2 min or audio missing"
         elif perc > MAX_PERC:
             rec["status"] = f"skipped: beat (perc {perc})"
+        elif (mv := moves(j)) is not None and mv < MIN_MOVEMENT:
+            rec["status"] = f"skipped: flat ({mv} < {MIN_MOVEMENT}, Cole 2026-11-18: 'same flat drone the whole way')"
         elif (gap := head_gap(take_audio(j))) < MIN_HEAD_DB:
             rec["status"] = f"skipped: quiet head ({gap} dB)"
         else:
@@ -567,8 +567,8 @@ def main():
                         "playlistId": pl, "resourceId": {"kind": "youtube#video", "videoId": rec["video_id"]}}}).execute()
                 offload(p["job_id"])
                 made, streak = made + 1, 0
-                if rec.get("loop_file") and Path(rec["loop_file"]).exists():
-                    ready_row = rec.get("title") or p["title"]
+                if rec.get("loop_file") and Path(rec["loop_file"]).exists() and not ready_row:
+                    ready_row = rec["loop_file"]
             except Exception as e:
                 rec["status"] = f"failed: {str(e)[:300]}"
                 streak += 1
@@ -585,20 +585,11 @@ def main():
             print("STOP: 3 failures in a row, something upstream is broken", flush=True)
             break
     print(f"{time.strftime('%F %T')} DRAFTS DONE: {made} uploaded private to '{PLAYLIST_TITLE}'", flush=True)
-    today = subprocess.run([os.path.expanduser("~/bin/ready"), "--list", "--since", time.strftime("%Y-%m-%d")],
-                           capture_output=True, text=True).stdout
-    if ready_row and "[Ambientizer] 10-minute loop" in today:   # one row a day (Chief, 2026-11-18)
-        print("ready: today's row already listed", flush=True)
-    elif ready_row and HOLD_READY:
-        print("ready: held until the Listen review queue (~/bin/review) lands (Chief, 2026-11-18)", flush=True)
-    elif ready_row:
-        # One "Ready to try" row on the Inbox Now tab once the loop file exists; no --asked, so no buzz.
-        # (Cole approved ~/bin/ready 2026-11-17; Chief 2026-11-18: one a day, worded as what it is.)
-        t = ready_row.split(" | ")[1] if " | " in ready_row else ready_row
-        r = subprocess.run([os.path.expanduser("~/bin/ready"), f"10-minute loop: {t}", "https://macbook-pro.tail07d072.ts.net/listen",
-                            "--project", "Ambientizer"],
+    if ready_row:
+        # Chief 2026-11-18: the Listen page is a short review queue; one item a day through ~/bin/review, no ready row.
+        r = subprocess.run([os.path.expanduser("~/bin/review"), REVIEW_ASK, ready_row, "--project", "Ambientizer"],
                            capture_output=True, text=True, timeout=60)
-        print(f"ready: exit {r.returncode} {(r.stdout + r.stderr).strip()[:200]}", flush=True)
+        print(f"review: exit {r.returncode} {(r.stdout + r.stderr).strip()[:200]}", flush=True)
 
 
 if __name__ == "__main__":
