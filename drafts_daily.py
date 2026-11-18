@@ -39,7 +39,9 @@ VERDICTS = HERE / "data" / "draft_verdicts.jsonl"
 PLAYLIST_FILE = HERE / "data" / "drafts_playlist.json"
 CHOSEN = HERE / "data" / "chosen_versions.json"   # {original job: {"chosen": version picked, "others": versions not}}
 PLAYLIST_TITLE = "Drafts to review"
-LISTEN_IS_REAL = False   # see verdicts(); also holds the "Ready to try" row, which pointed Cole at the 75 s preview
+# Listen thumbs count only from when the page started playing the 10-minute loop files (2026-11-18 08:00 PT);
+# before that it played the 75 s preview, and a play or thumb on that is no verdict (Cole via Chief, 2026-11-18).
+LISTEN_LOOPS_FROM = time.mktime(time.strptime("2026-11-18 08:00", "%Y-%m-%d %H:%M"))
 PREVIEWS = HERE / "output" / "_previews" / "drafts"
 APP_URL = os.environ.get("AMBIENTIZER_APP_URL", "http://127.0.0.1:5050")
 PER_DAY = 1
@@ -165,6 +167,33 @@ def check_joins(path: str) -> None:
             raise RuntimeError(f"bad join in {stream}: {len(bad)} timestamp gaps from {bad[0]} s")
 
 
+LOOPS = HERE / "output" / "_previews" / "loops"
+
+
+def loop_x2(jid: str, title: str, vid: Path | None = None) -> dict:
+    """What Cole reviews on the Listen page (Chief relay of Cole, 2026-11-18: "I just need the fucking 10-minute loop"
+    and "two loops next to each other... That's how the entire fucking app works"). The take's loop played twice
+    back to back, the app's 2x audition, over the Seedance loop, joined the way the published hour joins them
+    (-stream_loop on the same export_loop.wav and the same 12 s clip), so the seam at loop_s is the real seam.
+    No intro title and no fades: those sit only at the hour's two ends. 720p H.264/AAC, faststart."""
+    wav, vid = HERE / "output" / f"{jid}_export_loop.wav", vid or HERE / "output" / f"{jid}_seedance.mp4"
+    loop_s = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(wav)],
+                                  capture_output=True, text=True, check=True).stdout.strip())
+    LOOPS.mkdir(parents=True, exist_ok=True)
+    out = LOOPS / f"{jid}.mp4"
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-stream_loop", "-1", "-i", str(vid), "-stream_loop", "1", "-i", str(wav),
+                    "-map", "0:v", "-map", "1:a", "-t", f"{2 * loop_s:.3f}", "-vf", "scale=-2:720", "-c:v", "libx264",
+                    "-preset", "veryfast", "-crf", "24", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
+                    "-movflags", "+faststart", str(out)], check=True)
+    got = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(out)],
+                               capture_output=True, text=True, check=True).stdout.strip())
+    if abs(got - 2 * loop_s) > 1:
+        raise RuntimeError(f"loop file is {got:.1f} s, want {2 * loop_s:.1f}")
+    meta = {"seam_s": round(loop_s, 3), "loop_s": round(loop_s, 3), "title": title, "duration_s": round(got, 3)}
+    (LOOPS / f"{jid}.json").write_text(json.dumps(meta))
+    return meta
+
+
 def cut_preview(src: str, jid: str) -> str:
     """The first 75 s at 720p, about 20 MB: enough to judge the scene, the loop and the sound without opening the hour.
     Served by the app, so it plays on a phone over the private network."""
@@ -242,10 +271,6 @@ def verdicts() -> dict:
                     out[r["job_id"]] = ("no", r["at"])
                 elif r["status"] in ("public", "unlisted"):
                     out[r["job_id"]] = ("yes", r["at"])
-    # Off since 2026-11-18: every Listen item for a draft is the 75 s preview, not the video, so a thumb or a play
-    # there is not a verdict on the draft (Chief relay of Cole, 07:37). Turn back on once Listen carries the real piece.
-    if not LISTEN_IS_REAL:
-        return {k: v[0] for k, v in out.items()}
     try:
         items = json.loads(subprocess.run([os.path.expanduser("~/bin/reactions"), "--project", "ambientizer", "--json"],
                                           capture_output=True, text=True, timeout=60).stdout or "{}").get("items", [])
@@ -253,8 +278,9 @@ def verdicts() -> dict:
         print(f"reactions failed: {str(e)[:200]}", flush=True); items = []
     for it in items:
         m = re.match(r"([0-9a-f]{8})\.mp4$", it.get("file") or "")   # the preview's file name; label is the title, item a hash
-        if m and it.get("rating") in ("up", "down"):
-            out[m.group(1)] = ("yes" if it["rating"] == "up" else "no", time.strftime("%FT%T", time.localtime(it.get("last") or 0)))
+        rs = [r for r in it.get("reactions", []) if (r.get("ts") or 0) >= LISTEN_LOOPS_FROM and r.get("kind") in ("up", "down", "clear")]
+        if m and rs and rs[-1]["kind"] != "clear":
+            out[m.group(1)] = ("yes" if rs[-1]["kind"] == "up" else "no", time.strftime("%FT%T", time.localtime(rs[-1].get("ts") or 0)))
     return {k: v[0] for k, v in out.items()}
 
 
@@ -419,10 +445,12 @@ def draft(p: dict) -> dict:
         raise RuntimeError("upload timed out")
     done = json.load(open(HERE / "saved_jobs" / f"{jid}.json"))
     out = {"title": title, "video_id": done.get("youtube_video_id"), "url": s.get("youtube_url")}
+    # No 75 s preview any more (2026-11-18): Cole took a one-minute clip for a broken video. The pointer is the
+    # private YouTube hour itself, and only once spot_check passes.
     try:
-        out["preview"] = cut_preview(str(HERE / done["visual_video_path"]), jid)
-    except Exception as e:   # the upload worked; a preview isn't worth failing the draft over
-        print(f"  preview failed: {str(e)[:200]}", flush=True)
+        out["loop_file"] = str(LOOPS / f"{jid}.mp4"); loop_x2(jid, title)
+    except Exception as e:   # the upload worked; the review file failing shouldn't undo the draft
+        out.pop("loop_file"); print(f"  loop file failed: {str(e)[:200]}", flush=True)
     return out
 
 
@@ -493,7 +521,7 @@ def main():
             print("  would draft", p["job_id"], p["rating"], p["title"][:70])
         return
     pl = playlist_id(yt)
-    made, streak = 0, 0
+    made, streak, ready_row = 0, 0, None
     for p in q:
         if made >= a.n:
             break
@@ -518,7 +546,9 @@ def main():
                     yt.playlistItems().insert(part="snippet", body={"snippet": {
                         "playlistId": pl, "resourceId": {"kind": "youtube#video", "videoId": rec["video_id"]}}}).execute()
                 offload(p["job_id"])
-                made, streak, last_title = made + 1, 0, rec.get("title") or p["title"]
+                made, streak = made + 1, 0
+                if rec.get("loop_file"):
+                    ready_row = rec.get("title") or p["title"]
             except Exception as e:
                 rec["status"] = f"failed: {str(e)[:300]}"
                 streak += 1
@@ -535,12 +565,12 @@ def main():
             print("STOP: 3 failures in a row, something upstream is broken", flush=True)
             break
     print(f"{time.strftime('%F %T')} DRAFTS DONE: {made} uploaded private to '{PLAYLIST_TITLE}'", flush=True)
-    if made and LISTEN_IS_REAL:
-        # One "Ready to try" row per run on the Inbox Now tab, pointing at the Listen page; no --asked, so no buzz
-        # (Chief relay 2026-11-17: Cole approved ~/bin/ready so he stops asking "is it ready").
-        short = last_title.split(" | ")[1] if " | " in last_title else last_title
-        r = subprocess.run([os.path.expanduser("~/bin/ready"), f"Today's ambient draft: {short}",
-                            "https://macbook-pro.tail07d072.ts.net/listen", "--project", "Ambientizer"],
+    if ready_row:
+        # One "Ready to try" row on the Inbox Now tab once the loop file exists; no --asked, so no buzz.
+        # (Cole approved ~/bin/ready 2026-11-17; Chief 2026-11-18: one a day, worded as what it is.)
+        t = ready_row.split(" | ")[1] if " | " in ready_row else ready_row
+        r = subprocess.run([os.path.expanduser("~/bin/ready"), f"10-minute loop: {t}", "https://macbook-pro.tail07d072.ts.net/listen",
+                            "--project", "Ambientizer"],
                            capture_output=True, text=True, timeout=60)
         print(f"ready: exit {r.returncode} {(r.stdout + r.stderr).strip()[:200]}", flush=True)
 
