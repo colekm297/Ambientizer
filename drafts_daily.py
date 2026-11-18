@@ -513,7 +513,7 @@ def main():
                     yt.playlistItems().insert(part="snippet", body={"snippet": {
                         "playlistId": pl, "resourceId": {"kind": "youtube#video", "videoId": rec["video_id"]}}}).execute()
                 offload(p["job_id"])
-                made, streak = made + 1, 0
+                made, streak, last_title = made + 1, 0, rec.get("title") or p["title"]
             except Exception as e:
                 rec["status"] = f"failed: {str(e)[:300]}"
                 streak += 1
@@ -530,6 +530,14 @@ def main():
             print("STOP: 3 failures in a row, something upstream is broken", flush=True)
             break
     print(f"{time.strftime('%F %T')} DRAFTS DONE: {made} uploaded private to '{PLAYLIST_TITLE}'", flush=True)
+    if made:
+        # One "Ready to try" row per run on the Inbox Now tab, pointing at the Listen page; no --asked, so no buzz
+        # (Chief relay 2026-11-17: Cole approved ~/bin/ready so he stops asking "is it ready").
+        short = last_title.split(" | ")[1] if " | " in last_title else last_title
+        r = subprocess.run([os.path.expanduser("~/bin/ready"), f"Today's ambient draft: {short}",
+                            "https://macbook-pro.tail07d072.ts.net/listen", "--project", "Ambientizer"],
+                           capture_output=True, text=True, timeout=60)
+        print(f"ready: exit {r.returncode} {(r.stdout + r.stderr).strip()[:200]}", flush=True)
 
 
 if __name__ == "__main__":
