@@ -88,6 +88,15 @@ def rated_evidence(days=90):
 
 
 LESSONS = HERE / "data" / "daily_lessons.md"
+COLE_VERDICTS = HERE / "data" / "cole_verdicts.jsonl"   # every verdict Cole gave, his words (2026-11-18)
+
+
+def verdict_log() -> str:
+    if not COLE_VERDICTS.exists():
+        return "(none yet)"
+    rows = [json.loads(l) for l in COLE_VERDICTS.read_text().splitlines() if l.strip()]
+    keep = ("date", "job_id", "what", "verdict", "words", "lesson", "prompt")
+    return json.dumps([{k: r[k] for k in keep if r.get(k)} for r in rows], indent=1)
 
 
 def write_report(rows):
@@ -148,7 +157,9 @@ def design(rows):
     user = (
         f"House guide (read the 3-star pattern section closely):\n\n{guide}\n\n"
         f"The 3-star prompts, verbatim:\n\n" + "\n\n---\n\n".join(best_prompts()) +
-        f"\n\nWhat the ratings have taught so far (your own notes from earlier runs):\n{lessons}\n\n"
+        f"\n\nCole's own verdicts, his exact words, newest last. These outrank your lessons: never design the kind of "
+        f"take he turned down (a 'no' row), and build toward what he said yes to:\n{verdict_log()}\n\n"
+        f"What the ratings have taught so far (your own notes from earlier runs):\n{lessons}\n\n"
         f"Every take starred in the last 90 days, best first, with the exact prompt:\n{json.dumps(evidence, indent=1)}\n\n"
         f"Full daily experiment log (0 stars = not rated yet, not a dislike):\n{json.dumps(history, indent=1)}\n\n"
         f"Policy: explore {explore_share}; otherwise exploit, meaning take one of the best-rated takes above and change "

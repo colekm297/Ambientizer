@@ -168,6 +168,22 @@ def check_joins(path: str) -> None:
 
 
 LOOPS = HERE / "output" / "_previews" / "loops"
+HOLD_READY = True
+HELD = HERE / "output" / "_previews" / "loops_held"   # made, but the kind of thing Cole already turned down
+COLE_VERDICTS = HERE / "data" / "cole_verdicts.jsonl"   # every verdict Cole has given, his words; read before making or showing
+
+
+def turned_down(prompt: str) -> dict | None:
+    """The first rejection in Cole's record whose pattern this prompt matches (every string in it present), else None."""
+    if not COLE_VERDICTS.exists():
+        return None
+    low = (prompt or "").lower()
+    for l in COLE_VERDICTS.read_text().splitlines():
+        if l.strip():
+            r = json.loads(l)
+            if r.get("verdict") == "no" and r.get("pattern") and all(x.lower() in low for x in r["pattern"]):
+                return r
+    return None
 
 
 def loop_x2(jid: str, title: str, vid: Path | None = None) -> dict:
@@ -179,8 +195,10 @@ def loop_x2(jid: str, title: str, vid: Path | None = None) -> dict:
     wav, vid = HERE / "output" / f"{jid}_export_loop.wav", vid or HERE / "output" / f"{jid}_seedance.mp4"
     loop_s = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(wav)],
                                   capture_output=True, text=True, check=True).stdout.strip())
-    LOOPS.mkdir(parents=True, exist_ok=True)
-    out = LOOPS / f"{jid}.mp4"
+    no = turned_down(json.load(open(HERE / "saved_jobs" / f"{jid}.json")).get("prompt", ""))
+    folder = HELD if no else LOOPS   # Chief 2026-11-18: check against his record before anything goes up for review
+    folder.mkdir(parents=True, exist_ok=True)
+    out = folder / f"{jid}.mp4"
     subprocess.run(["ffmpeg", "-y", "-v", "error", "-stream_loop", "-1", "-i", str(vid), "-stream_loop", "1", "-i", str(wav),
                     "-map", "0:v", "-map", "1:a", "-t", f"{2 * loop_s:.3f}", "-vf", "scale=-2:720", "-c:v", "libx264",
                     "-preset", "veryfast", "-crf", "24", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
@@ -190,7 +208,9 @@ def loop_x2(jid: str, title: str, vid: Path | None = None) -> dict:
     if abs(got - 2 * loop_s) > 1:
         raise RuntimeError(f"loop file is {got:.1f} s, want {2 * loop_s:.1f}")
     meta = {"seam_s": round(loop_s, 3), "loop_s": round(loop_s, 3), "title": title, "duration_s": round(got, 3)}
-    (LOOPS / f"{jid}.json").write_text(json.dumps(meta))
+    if no:
+        meta["held"] = f"like {no['job_id']}, which Cole turned down {no['date']}: {no['words']}"
+    (folder / f"{jid}.json").write_text(json.dumps(meta))
     return meta
 
 
@@ -330,7 +350,7 @@ def queue() -> list[dict]:
             jid = chosen[jid]
             title = (json.load(open(HERE / "saved_jobs" / f"{jid}.json")).get("config") or {}).get("title") or title
         v = fam.get(family(title))
-        if v == "no":
+        if v == "no" or turned_down(j.get("prompt", "")):
             continue
         picks.append({"job_id": jid, "tier": -1 if v == "yes" else tier, "key": key, "rating": rating, "title": title,
                       "world": (stock_order.get(jid, (0, {}))[1] or {}).get("world")})
@@ -547,7 +567,7 @@ def main():
                         "playlistId": pl, "resourceId": {"kind": "youtube#video", "videoId": rec["video_id"]}}}).execute()
                 offload(p["job_id"])
                 made, streak = made + 1, 0
-                if rec.get("loop_file"):
+                if rec.get("loop_file") and Path(rec["loop_file"]).exists():
                     ready_row = rec.get("title") or p["title"]
             except Exception as e:
                 rec["status"] = f"failed: {str(e)[:300]}"
@@ -569,6 +589,8 @@ def main():
                            capture_output=True, text=True).stdout
     if ready_row and "[Ambientizer] 10-minute loop" in today:   # one row a day (Chief, 2026-11-18)
         print("ready: today's row already listed", flush=True)
+    elif ready_row and HOLD_READY:
+        print("ready: held until the Listen review queue (~/bin/review) lands (Chief, 2026-11-18)", flush=True)
     elif ready_row:
         # One "Ready to try" row on the Inbox Now tab once the loop file exists; no --asked, so no buzz.
         # (Cole approved ~/bin/ready 2026-11-17; Chief 2026-11-18: one a day, worded as what it is.)
