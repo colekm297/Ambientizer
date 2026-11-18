@@ -39,6 +39,7 @@ VERDICTS = HERE / "data" / "draft_verdicts.jsonl"
 PLAYLIST_FILE = HERE / "data" / "drafts_playlist.json"
 CHOSEN = HERE / "data" / "chosen_versions.json"   # {original job: {"chosen": version picked, "others": versions not}}
 PLAYLIST_TITLE = "Drafts to review"
+LISTEN_IS_REAL = False   # see verdicts(); also holds the "Ready to try" row, which pointed Cole at the 75 s preview
 PREVIEWS = HERE / "output" / "_previews" / "drafts"
 APP_URL = os.environ.get("AMBIENTIZER_APP_URL", "http://127.0.0.1:5050")
 PER_DAY = 1
@@ -241,6 +242,10 @@ def verdicts() -> dict:
                     out[r["job_id"]] = ("no", r["at"])
                 elif r["status"] in ("public", "unlisted"):
                     out[r["job_id"]] = ("yes", r["at"])
+    # Off since 2026-11-18: every Listen item for a draft is the 75 s preview, not the video, so a thumb or a play
+    # there is not a verdict on the draft (Chief relay of Cole, 07:37). Turn back on once Listen carries the real piece.
+    if not LISTEN_IS_REAL:
+        return {k: v[0] for k, v in out.items()}
     try:
         items = json.loads(subprocess.run([os.path.expanduser("~/bin/reactions"), "--project", "ambientizer", "--json"],
                                           capture_output=True, text=True, timeout=60).stdout or "{}").get("items", [])
@@ -530,7 +535,7 @@ def main():
             print("STOP: 3 failures in a row, something upstream is broken", flush=True)
             break
     print(f"{time.strftime('%F %T')} DRAFTS DONE: {made} uploaded private to '{PLAYLIST_TITLE}'", flush=True)
-    if made:
+    if made and LISTEN_IS_REAL:
         # One "Ready to try" row per run on the Inbox Now tab, pointing at the Listen page; no --asked, so no buzz
         # (Chief relay 2026-11-17: Cole approved ~/bin/ready so he stops asking "is it ready").
         short = last_title.split(" | ")[1] if " | " in last_title else last_title
