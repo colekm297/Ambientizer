@@ -194,6 +194,42 @@ def loop_x2(jid: str, title: str, vid: Path | None = None) -> dict:
     (-stream_loop on the same export_loop.wav and the same 12 s clip), so the seam at loop_s is the real seam.
     No intro title and no fades: those sit only at the hour's two ends. 720p H.264/AAC, faststart."""
     wav, vid = HERE / "output" / f"{jid}_export_loop.wav", vid or HERE / "output" / f"{jid}_seedance.mp4"
+    job = json.load(open(HERE / "saved_jobs" / f"{jid}.json"))
+    if not wav.exists():
+        # The hour's export deletes export_loop.wav once it's joined (2026-11-18 run failed on this). Re-render the same
+        # loop from the saved config: render_export_loop is what the export itself calls.
+        sys.path.insert(0, str(HERE))
+        from schemas import SoundscapeConfig
+        from audio_engine import AudioEngine, SampleLibrary
+        from media_store import get_store
+        store = get_store()
+        for L in job["config"].get("layers") or []:   # offload() moved the take's audio to R2 after the hour
+            p = L.get("generated_audio_path")
+            if p:
+                p = str(p if Path(p).is_absolute() else HERE / p)
+                if not Path(p).exists() and store.enabled and store.lookup(p):
+                    store.restore(p)
+        layers = [str(p if Path(p).is_absolute() else HERE / p) for L in job["config"].get("layers") or []
+                  if (p := L.get("generated_audio_path"))]
+        if any(Path(p).exists() for p in layers):
+            eng = AudioEngine(SampleLibrary(str(HERE / "samples")) if (HERE / "samples").is_dir() else None)
+            eng.render_export_loop(SoundscapeConfig.from_dict(job["config"])).export(str(wav), format="wav")
+        else:
+            # No layer audio: the app's export (web/app.py, can_render_loop False) then loops the take file itself,
+            # first of flat / audio_path / output_path / raw_output_path. Use the same file so the seam is the real one.
+            for p in (HERE / "output" / f"{jid}_flat.wav", job.get("audio_path"), job.get("output_path"), job.get("raw_output_path")):
+                if p and (q := Path(p) if Path(p).is_absolute() else HERE / p).exists():
+                    wav = q
+                    break
+    peak = subprocess.run(["ffmpeg", "-hide_banner", "-i", str(wav), "-af", "volumedetect", "-f", "null", "-"],
+                          capture_output=True, text=True).stderr
+    m = re.search(r"max_volume: (-?[\d.]+) dB", peak)
+    if not m or float(m.group(1)) < -40:   # 2026-11-18: a re-render with the take missing came out at -91 dB
+        if wav.name.endswith("_export_loop.wav"):
+            wav.unlink(missing_ok=True)
+        raise RuntimeError(f"loop audio silent ({m.group(1) if m else '?'} dB peak)")
+    if not vid.exists() and job.get("visual_clip_path"):
+        vid = Path(job["visual_clip_path"])
     loop_s = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(wav)],
                                   capture_output=True, text=True, check=True).stdout.strip())
     folder = LOOPS
