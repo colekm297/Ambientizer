@@ -219,9 +219,53 @@ def fl_seam(jid: str) -> dict:
     return fl.seam_report(str(HERE / "output" / f"{jid}_seedance.mp4"))
 
 
+def family(take_title: str) -> str:
+    """The prompt a take came from, without its world label or version tag, so sibling takes share a key.
+    'Stock · Odyssey · The Odyssey soundscape. Calypso's island, cedar sm (from your 2-star, #1) · v1' and its #2 · v2
+    both key to "the odyssey soundscape. calypso's island, cedar sm"."""
+    t = take_title.split(" · ")
+    t = t[2] if len(t) >= 3 else t[-1]
+    return re.split(r"\s*\(from your|\s*·\s*v\d", t)[0].strip().lower()[:60]
+
+
+def verdicts() -> dict:
+    """Cole's verdict per drafted job, newest wins: 'no' or 'yes'.
+    From YouTube (a delete is a no, a publish is a yes, still private is nothing; Chief relay 2026-11-17) and from the
+    Inbox Listen page thumbs (~/bin/reactions). Never read a missing reaction as not listened."""
+    out = {}
+    if VERDICTS.exists():
+        for l in VERDICTS.read_text().splitlines():
+            if l.strip():
+                r = json.loads(l)
+                if r["status"] == "deleted":
+                    out[r["job_id"]] = ("no", r["at"])
+                elif r["status"] in ("public", "unlisted"):
+                    out[r["job_id"]] = ("yes", r["at"])
+    try:
+        items = json.loads(subprocess.run([os.path.expanduser("~/bin/reactions"), "--project", "ambientizer", "--json"],
+                                          capture_output=True, text=True, timeout=60).stdout or "{}").get("items", [])
+    except Exception as e:
+        print(f"reactions failed: {str(e)[:200]}", flush=True); items = []
+    for it in items:
+        m = re.search(r"\b[0-9a-f]{8}\b", f"{it.get('item', '')} {it.get('label', '')}")
+        if m and it.get("rating") in ("up", "down"):
+            out[m.group(0)] = ("yes" if it["rating"] == "up" else "no", time.strftime("%FT%T", time.localtime(it.get("last") or 0)))
+    return {k: v[0] for k, v in out.items()}
+
+
 def queue() -> list[dict]:
     """Takes to draft, best first."""
     done = tried()
+    # A no on a draft drops the rest of its prompt family; a yes moves the family to the front.
+    takes = {}
+    if LOG.exists():
+        for l in LOG.read_text().splitlines():
+            if l.strip():
+                r = json.loads(l); takes[r["job_id"]] = r.get("take_title", "")
+    fam = {}
+    for jid, v in verdicts().items():
+        if takes.get(jid):
+            fam[family(takes[jid])] = v
     stock_order = {}
     for f in sorted(glob.glob(str(HERE / "data" / "stock" / "wave*.jsonl")) + glob.glob(str(HERE / "data" / "stock" / "burn_*.jsonl"))):
         for l in Path(f).read_text().splitlines():
@@ -254,7 +298,10 @@ def queue() -> list[dict]:
         if jid in chosen:   # the version picked over the original stands in for it
             jid = chosen[jid]
             title = (json.load(open(HERE / "saved_jobs" / f"{jid}.json")).get("config") or {}).get("title") or title
-        picks.append({"job_id": jid, "tier": tier, "key": key, "rating": rating, "title": title,
+        v = fam.get(family(title))
+        if v == "no":
+            continue
+        picks.append({"job_id": jid, "tier": -1 if v == "yes" else tier, "key": key, "rating": rating, "title": title,
                       "world": (stock_order.get(jid, (0, {}))[1] or {}).get("world")})
     first = time.strftime("%Y-%m-%d") < ODYSSEY_UNTIL
     picks.sort(key=lambda p: (not (first and ODYSSEY.search(f"{p['title']} {p['world']}")), p["tier"], p["key"]))
@@ -425,6 +472,13 @@ def main():
         for r in record_verdicts(yt_client()):
             print(r["status"], r["video_id"], r["title"], flush=True)
         return
+    yt = None
+    if not a.dry_run:
+        yt = yt_client()
+        try:
+            record_verdicts(yt)
+        except Exception as e:
+            print(f"verdicts failed: {str(e)[:200]}", flush=True)
     q = queue()
     print(f"{time.strftime('%F %T')} queue: {len(q)} takes "
           f"({sum(p['tier'] == 0 for p in q)} 3-star, {sum(p['tier'] == 1 for p in q)} 2-star, "
@@ -433,11 +487,6 @@ def main():
         for p in q[:a.n]:
             print("  would draft", p["job_id"], p["rating"], p["title"][:70])
         return
-    yt = yt_client()
-    try:
-        record_verdicts(yt)
-    except Exception as e:
-        print(f"verdicts failed: {str(e)[:200]}", flush=True)
     pl = playlist_id(yt)
     made, streak = 0, 0
     for p in q:
