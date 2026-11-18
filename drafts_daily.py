@@ -565,7 +565,11 @@ def main():
             print("STOP: 3 failures in a row, something upstream is broken", flush=True)
             break
     print(f"{time.strftime('%F %T')} DRAFTS DONE: {made} uploaded private to '{PLAYLIST_TITLE}'", flush=True)
-    if ready_row:
+    today = subprocess.run([os.path.expanduser("~/bin/ready"), "--list", "--since", time.strftime("%Y-%m-%d")],
+                           capture_output=True, text=True).stdout
+    if ready_row and "[Ambientizer] 10-minute loop" in today:   # one row a day (Chief, 2026-11-18)
+        print("ready: today's row already listed", flush=True)
+    elif ready_row:
         # One "Ready to try" row on the Inbox Now tab once the loop file exists; no --asked, so no buzz.
         # (Cole approved ~/bin/ready 2026-11-17; Chief 2026-11-18: one a day, worded as what it is.)
         t = ready_row.split(" | ")[1] if " | " in ready_row else ready_row
