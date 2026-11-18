@@ -247,9 +247,9 @@ def verdicts() -> dict:
     except Exception as e:
         print(f"reactions failed: {str(e)[:200]}", flush=True); items = []
     for it in items:
-        m = re.search(r"\b[0-9a-f]{8}\b", f"{it.get('item', '')} {it.get('label', '')}")
+        m = re.match(r"([0-9a-f]{8})\.mp4$", it.get("file") or "")   # the preview's file name; label is the title, item a hash
         if m and it.get("rating") in ("up", "down"):
-            out[m.group(0)] = ("yes" if it["rating"] == "up" else "no", time.strftime("%FT%T", time.localtime(it.get("last") or 0)))
+            out[m.group(1)] = ("yes" if it["rating"] == "up" else "no", time.strftime("%FT%T", time.localtime(it.get("last") or 0)))
     return {k: v[0] for k, v in out.items()}
 
 
