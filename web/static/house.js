@@ -112,10 +112,11 @@
     }
   }
   var measureQueued = false;
-  window.addEventListener("scroll", function () {
+  // The page scrolls inside .container now (the shell), so listen in the capture phase to hear any scroller.
+  document.addEventListener("scroll", function () {
     if (measureQueued) return; measureQueued = true;
     requestAnimationFrame(function () { measureQueued = false; measure(); });
-  }, { passive: true });
+  }, { passive: true, capture: true });
   window.addEventListener("resize", measure);
   setTimeout(measure, 2600);
   if (gp) new MutationObserver(measure).observe(gp, { attributes: true, attributeFilter: ["class"] });
