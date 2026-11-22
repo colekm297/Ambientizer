@@ -40,7 +40,7 @@ body.ds ::placeholder { color: var(--ink); opacity: 1; font-weight: 300; }
 
 /* ---------- 2. Page frame: capped and centred on wide screens ---------- */
 body.ds .container {
-  max-width: 1480px;
+  max-width: 2200px;
   margin: 0 auto;
   padding: clamp(20px, 3vw, 40px) clamp(16px, 3vw, 40px) 0;
 }
@@ -53,7 +53,7 @@ body.ds .header {
 body.ds .header-words { min-width: 0; }
 body.ds .logo {
   font: var(--text-display);
-  font-size: clamp(38px, 4.2vw, 60px);
+  font-size: var(--fs-display);
   letter-spacing: var(--track-display);
   color: var(--ink);
   background: none; -webkit-text-fill-color: currentColor;
@@ -99,7 +99,7 @@ body.ds .generator-panel { background: none; box-shadow: none; padding: 0; margi
 body.ds .create-grid { gap: var(--space-5); }
 @media (min-width: 1000px) {
   body.ds .create-grid {
-    grid-template-columns: minmax(230px, 270px) minmax(0, 1fr) minmax(260px, 310px);
+    grid-template-columns: minmax(14.5rem, clamp(14.5rem, 18vw, 22rem)) minmax(0, 1fr) minmax(16rem, clamp(16rem, 20vw, 24rem));
     gap: clamp(20px, 2vw, 32px);
   }
   body.ds .create-col-generate { top: var(--space-6); }
@@ -198,7 +198,7 @@ body.ds .plan-add-inst {
   padding: 6px 12px; min-height: 32px; width: auto;
 }
 body.ds .prompt-card .prompt-main {
-  font: var(--text-body) !important; font-size: 17px !important; line-height: 1.6 !important; color: var(--ink);
+  font: var(--text-body) !important; line-height: 1.6 !important; color: var(--ink);
   background: transparent; border: 0; min-height: 190px; max-width: 68ch;
 }
 body.ds .prompt-card .prompt-main:focus { outline: none; background: transparent; }
@@ -245,7 +245,7 @@ body.ds .generate-card.ds-lead {
 }
 body.ds .generate-card .credit-estimate {
   order: 1; text-align: left; padding: 0;
-  font: var(--text-number); font-size: clamp(30px, 2.4vw, 38px); letter-spacing: var(--track-heading);
+  font: var(--text-number); letter-spacing: var(--track-heading);
   color: var(--content-on-inverse); white-space: normal;
 }
 body.ds .generate-card .credit-estimate.credit-warn { color: var(--content-on-inverse); }
@@ -257,7 +257,7 @@ body.ds .generate-card .btn-primary {
   min-height: 56px; margin: 0; width: 100%;
   background: var(--content-on-inverse); color: var(--bg-inverse);
   border: 0; border-radius: var(--radius-control);
-  font: var(--text-label); font-size: 17px; font-weight: 700; letter-spacing: var(--track-label);
+  font: var(--text-label); font-size: var(--fs-body); font-weight: 700; letter-spacing: var(--track-label);
   box-shadow: 0 1px 0 rgba(255,255,255,.6) inset, 0 6px 16px -6px rgba(0,0,0,.45);
   transition: transform var(--ds-dur-spatial-fast) var(--ds-spring-spatial-fast), background-color var(--ds-dur-effects-fast) linear;
 }
@@ -370,11 +370,11 @@ body.ds .library-title { font: var(--text-heading); color: var(--ink); }
 body.ds .library-count, body.ds .library-drafts-link { font: var(--text-meta); color: var(--ink); }
 
 /* ---------- 6. Phone ---------- */
-@media (max-width: 720px) {
+@media (max-width: 720px), (max-height: 500px) and (max-width: 999px) {
   body.ds .container { padding: var(--space-5) var(--gutter) 0; }
   body.ds .header { margin-bottom: var(--space-3); }
   body.ds .tab-nav { flex-wrap: nowrap; justify-content: space-between; gap: 0; margin-bottom: var(--space-5); }
-  body.ds .tab-btn { padding: 0 6px 6px; font-size: 14px; }
+  body.ds .tab-btn { padding: 0 6px 6px; font-size: 0.875rem; }
   /* The prompt leads on the phone too: prompt, then Generate, then the settings */
   body.ds .create-col-prompt { order: 1; }
   body.ds .create-col-generate { order: 2; }
@@ -397,7 +397,7 @@ body.ds .library-count, body.ds .library-drafts-link { font: var(--text-meta); c
 /* Laptop height (about 860 usable): the prompt and Generate both sit above the fold */
 @media (min-width: 1000px) and (max-height: 900px) {
   body.ds .container { padding-top: var(--space-5); }
-  body.ds .logo { font-size: 44px; }
+  body.ds .logo { font-size: var(--fs-display); }
   body.ds .header { margin-bottom: var(--space-3); }
   body.ds .house-illo { width: 120px; }
   body.ds .tab-nav { margin-bottom: var(--space-5); }
@@ -405,9 +405,8 @@ body.ds .library-count, body.ds .library-drafts-link { font: var(--text-meta); c
 }
 
 /* Studio Display and other very wide screens: the whole page reads from across the room */
-@media (min-width: 2000px) {
-  body.ds { zoom: 1.3; }
-}
+/* (2026-11-22, SIZING.md) No whole-page zoom on big screens: type and space stop at their 1440 values, the page caps at
+   2200 px and the columns take the extra width. */
 
 /* Rating in the player: resting is the ink at 42% (the disabled rule, never a grey colour); chosen is amber or a green chip */
 body.ds .fav-star { color: var(--ink); opacity: var(--disabled-opacity); text-shadow: none; }
@@ -437,8 +436,8 @@ body.ds ::selection { background: var(--illo-fill-2); color: var(--ink); }
 body.ds .ds-lead ::selection { background: rgba(243, 241, 234, .3); color: var(--content-on-inverse); }
 body.ds input, body.ds textarea { caret-color: var(--accent); }
 body.ds { scrollbar-color: var(--line-ink) transparent; }
-body.ds .ref-summary-tag { font-size: 13px; }
-body.ds .generate-card .credit-estimate { font-size: clamp(28px, 2.1vw, 34px); }
+body.ds .ref-summary-tag { font-size: var(--fs-meta); }
+body.ds .generate-card .credit-estimate { font-size: var(--fs-number); }
 body.ds .btn-enhance { letter-spacing: var(--track-label); }
 
 /* ---------- 8. Round 2 (2026-11-22, Chief's review) ---------- */
@@ -456,7 +455,7 @@ body.ds .now-playing-title { font: var(--text-label); color: var(--ink); }
 /* The phone's player toggle exists only on the phone */
 body.ds .gp-more { display: none; }
 
-@media (max-width: 720px) {
+@media (max-width: 720px), (max-height: 500px) and (max-width: 999px) {
   body.ds { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
   /* One compact row: title, play, more. Progress runs along the bar's top edge. */
   body.ds .global-player {
@@ -520,10 +519,10 @@ body.ds { padding-bottom: calc(var(--gp-h, 96px) + var(--space-6)); }
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 720px), (max-height: 500px) and (max-width: 999px) {
   body.ds { padding-bottom: calc(var(--gp-h, 76px) + var(--space-5)); }
   body.ds .container { padding-top: var(--space-4); }
-  body.ds .logo { font-size: 34px; }
+  body.ds .logo { font-size: 2.125rem; }
   body.ds .header { margin-bottom: var(--space-2); }
   body.ds .tab-nav { margin-bottom: var(--space-3); }
   /* First screen: prompt, then Generate, then everything else */
@@ -538,11 +537,11 @@ body.ds { padding-bottom: calc(var(--gp-h, 96px) + var(--space-6)); }
   body.ds .prompt-head-tools { width: 100%; }
   body.ds .prompt-head-tools .btn { flex: 1 1 0; min-height: 40px; }
   body.ds .prompt-card { padding: var(--space-3) var(--space-4) var(--space-4); gap: var(--space-2); }
-  body.ds .prompt-card-title { font-size: 23px; min-height: 32px; }
+  body.ds .prompt-card-title { font-size: 1.4375rem; min-height: 2rem; }
   body.ds .prompt-card-header { padding-bottom: var(--space-2); }
-  body.ds .prompt-card .prompt-main { min-height: 96px; max-height: 132px; overflow-y: auto !important; font-size: 16px !important; line-height: 1.5 !important; }
+  body.ds .prompt-card .prompt-main { min-height: 96px; max-height: 132px; overflow-y: auto !important; font-size: var(--fs-body) !important; line-height: 1.5 !important; }
   body.ds .generate-card.ds-lead { padding: var(--space-4); gap: var(--space-3); }
-  body.ds .generate-card .credit-estimate { font-size: 28px; }
+  body.ds .generate-card .credit-estimate { font-size: 1.75rem; }
   body.ds .ink-tide { height: 40px; margin-top: calc(-1 * var(--space-2)); }
   body.ds .generate-card .btn-primary { min-height: 52px; }
   body.ds .generate-card .credit-balance { padding-top: var(--space-2); }
@@ -675,7 +674,7 @@ body.ds .dist-subnav-btn { border: 0; border-radius: 7px; background: transparen
 body.ds .dist-subnav-btn.active { background: var(--seg-pill); color: var(--accent); font-weight: 700; box-shadow: var(--elev-1), var(--edge-light); }
 
 /* Phone: the progress line sits inside the bar's top edge, not on it */
-@media (max-width: 720px) {
+@media (max-width: 720px), (max-height: 500px) and (max-width: 999px) {
   body.ds .global-player .transport-seek { top: 1px; height: 16px; }
   body.ds .global-player { padding-top: calc(var(--space-3) + 6px); }
 }
@@ -687,7 +686,7 @@ body.ds .sp-text, body.ds .progress-text, body.ds .layer-name, body.ds .dist-tit
 }
 body.ds * { text-overflow: clip !important; }
 
-@media (max-width: 720px) {
+@media (max-width: 720px), (max-height: 500px) and (max-width: 999px) {
   /* The LIVE badge belongs with the controls behind the tap */
   body.ds .global-player .mixer-badge { display: none !important; }
   body.ds .global-player.gp-open .mixer-badge:not(.hidden) { display: inline-flex !important; order: 10; }
@@ -695,7 +694,7 @@ body.ds * { text-overflow: clip !important; }
   body.ds .global-player .transport-seek { left: var(--gutter); right: var(--gutter); width: auto; top: 6px; height: 16px; }
   body.ds .global-player { padding-top: calc(var(--space-3) + 14px); }
 }
-@media (max-width: 720px) {
+@media (max-width: 720px), (max-height: 500px) and (max-width: 999px) {
   body.ds .prompt-head-tools .btn { white-space: nowrap; padding: 0 var(--space-2); }
   body.ds .prompt-card .prompt-main { max-height: 164px; }
 }
@@ -738,3 +737,90 @@ body.ds .distribute-row .dist-thumb img, body.ds .distribute-row .dist-thumb .no
     padding-bottom: var(--space-7);
   }
 }
+
+
+/* ---------- 17. Sizing standard (SIZING.md, 2026-11-22) ---------- */
+/* The fluid type and space scale (Utopia, 360 to 1440 px, rem intercepts, every ratio under 2.5). The --text-* shorthands keep
+   their names and take the fluid size, so every component here picks it up. Control insides keep the fixed --space-1..4. */
+:root {
+  --fs-meta: clamp(0.8125rem, 0.7917rem + 0.0926vw, 0.875rem);
+  --fs-label: clamp(0.9375rem, 0.9167rem + 0.0926vw, 1rem);
+  --fs-body: clamp(1rem, 0.9583rem + 0.1852vw, 1.125rem);
+  --fs-heading: clamp(1.3125rem, 1.2917rem + 0.0926vw, 1.375rem);
+  --fs-hand: clamp(1.4375rem, 1.375rem + 0.2778vw, 1.625rem);
+  --fs-title: clamp(1.6875rem, 1.5833rem + 0.463vw, 2rem);
+  --fs-number: clamp(2.5rem, 2.1667rem + 1.4815vw, 3.5rem);
+  --fs-display: clamp(2.875rem, 2.5833rem + 1.2963vw, 3.75rem);
+  --sp-s: clamp(1rem, 0.9583rem + 0.1852vw, 1.125rem);
+  --sp-m: clamp(1.5rem, 1.4375rem + 0.2778vw, 1.6875rem);
+  --sp-l: clamp(2rem, 1.9167rem + 0.3704vw, 2.25rem);
+  --sp-xs-s: clamp(0.75rem, 0.625rem + 0.5556vw, 1.125rem);
+  --sp-s-l: clamp(1rem, 0.5833rem + 1.8519vw, 2.25rem);
+  --sp-m-xl: clamp(1.5rem, 0.875rem + 2.7778vw, 3.375rem);
+  --text-display: 500 var(--fs-display)/1 var(--font-serif);
+  --text-number: 500 var(--fs-number)/1 var(--font-serif);
+  --text-title: 500 var(--fs-title)/1.12 var(--font-serif);
+  --text-heading: 500 var(--fs-heading)/1.2 var(--font-serif);
+  --text-body: 400 var(--fs-body)/1.45 var(--font-sans);
+  --text-label: 600 var(--fs-label)/1.3 var(--font-sans);
+  --text-meta: 500 var(--fs-meta)/1.3 var(--font-sans);
+  --text-hand: 600 var(--fs-hand)/1 var(--font-hand);
+}
+@media (max-height: 500px) { :root { --fs-display: var(--fs-heading); --sp-s-l: var(--sp-s); } }
+
+/* Page gutters and gaps from the space pairs */
+body.ds .container { padding-inline: var(--sp-s-l); padding-top: var(--sp-xs-s); }
+body.ds .create-grid { gap: var(--sp-s-l); }
+body.ds .panel { padding: var(--sp-s-l); margin-bottom: var(--sp-xs-s); }
+body.ds .logo { font-size: var(--fs-display); }
+body.ds .generate-card .credit-estimate { font-size: var(--fs-number); }
+
+@media (max-width: 720px), (max-height: 500px) and (max-width: 999px) { body.ds .logo { font-size: 2.125rem; } }
+
+/* Shell (SIZING 2.1): one full-height grid. The page scrolls inside its own box and the player is the last row, so nothing
+   ever sits under the player. html and body never scroll sideways; the content box clips. */
+html:has(body.ds) { height: 100%; }
+body.ds { height: 100dvh; margin: 0; padding: 0 !important; display: grid; grid-template-rows: minmax(0, 1fr) auto; overflow: hidden; }
+body.ds > .container { min-height: 0; overflow-y: auto; overflow-x: clip; width: 100%; max-width: none; padding-bottom: var(--sp-m-xl);
+  overscroll-behavior: contain; scrollbar-gutter: stable; }
+body.ds > .container > * { max-width: 2200px; margin-inline: auto; }
+body.ds > .global-player { position: relative; left: auto; right: auto; bottom: auto; grid-row: 2; z-index: 5; }
+body.ds > .global-player.hidden { display: none !important; }
+body.ds .create-col-generate { top: var(--sp-s); }
+
+/* Text floor: nothing under 12 px */
+body.ds .ref-time-hint, body.ds .ref-time-label { font: var(--text-meta); }
+
+/* Touch and click targets: 44 px floor on every control (DESIGN.md 11, SIZING 2.3) */
+body.ds :is(button, .btn, select, summary, a.btn, input[type="url"], input[type="text"], input[type="number"], input[type="search"]) { min-height: 44px; }
+body.ds :is(button, .btn, a.btn) { min-width: 44px; }
+body.ds input[type="range"] { min-height: 44px; }
+body.ds .btn-sm { min-height: 44px; }
+body.ds .tab-btn, body.ds .enhance-style-btn, body.ds .dist-subnav-btn { min-height: 44px; }
+body.ds .raw-mode-toggle, body.ds label:has(> input[type="checkbox"]) { min-height: 44px; display: inline-flex; align-items: center; }
+body.ds .prompt-head-tools .btn, body.ds .btn-new-song, body.ds .btn-save-prompt, body.ds .btn-show-saved { min-height: 44px; }
+body.ds .plan-add-inst { min-height: 44px; }
+/* Small marks (rating chips and stars, the note pencil) keep their look and take a 44 px hit area */
+body.ds :is(.fav-chip, .fav-star, .fav-note-btn) { position: relative; display: inline-grid; place-items: center; min-width: 22px; }
+body.ds :is(.fav-chip, .fav-star, .fav-note-btn)::before { content: ""; position: absolute; left: 50%; top: 50%; width: 44px; height: 44px; transform: translate(-50%, -50%); }
+body.ds .layer-solo-btn, body.ds .tl-alt-btn, body.ds .ref-analysis-close, body.ds .library-close, body.ds .library-icon-btn { min-width: 44px; min-height: 44px; }
+
+@media (max-width: 720px), (max-height: 500px) and (max-width: 999px) {
+  /* Phone player: progress on its own 44 px row inside the bar, then title, play and More */
+  body.ds .global-player { padding-top: var(--space-1); }
+  body.ds .global-player .transport-seek { position: static; order: 0; flex: 1 1 100%; height: 44px; min-height: 44px; margin: 0;
+    background: linear-gradient(var(--line-default), var(--line-default)) center / 100% 4px no-repeat; }
+}
+body.ds .prompt-card-title, body.ds #song-title { min-height: 44px !important; }
+body.ds .generate-card .credit-refresh-btn { min-width: 44px; min-height: 44px; margin: -6px -10px -6px 0; }
+/* Sliders keep a 44 px touch zone but draw a thin line, never a fat pill */
+body.ds .transport-seek, body.ds .transport-volume {
+  background: linear-gradient(var(--line-default), var(--line-default)) center / 100% 6px no-repeat !important; border-radius: 0;
+}
+body.ds .generate-card .credit-estimate { font-size: calc(var(--fs-title) * 1.12); }
+@media (min-width: 721px) { body.ds .gp-left { flex: 0 1 34rem; } body.ds .btn-now-playing { min-width: 15rem; } }
+body.ds input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="hidden"]) { min-height: 44px; }
+/* Grid items default to min-width: auto and can push past the track; the player and the content box never do */
+body.ds > .global-player, body.ds > .container { min-width: 0; max-width: 100%; }
+body.ds .gp-transport { min-width: 0; }
+body.ds .gp-transport .transport-seek { min-width: 6rem; }

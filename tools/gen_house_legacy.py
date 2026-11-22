@@ -67,12 +67,18 @@ def walk(text, wrap=None):
             decls = [(p.strip().lower(), v.strip()) for p, v in decls]
             solid = any(p in ("background", "background-color") and COLOR.search(v) and kind(COLOR.findall(v)[0])[0] in ("accent", "red", "green") and kind(COLOR.findall(v)[0])[1] > .5 for p, v in decls)
             new = []
+            # Text floor (SIZING.md): any size under 12 px takes the meta step, which never goes under 13.
+            for p, v in decls:
+                fm = re.match(r"([\d.]+)(rem|px|em)", v) if p == "font-size" else None
+                if fm and (float(fm.group(1)) * (16 if fm.group(2) in ("rem", "em") else 1)) < 12:
+                    new.append("font-size: var(--fs-meta, 0.8125rem)" + (" !important" if "!important" in v else ""))
             for p, v in decls:
                 if not COLOR.search(v): continue
                 m = map_decl(p, v.replace("!important", "").strip(), solid)
                 if m: new.append(f"{p}: {m}" + (" !important" if "!important" in v else ""))
             if new:
                 sels = []
+                pass
                 for s in head.split(","):
                     s = s.strip()
                     if not s or re.match(r"^(html|body|:root)\b", s) or s.startswith("@") or "%" in s or s in ("from", "to"): continue
