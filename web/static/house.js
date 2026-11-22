@@ -184,6 +184,26 @@
     }).observe(cat, { childList: true });
   }
 
+
+  // Listen: a long prompt shows three lines, with a quiet link to read the rest (Cole 11-22).
+  var pp = document.getElementById("player-prompt");
+  if (pp) {
+    var more = document.createElement("button");
+    more.type = "button"; more.className = "prompt-more"; more.hidden = true;
+    pp.insertAdjacentElement("afterend", more);
+    function fitPrompt() {
+      pp.classList.add("is-clamped"); more.textContent = "Show full prompt";
+      requestAnimationFrame(function () { more.hidden = pp.scrollHeight <= pp.clientHeight + 2; if (more.hidden) pp.classList.remove("is-clamped"); });
+    }
+    more.addEventListener("click", function () {
+      var open = pp.classList.toggle("is-clamped") === false;
+      more.textContent = open ? "Show less" : "Show full prompt";
+    });
+    new MutationObserver(fitPrompt).observe(pp, { childList: true, characterData: true, subtree: true });
+    window.addEventListener("resize", function () { if (pp.classList.contains("is-clamped") || more.hidden) fitPrompt(); });
+    fitPrompt();
+  }
+
   // Marks draw after the entrance has settled, so the pen lands on a still page.
   function start() { setTimeout(function () { penReady = true; penActiveTab(); }, reduced ? 0 : 650); }
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(start); else window.addEventListener("load", start);
