@@ -1,0 +1,713 @@
+/* Ambientizer in the house design system (2026-11-22).
+   Loads after style.css and /static/ds/{tokens,motion,components}.css. Visual form only: no markup, data or
+   behaviour depends on this file. Old look: remove the four ds/house <link>s and the three ds/house <script>s from
+   templates/index.html (or restore templates/index.html.pre-design).
+   Research: ~/Projects/chief/shared/ambientizer-design-research-2026-11-22.md
+   Light mode only, per the brief. */
+
+/* ---------- 1. Old variable names, mapped onto house tokens (so every tab turns light) ---------- */
+:root {
+  --bg-primary: var(--bg-default);
+  --bg-secondary: var(--bg-sunken);
+  --bg-tertiary: var(--bg-input);
+  --bg-card-hover: var(--bg-warm);
+  --surface-alt: var(--bg-card);
+  --text-primary: var(--ink);
+  --text-secondary: var(--ink);
+  --text-muted: var(--ink);
+  --text: var(--ink);
+  --accent-dim: var(--accent-soft);
+  --violet: var(--accent);
+  --violet-dim: var(--accent-soft);
+  --error: var(--critical);
+  --border: var(--line-default);
+  --border-strong: var(--line-strong);
+  --radius: var(--radius-card);
+  --radius-sm: var(--radius-control);
+  --shadow: var(--elev-2);
+  --shadow-sm: var(--elev-1);
+  --grad-accent: var(--accent);
+  --mono: var(--font-sans);
+}
+
+body.ds {
+  background: var(--bg-default);
+  color: var(--ink);
+  font: var(--text-body);
+  -webkit-font-smoothing: antialiased;
+}
+body.ds ::placeholder { color: var(--ink); opacity: 1; font-weight: 300; }
+
+/* ---------- 2. Page frame: capped and centred on wide screens ---------- */
+body.ds .container {
+  max-width: 1480px;
+  margin: 0 auto;
+  padding: clamp(20px, 3vw, 40px) clamp(16px, 3vw, 40px) 0;
+}
+
+/* Header: the page word once, in the serif, left aligned; one illustration at the side */
+body.ds .header {
+  display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-6);
+  text-align: left; margin: 0 0 var(--space-5);
+}
+body.ds .header-words { min-width: 0; }
+body.ds .logo {
+  font: var(--text-display);
+  font-size: clamp(38px, 4.2vw, 60px);
+  letter-spacing: var(--track-display);
+  color: var(--ink);
+  background: none; -webkit-text-fill-color: currentColor;
+  margin: 0;
+}
+body.ds .tagline { font: var(--text-meta); color: var(--ink); margin-top: var(--space-2); }
+body.ds .house-illo { width: clamp(120px, 12vw, 190px); flex: none; margin-bottom: -10px; }
+body.ds .house-illo svg { width: 100%; height: auto; display: block; }
+@media (max-width: 899px) { body.ds .house-illo { display: none; } }
+
+/* Tabs: plain words on paper, the active one bold with the green pen under it */
+body.ds .tab-nav {
+  display: flex; gap: var(--space-1); flex-wrap: wrap;
+  background: none; border: 0; box-shadow: none; padding: 0;
+  border-bottom: 1px solid var(--line-default);
+  margin: 0 0 var(--space-6);
+  border-radius: 0;
+}
+body.ds .tab-btn {
+  position: relative; flex: none;
+  min-height: var(--target); padding: 0 var(--space-4) 6px;
+  background: none; border: 0; border-radius: var(--radius-control) var(--radius-control) 0 0; box-shadow: none;
+  font: var(--text-label); font-weight: 500; color: var(--ink); letter-spacing: var(--track-label);
+  cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+  transition: transform var(--ds-dur-spatial-fast) var(--ds-spring-spatial-fast), background-color var(--ds-dur-effects-fast) linear;
+}
+body.ds .tab-btn::after { display: none; }
+body.ds .tab-btn:hover:not(.active) { background: var(--state-hover); color: var(--ink); }
+body.ds .tab-btn:active { transform: scale(.96); transition-duration: var(--ds-press-in, 90ms); }
+body.ds .tab-btn.active { font-weight: 700; background: none; color: var(--ink); box-shadow: none; }
+body.ds .tab-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+body.ds .tab-btn .ds-mark { bottom: -2px; }
+
+/* Panels lose the dark card; the Create panel is just the grid on paper */
+body.ds .panel {
+  background: var(--bg-card); border: 0; border-radius: var(--radius-panel);
+  box-shadow: var(--elev-2), var(--edge-light);
+}
+body.ds .panel h2 { font: var(--text-heading); letter-spacing: var(--track-heading); color: var(--ink); }
+body.ds .generator-panel { background: none; box-shadow: none; padding: 0; margin-bottom: var(--space-7); }
+
+/* ---------- 3. The Create grid: quiet settings | the prompt leads | Generate is the lead card ---------- */
+body.ds .create-grid { gap: var(--space-5); }
+@media (min-width: 1000px) {
+  body.ds .create-grid {
+    grid-template-columns: minmax(230px, 270px) minmax(0, 1fr) minmax(260px, 310px);
+    gap: clamp(20px, 2vw, 32px);
+  }
+  body.ds .create-col-generate { top: var(--space-6); }
+}
+
+/* Headings: serif nouns, never tracked caps */
+body.ds .col-heading {
+  font: var(--text-heading); letter-spacing: var(--track-heading);
+  text-transform: none; color: var(--ink);
+}
+body.ds .field-label, body.ds .form-group label {
+  font: var(--text-label); text-transform: none; letter-spacing: var(--track-label); color: var(--ink);
+  margin-bottom: var(--space-2);
+}
+body.ds .form-hint { font: var(--text-meta); font-weight: 400; color: var(--ink); margin-top: var(--space-2); }
+
+/* Settings: a sunken well, so it sits behind the prompt */
+body.ds .create-col-settings {
+  background: var(--bg-sunken); box-shadow: var(--elev-0);
+  border-radius: var(--radius-panel); padding: var(--space-5);
+  gap: var(--space-5);
+}
+
+/* Ambient / Musical: a segmented well with a raised pill */
+body.ds .mode-toggle {
+  gap: 4px; padding: 4px; background: var(--line-soft); border-radius: var(--radius-control);
+  box-shadow: var(--elev-0);
+}
+body.ds .btn-mode {
+  background: transparent; border: 0; box-shadow: none; border-radius: 8px;
+  min-height: 56px; padding: var(--space-2) var(--space-3); color: var(--ink);
+  transition: transform var(--ds-dur-spatial-fast) var(--ds-spring-spatial-fast), background-color var(--ds-dur-effects-fast) linear, box-shadow var(--ds-dur-effects-fast) linear;
+}
+body.ds .btn-mode .mode-title { font: var(--text-label); color: var(--ink); }
+body.ds .btn-mode .mode-sub { font: var(--text-meta); font-weight: 400; color: var(--ink); }
+body.ds .btn-mode:hover:not(.active) { background: var(--state-hover); border: 0; }
+body.ds .btn-mode:active { transform: scale(.97); }
+body.ds .btn-mode.active { background: var(--seg-pill); border: 0; box-shadow: var(--elev-1), var(--edge-light); }
+body.ds .btn-mode.active .mode-title { color: var(--accent); font-weight: 700; }
+body.ds .btn-mode.active .mode-sub { color: var(--ink); opacity: 1; }
+
+/* Fields: the input well */
+body.ds input[type="url"], body.ds input[type="text"], body.ds input[type="number"], body.ds input[type="search"],
+body.ds textarea, body.ds select {
+  background-color: var(--bg-input); border: 1px solid var(--line-default); border-radius: var(--radius-control);
+  color: var(--ink); font: var(--text-body); font-weight: 500;
+}
+body.ds select {
+  appearance: none; -webkit-appearance: none; min-height: 48px;
+  padding-right: 40px;
+  background-image: url("ds/select-chev.svg"); background-repeat: no-repeat; background-position: right 14px center; background-size: 14px;
+  white-space: normal;
+}
+body.ds input:hover, body.ds textarea:hover, body.ds select:hover { border-color: var(--line-strong); }
+body.ds input:focus, body.ds textarea:focus, body.ds select:focus {
+  outline: 2px solid var(--focus-ring); outline-offset: 2px; border-color: var(--line-strong);
+  box-shadow: none; background-color: var(--bg-card);
+}
+body.ds .create-col-settings select { background-color: var(--bg-card); }
+
+/* YouTube reference: a quiet disclosure */
+body.ds .ref-block { background: none; border: 0; border-top: 1px solid var(--line-strong); border-radius: 0; padding: var(--space-4) 0 0; }
+body.ds .ref-summary { font: var(--text-label); color: var(--ink); }
+body.ds .ref-summary-tag { font: var(--text-meta); color: var(--ink); background: var(--bg-card); border: 0; border-radius: var(--radius-chip); padding: 2px 10px; text-transform: none; letter-spacing: 0; }
+
+/* Prompt column: the widest raised surface */
+body.ds .create-col-prompt { gap: var(--space-4); }
+body.ds .prompt-head { min-height: var(--target); }
+body.ds .prompt-head-tools { gap: var(--space-2); }
+body.ds .btn-new-song, body.ds .btn-save-prompt, body.ds .btn-show-saved {
+  min-height: 40px; padding: 0 var(--space-4);
+  background: var(--bg-card); color: var(--ink); border: 0; border-radius: var(--radius-control);
+  font: var(--text-label); box-shadow: var(--elev-1), var(--edge-light);
+  transition: transform var(--ds-dur-spatial-fast) var(--ds-spring-spatial-fast), background-color var(--ds-dur-effects-fast) linear;
+}
+body.ds .btn-new-song:hover, body.ds .btn-save-prompt:hover, body.ds .btn-show-saved:hover { background: var(--bg-warm); }
+body.ds .btn-new-song:active, body.ds .btn-save-prompt:active, body.ds .btn-show-saved:active { transform: scale(.96); }
+
+body.ds .prompt-card {
+  background: var(--bg-card); border: 0; border-radius: var(--radius-panel);
+  box-shadow: var(--elev-2), var(--edge-light);
+  padding: var(--space-5) var(--space-6) var(--space-6);
+  gap: var(--space-3);
+}
+body.ds .prompt-card-header { gap: var(--space-3); padding-bottom: var(--space-3); border-bottom: 1px solid var(--line-soft); }
+body.ds .prompt-card-icon { display: none; }
+body.ds .prompt-card-title {
+  font: var(--text-title); letter-spacing: var(--track-heading); color: var(--ink);
+  border: 0; background: transparent; padding: 0; min-height: 40px;
+}
+body.ds .prompt-card-title::placeholder { color: var(--ink); opacity: 1; font-weight: 300; }
+body.ds .prompt-card-title:focus { outline: none; background: transparent; }
+body.ds .prompt-card-cost { font: var(--text-meta); color: var(--ink); }
+body.ds .plan-add-inst {
+  font: var(--text-meta); color: var(--ink); background: var(--bg-sunken); border: 0; border-radius: var(--radius-chip);
+  padding: 6px 12px; min-height: 32px; width: auto;
+}
+body.ds .prompt-card .prompt-main {
+  font: var(--text-body) !important; font-size: 17px !important; line-height: 1.6 !important; color: var(--ink);
+  background: transparent; border: 0; min-height: 190px; max-width: 68ch;
+}
+body.ds .prompt-card .prompt-main:focus { outline: none; background: transparent; }
+body.ds .prompt-card:focus-within { box-shadow: var(--elev-2), var(--edge-light), 0 0 0 2px var(--focus-ring); }
+
+/* Prompt tools: Enhance, the World feel / Music DNA pill, Raw */
+body.ds .prompt-tools { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+body.ds .btn-enhance {
+  min-height: var(--target); padding: 0 var(--space-5);
+  background: var(--bg-card); color: var(--accent); border: 0; border-radius: var(--radius-control);
+  font: var(--text-label); font-weight: 700; box-shadow: var(--elev-1), var(--edge-light), inset 0 0 0 1.5px var(--accent-line);
+  transition: transform var(--ds-dur-spatial-fast) var(--ds-spring-spatial-fast), background-color var(--ds-dur-effects-fast) linear;
+}
+body.ds .btn-enhance:hover:not(:disabled) { background: var(--accent-tint); transform: none; box-shadow: var(--elev-1), inset 0 0 0 1.5px var(--accent-line); }
+body.ds .btn-enhance:active:not(:disabled) { transform: scale(.96); }
+body.ds .enhance-style-toggle {
+  display: inline-flex; gap: 4px; padding: 4px; background: var(--bg-sunken); border: 0; border-radius: var(--radius-control);
+  box-shadow: var(--elev-0);
+}
+body.ds .enhance-style-btn {
+  min-height: 36px; padding: 0 var(--space-4); border: 0; border-radius: 7px; background: transparent;
+  font: var(--text-label); font-weight: 500; color: var(--ink);
+  transition: transform var(--ds-dur-spatial-fast) var(--ds-spring-spatial-fast), background-color var(--ds-dur-effects-fast) linear;
+}
+body.ds .enhance-style-btn + .enhance-style-btn { border-left: 0; }
+body.ds .enhance-style-btn:hover { background: var(--state-hover); color: var(--ink); }
+body.ds .enhance-style-btn:active { transform: scale(.96); }
+body.ds .enhance-style-btn.active { background: var(--seg-pill); color: var(--accent); font-weight: 700; box-shadow: var(--elev-1), var(--edge-light); }
+body.ds .raw-mode-toggle { font: var(--text-meta); color: var(--ink); display: inline-flex; align-items: center; gap: var(--space-2); min-height: var(--target); }
+body.ds .raw-mode-toggle input { accent-color: var(--accent); width: 18px; height: 18px; }
+body.ds .enhance-status { font: var(--text-meta); color: var(--ink); }
+
+body.ds .mood-dials summary { font: var(--text-label); font-weight: 500; color: var(--ink); min-height: var(--target); display: flex; align-items: center; }
+body.ds .mood-dials input[type="range"] { accent-color: var(--accent); }
+body.ds .mood-dial-end, body.ds .mood-dial-readout { font: var(--text-meta); color: var(--ink); }
+
+body.ds .canvas-empty, body.ds .comp-sections-group, body.ds .plan-preview { color: var(--ink); }
+
+/* ---------- 4. The lead card: Generate ---------- */
+body.ds .generate-card.ds-lead {
+  display: flex; flex-direction: column; gap: var(--space-4);
+  padding: var(--space-6) var(--space-5) var(--space-5);
+  border: 0;
+}
+body.ds .generate-card .credit-estimate {
+  order: 1; text-align: left; padding: 0;
+  font: var(--text-number); font-size: clamp(30px, 2.4vw, 38px); letter-spacing: var(--track-heading);
+  color: var(--content-on-inverse); white-space: normal;
+}
+body.ds .generate-card .credit-estimate.credit-warn { color: var(--content-on-inverse); }
+body.ds .generate-card .ink-tide { order: 2; }
+body.ds .generate-card .btn-primary { order: 3; }
+body.ds .generate-card .credit-balance { order: 4; }
+
+body.ds .generate-card .btn-primary {
+  min-height: 56px; margin: 0; width: 100%;
+  background: var(--content-on-inverse); color: var(--bg-inverse);
+  border: 0; border-radius: var(--radius-control);
+  font: var(--text-label); font-size: 17px; font-weight: 700; letter-spacing: var(--track-label);
+  box-shadow: 0 1px 0 rgba(255,255,255,.6) inset, 0 6px 16px -6px rgba(0,0,0,.45);
+  transition: transform var(--ds-dur-spatial-fast) var(--ds-spring-spatial-fast), background-color var(--ds-dur-effects-fast) linear;
+}
+body.ds .generate-card .btn-primary:hover:not(:disabled) { background: #fffefb; transform: none; box-shadow: 0 1px 0 rgba(255,255,255,.6) inset, 0 8px 20px -6px rgba(0,0,0,.5); }
+body.ds .generate-card .btn-primary:active:not(:disabled) { transform: scale(.97); transition-duration: var(--ds-press-in, 90ms); }
+body.ds .generate-card .btn-primary:focus-visible { outline: 2px solid var(--content-on-inverse); outline-offset: 3px; }
+body.ds .generate-card .btn-primary:disabled { opacity: var(--disabled-opacity); }
+
+body.ds .generate-card .credit-balance {
+  background: none; border: 0; padding: var(--space-3) 0 0; margin: 0;
+  border-top: 1px solid rgba(243, 241, 234, .2); border-radius: 0;
+}
+body.ds .generate-card .credit-balance-label { font: var(--text-meta); text-transform: none; letter-spacing: 0; color: var(--content-on-inverse); }
+body.ds .generate-card .credit-refresh-btn { color: var(--content-on-inverse); min-width: 32px; min-height: 32px; font-size: 16px; }
+body.ds .generate-card .credit-bar-wrap { height: 8px; background: rgba(243, 241, 234, .16); border-radius: var(--radius-chip); }
+body.ds .generate-card .credit-bar-fill { background: var(--content-on-inverse); border-radius: var(--radius-chip); min-width: 8px; }
+body.ds .generate-card .credit-bar-fill.bar-warn,
+body.ds .generate-card .credit-bar-fill.bar-danger,
+body.ds .generate-card .credit-bar-fill.bar-dead { background: var(--illo-fill); }
+body.ds .generate-card .credit-balance-info { font: var(--text-meta); color: var(--content-on-inverse); }
+body.ds .generate-card .credit-balance-info * { color: var(--content-on-inverse) !important; }
+
+/* The ink tide: a hand-drawn line of sound that writes itself in once, and swells when Generate is near */
+body.ds .ink-tide {
+  display: block; width: 100%; margin: calc(-1 * var(--space-1)) 0 0;
+  height: 84px; overflow: visible; pointer-events: none;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 14%, #000 86%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 14%, #000 86%, transparent);
+}
+body.ds .ink-tide .tide-wave {
+  transform-box: view-box; transform-origin: 50% 50%;
+  transition: transform var(--ds-dur-spatial-slow) var(--ds-spring-spatial-slow);
+}
+body.ds .ink-tide path { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+body.ds .ink-tide .tide-main { stroke: var(--illo-fill); stroke-width: 2.6; }
+body.ds .ink-tide .tide-echo { stroke: var(--illo-fill); stroke-width: 1.3; opacity: .45; }
+body.ds .ink-tide.is-writing path { stroke-dasharray: var(--len) var(--len); stroke-dashoffset: var(--len); animation: tide-write 1.6s var(--ds-ease-out) .45s forwards; }
+body.ds .ink-tide.is-writing .tide-echo { animation-delay: .7s; }
+@keyframes tide-write { to { stroke-dashoffset: 0; } }
+body.ds .ink-tide.is-near .tide-wave { transform: scaleY(1.45); }
+body.ds .ink-tide.is-surging .tide-wave { transform: scaleY(1.9) scaleX(1.02); transition-duration: var(--ds-dur-spatial-fast); transition-timing-function: var(--ds-spring-spatial-fast); }
+body.ds .ink-tide.is-working .tide-main { animation: tide-flow 2.4s linear infinite; stroke-dasharray: 14 9; }
+@keyframes tide-flow { to { stroke-dashoffset: -46; } }
+@media (prefers-reduced-motion: reduce) {
+  body.ds .ink-tide.is-writing path { animation: none; stroke-dashoffset: 0; }
+  body.ds .ink-tide .tide-wave { transition: none; }
+  body.ds .ink-tide.is-working .tide-main { animation: none; stroke-dasharray: none; }
+}
+
+/* Progress panel under the grid */
+body.ds .progress-panel .stage-badge { background: var(--accent-tint); color: var(--accent); border-radius: var(--radius-chip); font: var(--text-meta); font-weight: 600; text-transform: none; letter-spacing: 0; }
+body.ds .progress-bar-container { background: var(--line-default); border-radius: var(--radius-chip); height: 8px; }
+body.ds .progress-bar { background: var(--accent); border-radius: var(--radius-chip); }
+body.ds .progress-text, body.ds .log-details summary { font: var(--text-meta); color: var(--ink); }
+
+/* ---------- 5. The player: a raised paper bar ---------- */
+body.ds .global-player {
+  background: rgba(255, 254, 251, .94);
+  -webkit-backdrop-filter: blur(18px) saturate(1.2); backdrop-filter: blur(18px) saturate(1.2);
+  border-top: 0;
+  box-shadow: 0 -1px 0 var(--line-default), 0 -14px 34px -18px rgba(var(--shadow-tint), .28);
+  padding: var(--space-3) clamp(16px, 3vw, 40px);
+  gap: var(--space-5);
+}
+body.ds .btn-now-playing {
+  background: var(--bg-sunken); border: 0; box-shadow: var(--elev-0); border-radius: var(--radius-card);
+  color: var(--ink); padding: var(--space-3) var(--space-4); min-height: 52px;
+}
+body.ds .btn-now-playing:hover { background: var(--line-soft); border: 0; }
+body.ds .now-playing-icon { opacity: 1; filter: grayscale(1) contrast(1.2); font-size: 15px; }
+body.ds .now-playing-label { font: var(--text-label); color: var(--ink); }
+
+body.ds .fav-stars { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px; }
+body.ds .fav-chip, body.ds .fav-star, body.ds .fav-note-btn { color: var(--ink); font-family: var(--font-sans); }
+body.ds .fav-chip { font: var(--text-meta); }
+
+body.ds .transport-btn {
+  background: var(--accent); color: var(--content-on-accent);
+  box-shadow: var(--elev-1);
+  transition: transform var(--ds-dur-spatial-fast) var(--ds-spring-spatial-fast), background-color var(--ds-dur-effects-fast) linear;
+}
+body.ds .transport-btn:hover { background: var(--accent-hover); transform: none; }
+body.ds .transport-btn:active { transform: scale(.94); }
+body.ds .gp-transport .transport-btn { box-shadow: 0 1px 0 rgba(255,255,255,.18) inset, 0 6px 14px -6px rgba(14, 44, 35, .55); }
+body.ds .gp-transport .transport-skip,
+body.ds .gp-transport .transport-btn.transport-loop {
+  background: var(--bg-sunken); color: var(--ink); box-shadow: var(--elev-0);
+}
+body.ds .gp-transport .transport-skip:hover, body.ds .gp-transport .transport-btn.transport-loop:hover { background: var(--line-soft); color: var(--ink); }
+body.ds .gp-transport .transport-loop.active { color: var(--accent); }
+body.ds .gp-transport .transport-loop:not(.active) { opacity: .55; }
+body.ds .transport-time, body.ds .gp-transport .transport-time {
+  font: var(--text-meta); font-variant-numeric: tabular-nums; color: var(--ink); letter-spacing: 0;
+}
+body.ds .transport-seek, body.ds .transport-volume {
+  -webkit-appearance: none; appearance: none; background: var(--line-default); border: 0; border-radius: var(--radius-chip);
+  accent-color: var(--accent);
+}
+body.ds .transport-seek::-webkit-slider-thumb, body.ds .transport-volume::-webkit-slider-thumb {
+  -webkit-appearance: none; border-radius: 50%; background: var(--accent); border: 3px solid var(--bg-card);
+  box-shadow: var(--elev-1);
+}
+body.ds .vol-icon { color: var(--content-default); }
+body.ds .mixer-badge { background: var(--accent-tint); color: var(--accent); border-radius: var(--radius-chip); font: var(--text-meta); }
+
+/* Library sheet and note sheet: paper, raised */
+body.ds .library-overlay { background: var(--scrim); }
+body.ds .library-panel, body.ds .fav-note-sheet { background: var(--bg-card); color: var(--ink); box-shadow: var(--elev-3); border: 0; border-radius: var(--radius-panel); }
+body.ds .library-title { font: var(--text-heading); color: var(--ink); }
+body.ds .library-count, body.ds .library-drafts-link { font: var(--text-meta); color: var(--ink); }
+
+/* ---------- 6. Phone ---------- */
+@media (max-width: 720px) {
+  body.ds .container { padding: var(--space-5) var(--gutter) 0; }
+  body.ds .header { margin-bottom: var(--space-3); }
+  body.ds .tab-nav { flex-wrap: nowrap; justify-content: space-between; gap: 0; margin-bottom: var(--space-5); }
+  body.ds .tab-btn { padding: 0 6px 6px; font-size: 14px; }
+  /* The prompt leads on the phone too: prompt, then Generate, then the settings */
+  body.ds .create-col-prompt { order: 1; }
+  body.ds .create-col-generate { order: 2; }
+  body.ds .create-col-settings { order: 3; }
+  body.ds .prompt-card-header { flex-wrap: wrap; row-gap: var(--space-1); }
+  body.ds .prompt-card .prompt-main { min-height: 120px; }
+  body.ds .create-col-settings { padding: var(--space-4); }
+  body.ds .prompt-card { padding: var(--space-4) var(--space-4) var(--space-5); }
+  body.ds .prompt-head { flex-wrap: wrap; }
+  body.ds .global-player { padding: var(--space-3) var(--gutter) max(20px, calc(env(safe-area-inset-bottom) + 10px)); gap: var(--space-3); }
+  body.ds .gp-left { flex-wrap: wrap; }
+  body.ds .gp-left { flex-wrap: nowrap; gap: var(--space-2); }
+  body.ds .btn-now-playing { min-width: 0; flex: 1 1 auto; min-height: 44px; padding: var(--space-2) var(--space-3); }
+  body.ds .fav-stars { flex: none; max-width: 46%; justify-content: flex-end; }
+  body.ds .gp-transport .transport-btn { width: 48px; height: 48px; }
+  body.ds .gp-transport .transport-skip, body.ds .gp-transport .transport-btn.transport-loop { width: 40px; height: 40px; }
+  body.ds .gp-transport .transport-seek { height: 6px; }
+}
+
+/* Laptop height (about 860 usable): the prompt and Generate both sit above the fold */
+@media (min-width: 1000px) and (max-height: 900px) {
+  body.ds .container { padding-top: var(--space-5); }
+  body.ds .logo { font-size: 44px; }
+  body.ds .header { margin-bottom: var(--space-3); }
+  body.ds .house-illo { width: 120px; }
+  body.ds .tab-nav { margin-bottom: var(--space-5); }
+  body.ds .prompt-card .prompt-main { min-height: 150px; }
+}
+
+/* Studio Display and other very wide screens: the whole page reads from across the room */
+@media (min-width: 2000px) {
+  body.ds { zoom: 1.3; }
+}
+
+/* Rating in the player: resting is the ink at 42% (the disabled rule, never a grey colour); chosen is amber or a green chip */
+body.ds .fav-star { color: var(--ink); opacity: var(--disabled-opacity); text-shadow: none; }
+body.ds .fav-star.filled { color: var(--attention); opacity: 1; text-shadow: none; }
+body.ds .fav-chip { color: var(--ink); opacity: var(--disabled-opacity); border: 0; border-radius: var(--radius-chip); padding: 3px 7px; }
+body.ds .fav-chip.on { opacity: 1; color: var(--accent); background: var(--accent-tint); border: 0; }
+body.ds .fav-chip.on[data-val="-1"], body.ds .fav-chip.on[data-val="-2"] { color: var(--critical); background: var(--bg-sunken); }
+body.ds .fav-note-btn { color: var(--ink); opacity: var(--disabled-opacity); }
+body.ds .fav-note-btn.has-note { color: var(--attention); opacity: 1; }
+body.ds .fav-note-sheet textarea { background: var(--bg-input); color: var(--ink); border: 1px solid var(--line-default); font: var(--text-body); }
+body.ds .fav-note-actions button { background: var(--bg-sunken); color: var(--ink); border: 0; border-radius: var(--radius-control); font: var(--text-label); min-height: 40px; }
+body.ds .fav-note-actions button.primary { background: var(--accent); color: var(--content-on-accent); }
+
+/* ---------- 7. Polish: drawn icons instead of emoji and glyphs, browser surfaces ---------- */
+body.ds .now-playing-icon, body.ds .generate-card .credit-refresh-btn { font-size: 0; filter: none; }
+body.ds .now-playing-icon::before, body.ds .generate-card .credit-refresh-btn::before {
+  content: ""; display: inline-block; width: 20px; height: 20px; background: currentColor; vertical-align: middle;
+  -webkit-mask: var(--house-icon) center / contain no-repeat; mask: var(--house-icon) center / contain no-repeat;
+}
+body.ds .now-playing-icon { --house-icon: url("ds/icons/search.svg"); color: var(--content-default); display: inline-flex; }
+body.ds .generate-card .credit-refresh-btn { --house-icon: url("ds/icons/sync.svg"); display: inline-flex; align-items: center; justify-content: center; border-radius: var(--radius-control); }
+body.ds .generate-card .credit-refresh-btn::before { width: 18px; height: 18px; }
+body.ds .generate-card .credit-refresh-btn:hover { background: rgba(243, 241, 234, .12); color: var(--content-on-inverse); }
+body.ds .generate-card .credit-refresh-btn:focus-visible { outline: 2px solid var(--content-on-inverse); outline-offset: 2px; }
+
+body.ds ::selection { background: var(--illo-fill-2); color: var(--ink); }
+body.ds .ds-lead ::selection { background: rgba(243, 241, 234, .3); color: var(--content-on-inverse); }
+body.ds input, body.ds textarea { caret-color: var(--accent); }
+body.ds { scrollbar-color: var(--line-ink) transparent; }
+body.ds .ref-summary-tag { font-size: 13px; }
+body.ds .generate-card .credit-estimate { font-size: clamp(28px, 2.1vw, 34px); }
+body.ds .btn-enhance { letter-spacing: var(--track-label); }
+
+/* ---------- 8. Round 2 (2026-11-22, Chief's review) ---------- */
+/* Header: the page word alone */
+body.ds .tagline { display: none; }
+
+/* The player is solid paper: nothing shows through beneath it */
+body.ds .global-player { background: var(--bg-card); -webkit-backdrop-filter: none; backdrop-filter: none; }
+
+/* Now playing: the world as its own small label over the title (no separator) */
+body.ds .now-playing-label { display: flex; flex-direction: column; gap: 1px; }
+body.ds .now-playing-world { font: var(--text-meta); color: var(--ink); }
+body.ds .now-playing-title { font: var(--text-label); color: var(--ink); }
+
+/* The phone's player toggle exists only on the phone */
+body.ds .gp-more { display: none; }
+
+@media (max-width: 720px) {
+  body.ds { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
+  /* One compact row: title, play, more. Progress runs along the bar's top edge. */
+  body.ds .global-player {
+    flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between;
+    gap: var(--space-2) var(--space-3);
+    padding: var(--space-3) var(--gutter) max(12px, calc(env(safe-area-inset-bottom) + 6px));
+  }
+  body.ds .global-player .gp-left, body.ds .global-player .gp-transport { display: contents; }
+  body.ds .global-player .gp-transport::after { display: none; }
+  body.ds .global-player .btn-now-playing { order: 1; flex: 1 1 0; min-width: 0; min-height: 48px; padding: var(--space-2) var(--space-3); }
+  body.ds .global-player #btn-play-pause { order: 2; width: 48px; height: 48px; }
+  body.ds .global-player .gp-more { order: 3; }
+  body.ds .global-player .transport-seek {
+    position: absolute; left: 0; right: 0; top: -9px; width: 100%; height: 18px; min-width: 0; margin: 0;
+    background: linear-gradient(var(--line-default), var(--line-default)) center / 100% 4px no-repeat;
+    border-radius: 0; touch-action: none;
+  }
+  body.ds .global-player .transport-seek::-webkit-slider-thumb { width: 14px; height: 14px; border-width: 2px; }
+
+  /* Behind the tap: rating, previous and next, times, loop */
+  body.ds .global-player .fav-stars,
+  body.ds .global-player .transport-skip,
+  body.ds .global-player .transport-time,
+  body.ds .global-player .transport-extras { display: none; }
+  body.ds .global-player.gp-open .fav-stars { display: inline-flex; order: 4; flex: 1 1 100%; justify-content: center; max-width: none; padding-top: var(--space-1); }
+  body.ds .global-player.gp-open #btn-skip-prev { display: flex; order: 5; }
+  body.ds .global-player.gp-open #transport-current { display: block; order: 6; }
+  body.ds .global-player.gp-open #transport-total { display: block; order: 7; }
+  body.ds .global-player.gp-open #btn-skip-next { display: flex; order: 8; }
+  body.ds .global-player.gp-open .transport-extras { display: flex; order: 9; margin: 0; padding: 0; border: 0; }
+
+  body.ds .gp-more {
+    display: inline-flex; align-items: center; justify-content: center; flex: none;
+    width: var(--target); height: var(--target); border: 0; border-radius: var(--radius-control);
+    background: var(--bg-sunken); color: var(--ink); box-shadow: var(--elev-0); cursor: pointer;
+    touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+    transition: transform var(--ds-dur-spatial-fast) var(--ds-spring-spatial-fast);
+  }
+  body.ds .gp-more:active { transform: scale(.94); }
+  body.ds .gp-more:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+  body.ds .gp-more::before {
+    content: ""; width: 20px; height: 20px; background: currentColor;
+    -webkit-mask: url("ds/icons/chevron-down.svg") center / contain no-repeat; mask: url("ds/icons/chevron-down.svg") center / contain no-repeat;
+    transform: rotate(180deg); transition: transform var(--ds-dur-spatial-fast) var(--ds-spring-spatial-fast);
+  }
+  body.ds .gp-open .gp-more::before { transform: rotate(0deg); }
+}
+
+/* ---------- 9. Round 2b (Chief's additions) ---------- */
+/* One cost figure on the screen: the Generate card's. The prompt card's credit count is hidden, not removed. */
+body.ds #prompt-cost { display: none; }
+
+/* The page clears the player by its measured height */
+body.ds { padding-bottom: calc(var(--gp-h, 96px) + var(--space-6)); }
+
+/* Wide screens: Settings ends above the player and scrolls inside itself */
+@media (min-width: 1000px) {
+  body.ds .create-col-settings {
+    max-height: max(360px, calc(100vh - var(--settings-top, 240px) - var(--gp-h, 80px) - var(--space-5)));
+    overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin;
+  }
+}
+
+@media (max-width: 720px) {
+  body.ds { padding-bottom: calc(var(--gp-h, 76px) + var(--space-5)); }
+  body.ds .container { padding-top: var(--space-4); }
+  body.ds .logo { font-size: 34px; }
+  body.ds .header { margin-bottom: var(--space-2); }
+  body.ds .tab-nav { margin-bottom: var(--space-3); }
+  /* First screen: prompt, then Generate, then everything else */
+  body.ds .create-grid { gap: var(--space-4); }
+  body.ds .create-col-prompt { display: contents; }
+  body.ds .create-col-prompt > * { order: 4; min-width: 0; }
+  body.ds .create-col-prompt > .prompt-head { order: 1; min-height: 0; }
+  body.ds .create-col-prompt > .prompt-card { order: 2; }
+  body.ds .create-col-generate { order: 3; }
+  body.ds .create-col-settings { order: 5; }
+  body.ds .prompt-head .col-heading { display: none; }
+  body.ds .prompt-head-tools { width: 100%; }
+  body.ds .prompt-head-tools .btn { flex: 1 1 0; min-height: 40px; }
+  body.ds .prompt-card { padding: var(--space-3) var(--space-4) var(--space-4); gap: var(--space-2); }
+  body.ds .prompt-card-title { font-size: 23px; min-height: 32px; }
+  body.ds .prompt-card-header { padding-bottom: var(--space-2); }
+  body.ds .prompt-card .prompt-main { min-height: 96px; max-height: 132px; overflow-y: auto !important; font-size: 16px !important; line-height: 1.5 !important; }
+  body.ds .generate-card.ds-lead { padding: var(--space-4); gap: var(--space-3); }
+  body.ds .generate-card .credit-estimate { font-size: 28px; }
+  body.ds .ink-tide { height: 40px; margin-top: calc(-1 * var(--space-2)); }
+  body.ds .generate-card .btn-primary { min-height: 52px; }
+  body.ds .generate-card .credit-balance { padding-top: var(--space-2); }
+  body.ds .generate-card .credit-balance-header { margin-bottom: 4px; }
+}
+
+/* ---------- 10. Every tab (2026-11-22, round 3): one type family, no italics, no caps ---------- */
+body.ds :is(p, span, div, label, li, td, th, small, strong, b, a, button, input, select, textarea, summary, code, pre, h3, h4, h5, h6, dt, dd) {
+  font-family: var(--font-sans); letter-spacing: normal;
+}
+body.ds *, body.ds *::before, body.ds *::after { font-style: normal !important; text-transform: none !important; }
+body.ds h3, body.ds h4 { font: var(--text-label); color: var(--ink); }
+body.ds .panel { padding: clamp(18px, 2vw, 28px); margin-bottom: var(--space-5); }
+body.ds .panel h2 { margin-bottom: var(--space-4); }
+body.ds .tab-content { max-width: none; }
+body.ds #tab-create { max-width: none; }
+body.ds .form-hint, body.ds .visuals-desc, body.ds .player-prompt { font: var(--text-meta); font-weight: 400; color: var(--ink); }
+body.ds .player-prompt { font: var(--text-body); }
+
+/* Buttons: raised paper for secondary, green for the one main action of a panel */
+body.ds .btn { font: var(--text-label); border-radius: var(--radius-control); min-height: 40px; touch-action: manipulation;
+  transition: transform var(--ds-dur-spatial-fast) var(--ds-spring-spatial-fast), background-color var(--ds-dur-effects-fast) linear, box-shadow var(--ds-dur-effects-fast) linear; }
+body.ds .btn:active:not(:disabled) { transform: scale(.96); transition-duration: var(--ds-press-in, 90ms); }
+body.ds .btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+body.ds .btn-secondary, body.ds .btn-sm:not(.btn-primary):not(.btn-accent) {
+  background: var(--bg-card); color: var(--ink); border: 0; box-shadow: var(--elev-1), var(--edge-light);
+}
+body.ds .btn-secondary:hover:not(:disabled) { background: var(--bg-warm); }
+body.ds .btn-accent, body.ds .tab-content .btn-primary:not(#generate-btn) {
+  background: var(--accent); color: var(--content-on-accent); border: 0; box-shadow: 0 1px 0 rgba(255,255,255,.14) inset, 0 6px 14px -8px rgba(14,44,35,.6);
+}
+body.ds .btn-accent:hover:not(:disabled), body.ds .tab-content .btn-primary:not(#generate-btn):hover:not(:disabled) { background: var(--accent-hover); transform: none; }
+body.ds .btn:disabled, body.ds .btn[disabled] { opacity: var(--disabled-opacity); box-shadow: none; }
+body.ds .btn-sm { min-height: 34px; font: var(--text-meta) !important; font-weight: 600 !important; }
+
+/* Chips and badges: status is a chip, in the palette */
+body.ds .badge, body.ds .layer-type-badge, body.ds .stage-badge {
+  font: var(--text-meta); font-weight: 600; border: 0; border-radius: var(--radius-chip); padding: 3px 10px;
+  background: var(--bg-sunken); color: var(--ink);
+}
+body.ds .badge-ready { background: var(--accent-tint); color: var(--accent); }
+body.ds .badge-warn { background: rgba(188, 126, 46, .13); color: var(--ink); }
+body.ds .badge-warn::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--attention); margin-right: 6px; vertical-align: 1px; }
+body.ds .layer-type-badge { background: var(--accent-tint); color: var(--accent); }
+
+/* Checkboxes and colour wells */
+body.ds input[type="checkbox"], body.ds input[type="radio"] { accent-color: var(--accent); }
+
+/* ---------- 11. Listen: the ink faders (delight) ----------
+   Every slider is a fine pen line with a paper bead ringed in green. Grab one and the bead swells on a spring
+   and the line under your finger inks in green, like a fader pushed by hand. */
+body.ds #tab-listen input[type="range"], body.ds #tab-create input[type="range"] {
+  -webkit-appearance: none; appearance: none; height: 22px; background: transparent; border: 0; padding: 0; cursor: pointer;
+  --fill: 50%;
+}
+body.ds #tab-listen input[type="range"]::-webkit-slider-runnable-track, body.ds #tab-create input[type="range"]::-webkit-slider-runnable-track {
+  height: 3px; border-radius: 2px;
+  background: linear-gradient(90deg, var(--accent) 0 var(--fill), var(--line-strong) var(--fill) 100%);
+}
+body.ds #tab-listen input[type="range"]::-webkit-slider-thumb, body.ds #tab-create input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 16px; height: 16px; margin-top: -6.5px; border-radius: 50%;
+  background: var(--bg-card); border: 2px solid var(--accent); box-shadow: var(--elev-1);
+  transition: transform var(--ds-dur-spatial-fast) var(--ds-spring-spatial-fast), box-shadow var(--ds-dur-effects-fast) linear;
+}
+body.ds #tab-listen input[type="range"]:hover::-webkit-slider-thumb, body.ds #tab-create input[type="range"]:hover::-webkit-slider-thumb { transform: scale(1.12); }
+body.ds #tab-listen input[type="range"]:active::-webkit-slider-thumb, body.ds #tab-create input[type="range"]:active::-webkit-slider-thumb {
+  transform: scale(1.4); box-shadow: 0 0 0 6px var(--accent-soft), var(--elev-1);
+}
+body.ds #tab-listen input[type="range"]:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 4px; border-radius: 4px; }
+body.ds #tab-listen input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: var(--bg-card); border: 2px solid var(--accent); }
+
+/* Listen layout */
+body.ds .layer-card {
+  background: var(--bg-card); border: 0; border-radius: var(--radius-card); box-shadow: var(--elev-1), var(--edge-light);
+  padding: var(--space-4) var(--space-5);
+}
+body.ds .layer-card.muted { opacity: .62; }
+body.ds .layer-name { font: var(--text-heading); color: var(--ink); }
+body.ds .layer-icon { display: none; }
+body.ds .layer-prompt { font: var(--text-meta); font-weight: 400; color: var(--ink); max-width: 90ch; }
+body.ds .slider-label, body.ds .slider-value { font: var(--text-meta); font-variant-numeric: tabular-nums; color: var(--ink); }
+body.ds .timeline-track { background: var(--line-default); border-radius: var(--radius-chip); }
+body.ds .timeline-fill { background: var(--series-1); border-radius: var(--radius-chip); }
+body.ds .tl-input { background: var(--bg-input); }
+body.ds .layer-status { background: var(--accent); }
+body.ds .layers-panel .btn, body.ds .layer-card button { box-shadow: var(--elev-1), var(--edge-light); background: var(--bg-card); color: var(--ink); border: 0; }
+body.ds .layer-solo-btn, body.ds .tl-alt-btn { border-radius: var(--radius-control); }
+
+/* ---------- 12. Visuals: the developing print (delight) ----------
+   A new scene image arrives like a print in the tray: warm and soft first, then it clears into focus. */
+body.ds #preview-img, body.ds .visuals-panel img:not(.ds-icon), body.ds .visuals-panel video {
+  border-radius: var(--radius-card); box-shadow: var(--elev-2);
+}
+body.ds .house-develop { animation: house-develop 1.6s var(--ds-ease-out) both; }
+@keyframes house-develop {
+  0% { filter: sepia(.9) saturate(.6) blur(10px) brightness(1.25); opacity: .3; transform: scale(.985); }
+  55% { filter: sepia(.35) saturate(.85) blur(2px) brightness(1.08); opacity: 1; }
+  100% { filter: none; opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) { body.ds .house-develop { animation: none; } }
+body.ds #vis-image-panel textarea { min-height: 120px; }
+
+/* ---------- 13. Publish: the green check (delight, house.js draws it) ---------- */
+body.ds .yt-status { background: var(--bg-sunken); border: 0; border-radius: var(--radius-card); box-shadow: var(--elev-0); color: var(--ink); }
+body.ds .yt-status-text { font: var(--text-label); color: var(--ink); }
+body.ds .yt-channel, body.ds .yt-channel-card { background: var(--bg-sunken); border: 0; border-radius: var(--radius-card); }
+body.ds .yt-channel-thumb { box-shadow: var(--elev-1); }
+
+/* ---------- 14. Distribute: pull from the shelf (delight) ----------
+   Each catalog row is a sleeve on a shelf: hover or focus and its cover tips forward on a spring. */
+body.ds .distribute-row {
+  background: var(--bg-card); border: 0; border-radius: var(--radius-card); box-shadow: var(--elev-1), var(--edge-light);
+  transition: box-shadow var(--ds-dur-effects-fast) linear, transform var(--ds-dur-spatial) var(--ds-spring-spatial);
+}
+body.ds .distribute-row:hover, body.ds .distribute-row:focus-within { box-shadow: var(--elev-2), var(--edge-light); }
+body.ds .dist-thumb {
+  border-radius: 8px; box-shadow: 0 1px 2px rgba(var(--shadow-tint), .2), 0 4px 10px -4px rgba(var(--shadow-tint), .35);
+  transform-origin: 50% 100%;
+  transition: transform var(--ds-dur-spatial) var(--ds-spring-spatial), box-shadow var(--ds-dur-spatial) var(--ds-spring-spatial);
+}
+body.ds .distribute-row:hover .dist-thumb, body.ds .distribute-row:focus-within .dist-thumb {
+  transform: perspective(500px) rotateX(10deg) translateY(-4px) scale(1.06);
+  box-shadow: 0 2px 4px rgba(var(--shadow-tint), .2), 0 14px 22px -10px rgba(var(--shadow-tint), .5);
+}
+@media (prefers-reduced-motion: reduce) { body.ds .distribute-row:hover .dist-thumb { transform: none; } }
+body.ds .dist-title { font: var(--text-label); color: var(--ink); }
+body.ds .dist-prompt, body.ds .dist-meta { font: var(--text-meta); font-weight: 400; color: var(--ink); }
+body.ds .distribute-subnav { gap: 4px; padding: 4px; background: var(--bg-sunken); border-radius: var(--radius-control); box-shadow: var(--elev-0); border: 0; }
+body.ds .dist-subnav-btn { border: 0; border-radius: 7px; background: transparent; color: var(--ink); font: var(--text-label); font-weight: 500; min-height: 36px; }
+body.ds .dist-subnav-btn.active { background: var(--seg-pill); color: var(--accent); font-weight: 700; box-shadow: var(--elev-1), var(--edge-light); }
+
+/* Phone: the progress line sits inside the bar's top edge, not on it */
+@media (max-width: 720px) {
+  body.ds .global-player .transport-seek { top: 1px; height: 16px; }
+  body.ds .global-player { padding-top: calc(var(--space-3) + 6px); }
+}
+
+/* ---------- 15. Round 3 fixes ---------- */
+/* No ellipsis anywhere: long names wrap */
+body.ds .sp-text, body.ds .progress-text, body.ds .layer-name, body.ds .dist-title, body.ds .tl-block-label {
+  white-space: normal !important; overflow: visible !important; text-overflow: clip !important; overflow-wrap: anywhere;
+}
+body.ds * { text-overflow: clip !important; }
+
+@media (max-width: 720px) {
+  /* The LIVE badge belongs with the controls behind the tap */
+  body.ds .global-player .mixer-badge { display: none !important; }
+  body.ds .global-player.gp-open .mixer-badge:not(.hidden) { display: inline-flex !important; order: 10; }
+  /* Progress: a line inset from both edges, inside the bar, so the bead is never cut by the screen edge */
+  body.ds .global-player .transport-seek { left: var(--gutter); right: var(--gutter); width: auto; top: 6px; height: 16px; }
+  body.ds .global-player { padding-top: calc(var(--space-3) + 14px); }
+}
+@media (max-width: 720px) {
+  body.ds .prompt-head-tools .btn { white-space: nowrap; padding: 0 var(--space-2); }
+  body.ds .prompt-card .prompt-main { max-height: 164px; }
+}
+/* Round 3 regressions: the Create grid keeps no panel padding; an unchosen mode is never green */
+body.ds .generator-panel.panel { padding: 0; background: none; box-shadow: none; }
+body.ds .btn-mode:not(.active) .mode-title, body.ds .btn-mode:not(.active) .mode-sub { color: var(--ink) !important; }
+body.ds .btn-mode.active .mode-title { color: var(--accent) !important; }
+@media (min-width: 1000px) and (max-height: 900px) {
+  body.ds .create-col-settings { gap: var(--space-4); padding: var(--space-4) var(--space-5); }
+  body.ds .btn-mode { min-height: 50px; }
+  body.ds .create-col-settings select { min-height: 44px; padding-top: 8px; padding-bottom: 8px; }
+}
+/* Distribute: rows past the first page wait behind "Show more" */
+body.ds .house-cap-hidden { display: none !important; }
+body.ds .house-more { display: flex; width: 100%; justify-content: center; margin-top: var(--space-3); min-height: var(--target); }

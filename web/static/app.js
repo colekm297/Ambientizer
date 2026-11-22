@@ -249,7 +249,7 @@
       compSectionsList.innerHTML = `<div class="canvas-empty">
           <div class="canvas-empty-icon">⎓</div>
           <p class="canvas-empty-title">Your timeline appears here</p>
-          <p class="canvas-empty-sub">With <strong>Composition plan</strong> selected, press <strong>Enhance &amp; Plan</strong> — Claude designs an evolving arrangement (sparse → full → sparse) you can sculpt before generating.</p>
+          <p class="canvas-empty-sub">With <strong>Composition plan</strong> selected, press <strong>Enhance &amp; Plan</strong>, Claude designs an evolving arrangement (sparse → full → sparse) you can sculpt before generating.</p>
         </div>`;
       return;
     }
@@ -277,7 +277,7 @@
         </div>
         <label class="tl-edit-label">Present <span>instruments &amp; textures in this section</span></label>
         <textarea class="comp-pos tl-edit-area" data-idx="${_selectedSection}" rows="3" placeholder="e.g. solo cello prominent; low string pads; sub-bass hum">${escapeHtml((sel.positive_local_styles || []).join('; '))}</textarea>
-        <label class="tl-edit-label">Absent <span>dropped here — this forces the contrast</span></label>
+        <label class="tl-edit-label">Absent <span>dropped here, this forces the contrast</span></label>
         <textarea class="comp-neg tl-edit-area" data-idx="${_selectedSection}" rows="2" placeholder="e.g. no glass harmonica; no vocal pads">${escapeHtml((sel.negative_local_styles || []).join('; '))}</textarea>
       </div>`;
     compSectionsList.innerHTML = `
@@ -338,7 +338,7 @@
       if (!window._enhancedPrompt) return;
       const st = document.getElementById("enhance-status");
       if (st) {
-        st.textContent = "Dial changed — hit ✦ Enhance & Plan again to apply it";
+        st.textContent = "Dial changed, hit ✦ Enhance & Plan again to apply it";
         st.className = "enhance-status active";
       }
     });
@@ -405,7 +405,7 @@
     return `$${usd.toFixed(2)}`;
   }
 
-  function _costLabel(credits, sep = " · ") {
+  function _costLabel(credits, sep = ", ") {
     const usd = _creditsToUsd(credits);
     const usdStr = _fmtUsd(usd);
     if (usdStr) return `${usdStr}${sep}~${credits.toLocaleString()} cr`;
@@ -453,7 +453,7 @@
       mainLine = `<span class="${cls}">$${remainingUsd.toFixed(2)}</span> left`;
     }
     creditRemainingEl.innerHTML = mainLine;
-    if (creditResetEl) creditResetEl.textContent = "";  // reset date removed — too noisy
+    if (creditResetEl) creditResetEl.textContent = "";  // reset date removed, too noisy
   }
 
   async function fetchGeminiUsage() {
@@ -468,7 +468,7 @@
       let cls = "";
       if (rpdPct >= 100) cls = "credit-danger-text";
       else if (rpdPct >= 80) cls = "credit-warn-text";
-      el.innerHTML = `<span class="${cls}">${d.rpd_used}/${d.rpd_limit} today</span> · ${d.rpm_used}/${d.rpm_limit} rpm`;
+      el.innerHTML = `<span class="${cls}">${d.rpd_used}/${d.rpd_limit} today</span>, ${d.rpm_used}/${d.rpm_limit} rpm`;
     } catch (_) {}
   }
 
@@ -506,8 +506,8 @@
     if (!log.entries.length) { creditSessionLog.innerHTML = ""; return; }
     const last5 = log.entries.slice(-5);
     creditSessionLog.innerHTML =
-      last5.map(e => `<div class="log-entry">${e.time} — ${e.label}: ${_costLabel(e.amount, " · ")}</div>`).join("") +
-      `<div class="log-entry" style="font-weight:600;">Session total: ${_costLabel(log.total, " · ")}</div>`;
+      last5.map(e => `<div class="log-entry">${e.time}, ${e.label}: ${_costLabel(e.amount, ", ")}</div>`).join("") +
+      `<div class="log-entry" style="font-weight:600;">Session total: ${_costLabel(log.total, ", ")}</div>`;
   }
 
   if (creditRefreshBtn) creditRefreshBtn.addEventListener("click", () => { fetchCreditBalance(); fetchGeminiUsage(); });
@@ -824,7 +824,7 @@
   function _updateCardCost() {
     const c = _getCreditCosts();
     promptCostEl.textContent = currentMode === "musical"
-      ? _costLabel(c.perMusic, " · ") : _costLabel(c.perSfx * 3, " · ");
+      ? _costLabel(c.perMusic, ", ") : _costLabel(c.perSfx * 3, ", ");
   }
 
   // Keep currentLayerPlan[0] mirrored to the card at all times.
@@ -912,7 +912,7 @@
           <input class="plan-card-name" value="${esc(l.name)}" data-idx="${i}">
           <span class="plan-card-role">${esc(l.role)}</span>
           <span class="layer-type-badge ${l.type}">${l.type}</span>
-          <span class="plan-card-cost">${_costLabel(l.est_credits||0, " · ")}</span>
+          <span class="plan-card-cost">${_costLabel(l.est_credits||0, ", ")}</span>
           <button class="plan-card-remove" data-idx="${i}" title="Remove layer">&times;</button>
         </div>
         <div class="plan-card-instruments">${chips}
@@ -923,7 +923,7 @@
     });
     html += '</div>';
     html += `<div class="plan-footer">
-      <span class="plan-total">Total: ${_costLabel(totalCost, " · ")}</span>
+      <span class="plan-total">Total: ${_costLabel(totalCost, ", ")}</span>
       <button id="btn-replan" class="btn btn-enhance">Re-Plan</button>
     </div>`;
     planPreview.innerHTML = html;
@@ -988,7 +988,7 @@
     btnEnhancePrompt.textContent = "■ Stop";
     btnEnhancePrompt.classList.add("btn-stop-enhance");
     enhanceStatus.textContent = currentEnhanceStyle === "score"
-      ? "Pulling harmonic DNA — key, chord progression, tempo, instruments..."
+      ? "Pulling harmonic DNA, key, chord progression, tempo, instruments..."
       : "Searching the web for context...";
     enhanceStatus.className = "enhance-status active";
 
@@ -1027,11 +1027,11 @@
           enhanceStatus.textContent = "Designing composition timeline…";
           btnEnhancePrompt.textContent = "Planning…";
           await _planCompositionSections();
-          enhanceStatus.textContent = "Composition timeline ready — this is what will generate";
+          enhanceStatus.textContent = "Composition timeline ready, this is what will generate";
         } else if (data.layers && data.layers.length) {
           // Text mode: same card, now filled in — title, instruments, prompt.
           _renderPlanPreview(data.layers);
-          enhanceStatus.textContent = "Ready — this is exactly what will generate";
+          enhanceStatus.textContent = "Ready, this is exactly what will generate";
         } else {
           enhanceStatus.textContent = data.research_summary ? "Enhanced with web research" : "Enhanced";
         }
@@ -1117,7 +1117,7 @@
             promptEl.style.height = "auto";
             promptEl.style.height = promptEl.scrollHeight + "px";
             saveFormState();
-            analyzeRefStatus.textContent = "Prompt set from reference — ready to generate";
+            analyzeRefStatus.textContent = "Prompt set from reference, ready to generate";
             analyzeRefStatus.className = "enhance-status success";
           } else {
             analyzeRefStatus.textContent = "Analyzed, but no prompt could be derived";
@@ -1125,7 +1125,7 @@
           }
         }
       } catch (err) {
-        analyzeRefStatus.textContent = "Analysis failed — check connection";
+        analyzeRefStatus.textContent = "Analysis failed, check connection";
         analyzeRefStatus.className = "enhance-status error";
       }
       btnAnalyzeRef.disabled = false;
@@ -1223,7 +1223,7 @@
           "\n\nClick OK to generate anyway (auto-sanitized), or Cancel to edit the prompt."
         );
         if (!proceed) {
-          showError("Generation canceled — edit out: " + (data.terms || []).join(", "));
+          showError("Generation canceled, edit out: " + (data.terms || []).join(", "));
           return;
         }
         genBody.force_copyright = true;
@@ -1301,7 +1301,7 @@
 
   function startStemPolling(jobId) {
     if (stemPollInterval) clearInterval(stemPollInterval);
-    progressMessage.textContent = "Stems separating in background — you can listen now";
+    progressMessage.textContent = "Stems separating in background, you can listen now";
     stemPollInterval = setInterval(async () => {
       try {
         const res = await fetch(`/api/status/${jobId}`);
@@ -1312,7 +1312,7 @@
           _currentStems = data.stems;
           progressMessage.textContent = "Stems ready";
           if (currentLayers && currentLayers.length) renderLayers(currentLayers);
-          addChatMessage("system", "Stem separation finished — expand a music layer to mix stems.");
+          addChatMessage("system", "Stem separation finished, expand a music layer to mix stems.");
         } else if (data.stems_status === "failed") {
           clearInterval(stemPollInterval);
           stemPollInterval = null;
@@ -1616,7 +1616,7 @@
 
   // ── Generation details panel (Listen tab) ──
   function _fmtSecs(s) {
-    if (!s) return "—";
+    if (!s) return "None";
     const m = s / 60;
     return m >= 1 ? `${(m % 1 ? m.toFixed(1) : m)} min` : `${Math.round(s)}s`;
   }
@@ -1633,11 +1633,11 @@
       const cell = data.stitch_cell_sec || 150;
       const total = data.music_length_sec || data.duration_sec || 0;
       const n = total ? Math.max(2, Math.round(total / cell)) : "?";
-      modeStr = `Stitch — ${n} × ${_fmtSecs(cell)} cells (${n - 1} seam${n - 1 === 1 ? "" : "s"})`;
+      modeStr = `Stitch, ${n} × ${_fmtSecs(cell)} cells (${n - 1} seam${n - 1 === 1 ? "" : "s"})`;
     } else if (mode === "composition_plan") {
       modeStr = "Composition plan";
     } else {
-      modeStr = "Text — single generation";
+      modeStr = "Text, single generation";
     }
     const rating = data.rating || 0;
     const rows = [
@@ -1645,10 +1645,10 @@
       ["Model", `ElevenLabs Music ${model}`],
       ["Unique length", _fmtSecs(data.music_length_sec || data.duration_sec)],
       ["Mastering", data.mastering === false ? "Off (raw)" : "On (−16 LUFS)"],
-      ["Key", data.root_key || "—"],
-      ["Mood", data.mood || "—"],
-      ["Rating", rating > 0 ? "★".repeat(rating) : "—"],
-      ["Created", data.created_at ? new Date(data.created_at).toLocaleString() : "—"],
+      ["Key", data.root_key || "None"],
+      ["Mood", data.mood || "None"],
+      ["Rating", rating > 0 ? "★".repeat(rating) : "None"],
+      ["Created", data.created_at ? new Date(data.created_at).toLocaleString() : "None"],
     ];
     let html = '<dl class="td-grid">';
     for (const [k, v] of rows) html += `<dt>${esc(k)}</dt><dd>${esc(String(v))}</dd>`;
@@ -1802,7 +1802,7 @@
             }
             if (peak < 0.001) {
               silentStems.push(stemName);
-              console.log(`[Mixer] Stem "${stemName}" is silent (peak=${peak.toFixed(6)}) — hiding`);
+              console.log(`[Mixer] Stem "${stemName}" is silent (peak=${peak.toFixed(6)}), hiding`);
             }
           }
         } catch (err) {
@@ -1847,9 +1847,13 @@
     if (!data) { label.textContent = "No tracks yet"; return; }
     const _h = (typeof _historyCache !== "undefined" && data.job_id) ? _historyCache.find((j) => j.job_id === data.job_id) : null;
     const _w = (data.world || (_h && _h.world) || "");
-    const title = (_w ? _w.toUpperCase() + " \u00B7 " : "") + (data.title || (_h && _h.title) || data.prompt || "Untitled").trim();
+    const title = (data.title || (_h && _h.title) || data.prompt || "Untitled").trim();
     const rating = data.rating > 0 ? data.rating : (data.favorite ? 1 : 0);
-    label.textContent = (rating > 0 ? "★".repeat(rating) + " " : "") + title;
+    // World and title as two labels (no middle-dot separator, 2026-11-22).
+    label.textContent = "";
+    if (_w) { const w = document.createElement("span"); w.className = "now-playing-world"; w.textContent = _w; label.appendChild(w); }
+    const t = document.createElement("span"); t.className = "now-playing-title";
+    t.textContent = (rating > 0 ? "★".repeat(rating) + " " : "") + title; label.appendChild(t);
   }
 
   function showPlayer(data, autoplay = true) {
@@ -1953,7 +1957,7 @@
         if (!badge) {
           badge = document.createElement("span");
           badge.className = "layer-load-error";
-          badge.title = "Audio failed to load — try regenerating this layer";
+          badge.title = "Audio failed to load, try regenerating this layer";
           badge.textContent = "No audio";
           const header = card.querySelector(".layer-header") || card.firstElementChild;
           if (header) header.appendChild(badge);
@@ -2006,7 +2010,7 @@
   function renderLayers(layers) {
     currentLayers = layers;
     layersPanel.classList.remove("hidden");
-    const keyBadge = currentRootKey ? ` · Key: ${escapeHtml(currentRootKey)}` : "";
+    const keyBadge = currentRootKey ? `, Key: ${escapeHtml(currentRootKey)}` : "";
     layersCount.textContent = `(${layers.length}${keyBadge})`;
 
     const typeIcons = { base: "\u{1F30A}", mid: "\u{1F33F}", detail: "\u2728", musical: "\u{1F3B5}" };
@@ -2044,7 +2048,7 @@
             <span class="layer-icon">${icon}</span>
             <span class="layer-name">${eName}</span>
             <span class="layer-type-badge ${l.layer_type}">${label}</span>
-            <button class="layer-solo-btn ${soloActive ? "active" : ""}" data-layer="${eName}" title="Solo — hear only this layer">S</button>
+            <button class="layer-solo-btn ${soloActive ? "active" : ""}" data-layer="${eName}" title="Solo, hear only this layer">S</button>
             <span class="layer-status ${statusDot}"></span>
           </div>
           <div class="layer-prompt">${escapeHtml(l.elevenlabs_prompt || "No prompt")}</div>
@@ -2224,7 +2228,7 @@
             alert(`Not enough credits. Need ${_costLabel(cost)} but only ${_costLabel(_lastBalance?.remaining || 0)} remaining.`);
             return;
           }
-          if (!confirm(`${action === "vary" ? "Vary" : "Re-roll"} "${layerName}" — generates ${durLabel} (${_costLabel(cost)}). Continue?`)) return;
+          if (!confirm(`${action === "vary" ? "Vary" : "Re-roll"} "${layerName}", generates ${durLabel} (${_costLabel(cost)}). Continue?`)) return;
           _trackCredits(cost, `${action === "vary" ? "Vary" : "Re-roll"} ${layerName}`);
         }
         performLayerAction(action, layerName);
@@ -2695,7 +2699,7 @@
             alert(`Not enough credits. Need ${_costLabel(cost)} but only ${_costLabel(_lastBalance?.remaining || 0)} remaining.`);
             return;
           }
-          if (!confirm(`Add "${btn.dataset.sname}" (${isMusic ? "music" : "SFX"}) — ${_costLabel(cost)}. Continue?`)) return;
+          if (!confirm(`Add "${btn.dataset.sname}" (${isMusic ? "music" : "SFX"}), ${_costLabel(cost)}. Continue?`)) return;
           _trackCredits(cost, `Add ${btn.dataset.sname}`);
           btn.disabled = true;
           btn.textContent = "Adding...";
@@ -2749,7 +2753,7 @@
           else { el.textContent = "noise"; el.title = "Non-tonal"; el.classList.add("key-noise"); }
         }
       }
-      const keyBadge = currentRootKey ? ` · Key: ${escapeHtml(currentRootKey)}` : "";
+      const keyBadge = currentRootKey ? `, Key: ${escapeHtml(currentRootKey)}` : "";
       layersCount.textContent = `(${currentLayers.length}${keyBadge})`;
     } catch (err) { addChatMessage("system", `Key detection failed: ${err.message}`); }
     if (btn) { btn.disabled = false; btn.textContent = "Detect Keys"; }
@@ -2897,7 +2901,7 @@
     if (action === "vary") {
       const srcLayer = currentLayers.find(l => l.name === layerName);
       if (!srcLayer || !srcLayer.elevenlabs_prompt) {
-        addChatMessage("system", "Cannot vary — layer has no prompt.");
+        addChatMessage("system", "Cannot vary, layer has no prompt.");
         return;
       }
       const existingNames = currentLayers.map(l => l.name);
@@ -2917,7 +2921,7 @@
         const data = await res.json();
         if (data.error) { addChatMessage("system", `Error: ${data.error}`); }
         else {
-          addChatMessage("system", `Variation "${varName}" created — use Alt to alternate them!`);
+          addChatMessage("system", `Variation "${varName}" created, use Alt to alternate them!`);
           if (data.layers) renderLayers(data.layers);
           const newLayer = (data.layers || []).find(l => l.name === varName);
           if (mixer && newLayer && newLayer.has_audio) {
@@ -2987,7 +2991,7 @@
       alert(`Not enough credits. Need ${_costLabel(cost)} but only ${_costLabel(_lastBalance?.remaining || 0)} remaining.`);
       return;
     }
-    if (!confirm(`Add "${name}" (${isMusic ? "music" : "SFX"}) — ${_costLabel(cost)}. Continue?`)) return;
+    if (!confirm(`Add "${name}" (${isMusic ? "music" : "SFX"}), ${_costLabel(cost)}. Continue?`)) return;
     _trackCredits(cost, `Add ${name}`);
     layerActionPending = true;
     const submitBtn = document.getElementById("add-layer-submit");
@@ -3283,7 +3287,7 @@
           <div class="part-header">
             <span class="part-number">${i + 1}</span>
             <input class="part-name-input" value="${escapeHtml(p.name)}" data-pidx="${i}">
-            <span class="part-meta">${durationMin} min · ${activeCount}/${layerNames.length} layers</span>
+            <span class="part-meta">${durationMin} min, ${activeCount}/${layerNames.length} layers</span>
           </div>
           <div class="part-controls">
             <label class="part-dur-label">Duration:
@@ -3532,7 +3536,7 @@
       const modeTag = mode === "stitch" ? "Stitch" : mode === "composition_plan" ? "Plan" : "Text";
       const d = j.created_at ? new Date(j.created_at) : null;
       const dateStr = d ? d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
-      const title = (j.world ? j.world.toUpperCase() + " \u00B7 " : "") + (j.title || j.prompt || "Untitled").trim();
+      const title = (j.world ? j.world + ", " : "") + (j.title || j.prompt || "Untitled").trim();
       const world = (j.seed_idea || "").trim();
       let visualBadge = "";
       if (j.youtube_url) visualBadge = `<span class="lib-visual lib-visual-published">Published</span>`;
@@ -3667,7 +3671,7 @@
       // Prefer the short evocative title; fall back to the prompt if absent.
       const label = (j.title && j.title.trim()) ? j.title.trim() : j.prompt;
       const shown = label.length > 60 ? label.slice(0, 57) + "..." : label;
-      const world = j.world ? `${j.world.toUpperCase()} \u00B7 ` : "";
+      const world = j.world ? `${j.world}, ` : "";
       opt.textContent = `${star}${dot} ${world}${shown}  (${timeStr})`;
       // Full description on hover so identical titles are still distinguishable.
       opt.title = j.prompt || "";
@@ -4248,7 +4252,7 @@
             badge = document.createElement("button");
             badge.type = "button";
             badge.className = "ml-mask-badge";
-            badge.title = "This layer has a region mask — click to edit it";
+            badge.title = "This layer has a region mask, click to edit it";
             badge.textContent = "🖌 region";
             badge.addEventListener("click", () => {
               if (!useBrush.checked) useBrush.click();
@@ -4306,8 +4310,8 @@
         const label = (window._MOTION_SCHEMA?.[layer?.type]?.label) || layer?.type || `Layer ${idx + 1}`;
         const moves = brushSemantic === "moves";
         brushHint.innerHTML = moves
-          ? `Per-layer mask — <strong>${label}</strong> only fires inside the painted region. Camera and other layers still play normally everywhere. Save, then Generate.`
-          : `Per-layer mask — <strong>${label}</strong> is SUPPRESSED inside the painted region. Other layers + camera still play normally everywhere. Save, then Generate.`;
+          ? `Per-layer mask, <strong>${label}</strong> only fires inside the painted region. Camera and other layers still play normally everywhere. Save, then Generate.`
+          : `Per-layer mask, <strong>${label}</strong> is SUPPRESSED inside the painted region. Other layers + camera still play normally everywhere. Save, then Generate.`;
       }
     }
 
@@ -4324,8 +4328,8 @@
       if (btnTap) {
         btnTap.textContent = brushSemantic === "stays" ? "✦ Tap to freeze (AI)" : "✦ Tap to animate (AI)";
         btnTap.title = brushSemantic === "stays"
-          ? "Click an object (e.g. the city) and AI segments it onto the canvas — it'll stay perfectly still"
-          : "Click an object (e.g. the sky/nebula) and AI segments it onto the canvas — it'll be what moves";
+          ? "Click an object (e.g. the city) and AI segments it onto the canvas, it'll stay perfectly still"
+          : "Click an object (e.g. the sky/nebula) and AI segments it onto the canvas, it'll be what moves";
       }
       if (brushHint) {
         brushHint.innerHTML = brushSemantic === "stays"
@@ -4428,8 +4432,8 @@
           if (d.mask_url) {
             drawMaskUrl(d.mask_url);
             statusEl.textContent = brushSemantic === "stays"
-              ? "Painted to FREEZE this region — refine with Paint/Erase (autosaves)"
-              : "Painted to ANIMATE this region — refine with Paint/Erase (autosaves)";
+              ? "Painted to FREEZE this region, refine with Paint/Erase (autosaves)"
+              : "Painted to ANIMATE this region, refine with Paint/Erase (autosaves)";
             _scheduleMaskAutoSave();
           }
         },
@@ -4652,7 +4656,7 @@
             <button class="saved-still-play" data-action="play" title="Play this saved Living Still">▶</button>
           </div>
           <input type="text" class="saved-still-name" value="${escapeHtml(s.name || "")}" data-action="rename" maxlength="60">
-          <div class="saved-still-meta">${escapeHtml(fmtDate(s.created_at))}${s.duration_sec ? " · " + fmtDuration(s.duration_sec) : ""}</div>
+          <div class="saved-still-meta">${escapeHtml(fmtDate(s.created_at))}${s.duration_sec ? ", " + fmtDuration(s.duration_sec) : ""}</div>
           <div class="saved-still-actions">
             <button class="saved-still-btn fav" data-action="fav" title="${s.favorite ? "Unstar" : "Mark as favorite"}">${star}</button>
             ${s.has_mask ? `<button class="saved-still-btn" data-action="restore" title="Adopt this still's brush mask as the song's active mask">↺ Mask</button>` : ""}
@@ -5073,7 +5077,7 @@
     if (!motionLayersList) return;
     const layers = window._motionLayers || [];
     if (!layers.length) {
-      motionLayersList.innerHTML = '<div class="canvas-empty"><p class="canvas-empty-sub">No layers yet. <strong>Auto-plan from image</strong>, load a preset, or add layers — then tweak and Generate.</p></div>';
+      motionLayersList.innerHTML = '<div class="canvas-empty"><p class="canvas-empty-sub">No layers yet. <strong>Auto-plan from image</strong>, load a preset, or add layers, then tweak and Generate.</p></div>';
       return;
     }
     // Back-fill schema defaults into every layer dict that's missing them.
@@ -5111,7 +5115,7 @@
       }).join("");
       // enabled defaults to true; only stored explicitly when toggled off.
       const enabled = l.enabled !== false;
-      const togTitle = enabled ? "Layer is ON — click to mute (keeps settings)" : "Layer is MUTED — click to enable";
+      const togTitle = enabled ? "Layer is ON, click to mute (keeps settings)" : "Layer is MUTED, click to enable";
       return `<div class="ml-card ${enabled ? "" : "ml-card-off"}">
         <div class="ml-card-head">
           <button class="ml-enable" data-idx="${i}" title="${togTitle}" aria-pressed="${enabled}">${enabled ? "● ON" : "○ OFF"}</button>
@@ -5258,7 +5262,7 @@
       const hasEditorLayers = (window._motionLayers || []).length > 0;
       if (!hasEditorLayers) return; // editor is empty → next Generate will use this style anyway
       if (confirm(`Director style changed to "${newStyle}".\n\n` +
-                  `The editor already has ${window._motionLayers.length} layer(s) — these will be rendered AS-IS unless you re-plan.\n\n` +
+                  `The editor already has ${window._motionLayers.length} layer(s), these will be rendered AS-IS unless you re-plan.\n\n` +
                   `Click OK to re-plan with the new style now (replaces the editor list).\n` +
                   `Click Cancel to keep the current editor layers (Director style is ignored for this render).`)) {
         document.getElementById("btn-auto-plan-motion")?.click();
@@ -5485,7 +5489,7 @@
           status.className = "enhance-status success";
         }
       } catch (e) {
-        status.textContent = "Preview failed — check connection";
+        status.textContent = "Preview failed, check connection";
         status.className = "enhance-status error";
       }
       btnPreviewIntro.disabled = false;
@@ -5567,7 +5571,7 @@
 
   ytTitleEl.addEventListener("input", () => {
     ytTitleCount.textContent = ytTitleEl.value.length;
-    pubPreviewTitle.textContent = ytTitleEl.value || "—";
+    pubPreviewTitle.textContent = ytTitleEl.value || "None";
     _queueYtSave();
   });
   ytDescEl.addEventListener("input", () => { ytDescCount.textContent = ytDescEl.value.length; _queueYtSave(); });
@@ -5658,9 +5662,9 @@
       if (data.visual_video_url) {
         pubVideoBadge.innerHTML = '<span class="badge badge-ready">Video ready</span>';
       } else if (data.visual_image_url) {
-        pubVideoBadge.innerHTML = '<span class="badge badge-warn">Image only — export a video in the Visuals tab first</span>';
+        pubVideoBadge.innerHTML = '<span class="badge badge-warn">Image only, export a video in the Visuals tab first</span>';
       } else {
-        pubVideoBadge.innerHTML = '<span class="badge badge-warn">No video — create one in the Visuals tab first</span>';
+        pubVideoBadge.innerHTML = '<span class="badge badge-warn">No video yet. Create one on the Visuals tab first</span>';
       }
       pubTrackInfo.classList.remove("hidden");
 
@@ -5699,7 +5703,7 @@
         if (data.yt_privacy) ytPrivacyEl.value = data.yt_privacy;
         ytTitleCount.textContent = ytTitleEl.value.length;
         ytDescCount.textContent = ytDescEl.value.length;
-        pubPreviewTitle.textContent = ytTitleEl.value || "—";
+        pubPreviewTitle.textContent = ytTitleEl.value || "None";
         pubPreviewPrivacy.textContent = ytPrivacyEl.value;
 
         if (data.custom_thumbnail_url) {
@@ -6204,7 +6208,7 @@
         const studioUrl = s.youtube_video_id ? `https://studio.youtube.com/video/${s.youtube_video_id}/edit` : null;
         const ytLink = s.youtube_url
           ? `<a class="badge badge-ready" href="${s.youtube_url}" target="_blank">View on YouTube</a>`
-            + (studioUrl ? `<a class="badge badge-action" href="${studioUrl}" target="_blank" title="YouTube can't set this via API — one tap opens Studio, then pick the full video under Related video → Save">➕ Link full video (Studio)</a>` : "")
+            + (studioUrl ? `<a class="badge badge-action" href="${studioUrl}" target="_blank" title="YouTube can't set this via API, one tap opens Studio, then pick the full video under Related video → Save">➕ Link full video (Studio)</a>` : "")
           : `<button class="btn btn-primary btn-short-publish" data-short-id="${s.short_id}">Publish</button>`;
         let relatedHint = "";
         if (s.youtube_url) {
@@ -6238,7 +6242,7 @@
                 ${ytLink}
                 <button class="btn btn-secondary btn-short-delete" data-short-id="${s.short_id}">Delete</button>
               </div>
-              <span class="form-hint">Moment: ${escapeHtml(s.moment_description || '')} · ${s.clip_sec || 0}s starting ${s.start_sec ? s.start_sec.toFixed(1) : '0'}s</span>
+              <span class="form-hint">Moment: ${escapeHtml(s.moment_description || '')}, ${s.clip_sec || 0}s starting ${s.start_sec ? s.start_sec.toFixed(1) : '0'}s</span>
               <span class="short-upload-status form-hint" data-short-id="${s.short_id}">${s.upload_status === 'uploading' ? 'Uploading…' : ''}</span>
               ${relatedHint}
             </div>
@@ -6356,7 +6360,7 @@
           if (btn) { btn.disabled = false; btn.textContent = "Retry publish"; }
         } else {
           const pct = Math.round(d.progress || 0);
-          setStatus(`⏳ Uploading… ${pct}%` + (d.message ? ` — ${d.message}` : ""), "upload-uploading");
+          setStatus(`⏳ Uploading… ${pct}%` + (d.message ? `, ${d.message}` : ""), "upload-uploading");
         }
       } catch (e) { /* keep polling */ }
     }, 2000);
@@ -6593,7 +6597,7 @@
       const names = out.discord_webhook_names || [];
       discordWebhookSelect.innerHTML = names.length
         ? names.map((n) => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join("")
-        : `<option value="">— no webhooks saved —</option>`;
+        : `<option value="">No webhooks saved</option>`;
       discordWebhooksState.innerHTML = names.length
         ? `<p class="form-hint">${names.length} webhook${names.length === 1 ? '' : 's'} saved.</p>`
         : `<p class="form-hint">No Discord webhooks saved yet. Click "Add webhook" to store one.</p>`;
@@ -6654,8 +6658,8 @@
       const res = await fetch("/api/distribute/stream/status");
       const s = await res.json();
       streamStatusEl.textContent = s.status || "unknown";
-      streamPlaylistCountEl.textContent = s.playlist_tracks ?? "—";
-      streamStartedEl.textContent = s.started_at || "—";
+      streamPlaylistCountEl.textContent = s.playlist_tracks ?? "None";
+      streamStartedEl.textContent = s.started_at || "None";
       if (s.last_error) {
         streamErrorEl.textContent = s.last_error;
         streamErrorEl.classList.remove("hidden");
@@ -6697,7 +6701,7 @@
         body: JSON.stringify({}),
       });
       const out = await res.json();
-      alert(`Playlist rebuilt — ${out.tracks} track(s).`);
+      alert(`Playlist rebuilt, ${out.tracks} track(s).`);
       await refreshStreamStatus();
     } catch (e) {
       alert("Rebuild failed: " + e.message);

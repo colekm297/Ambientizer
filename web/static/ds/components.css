@@ -1,0 +1,725 @@
+/* House design system: components.
+   Every component has: rest, pressed (:active / .is-pressed), focus (:focus-visible), selected
+   ([aria-pressed="true"], [aria-selected="true"], [aria-current], .is-selected) and disabled (:disabled, [aria-disabled="true"]).
+   Opt in with class="ds" on <body>. Needs tokens.css and motion.css first. */
+
+/* ---------- Base ---------- */
+body.ds {
+  margin: 0;
+  background-color: var(--bg-default);
+  color: var(--ink);
+  font: var(--text-body);
+  font-optical-sizing: auto;
+  -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%;
+  text-rendering: optimizeLegibility;
+  font-variant-numeric: tabular-nums;
+}
+/* paper: a fixed grain layer over the ground, under everything else */
+body.ds::before {
+  content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  background-image: var(--grain); background-size: 240px; opacity: var(--grain-opacity);
+}
+.ds *, .ds *::before, .ds *::after { box-sizing: border-box; }
+.ds :where(h1, h2, h3, h4, p, ul, ol, figure) { margin: 0; }
+.ds :where(button, input, textarea, select) { font: inherit; color: inherit; }
+.ds :where(a) { color: inherit; }
+.ds ::placeholder { color: var(--ink); opacity: 1; font-weight: 300; }
+.ds :focus { outline: none; }
+.ds :focus-visible, .ds .is-focus { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.ds em, .ds i, .ds cite { font-style: normal; } /* no italics, ever */
+
+/* ---------- Type helpers ---------- */
+.ds-display { font: var(--text-display); letter-spacing: var(--track-display); text-wrap: balance; }
+.ds-number { font: var(--text-number); letter-spacing: var(--track-display); white-space: nowrap; }
+.ds-title { font: var(--text-title); letter-spacing: var(--track-heading); text-wrap: balance; }
+.ds-heading { font: var(--text-heading); letter-spacing: var(--track-heading); text-wrap: balance; }
+.ds-body { font: var(--text-body); }
+.ds-label { font: var(--text-label); letter-spacing: var(--track-label); }
+.ds-meta { font: var(--text-meta); }
+.ds-hand { font: var(--text-hand); color: var(--mark); letter-spacing: .01em; }
+.ds-nowrap { white-space: nowrap; }
+
+/* ---------- Icons ---------- */
+.ds-icon { width: 24px; height: 24px; flex: none; display: inline-block; vertical-align: middle; fill: currentColor; }
+.ds-icon--sm { width: 18px; height: 18px; }
+.ds-icon--lg { width: 30px; height: 30px; }
+
+/* ---------- Buttons ---------- */
+.ds-btn {
+  position: relative; display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2);
+  min-height: var(--target); padding: 0 var(--space-5); border: 0; border-radius: var(--radius-control);
+  font: var(--text-label); letter-spacing: var(--track-label); white-space: nowrap; text-decoration: none; cursor: pointer;
+  background: var(--bg-sunken); color: var(--ink); box-shadow: var(--elev-0);
+  transition: transform var(--ds-dur-spatial-fast) var(--ds-spring-spatial-fast), background-color var(--ds-dur-effects-fast) var(--ds-spring-effects-fast), box-shadow var(--ds-dur-effects) var(--ds-spring-effects), opacity var(--ds-dur-effects-fast) linear;
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation; user-select: none; -webkit-user-select: none;
+}
+.ds-btn:active, .ds-btn.is-pressed { transform: scale(.96); transition-duration: var(--ds-press-in); transition-timing-function: var(--ds-ease-out); background: var(--line-default); }
+.ds-btn--primary { background: var(--accent); color: var(--content-on-accent); box-shadow: var(--elev-1), inset 0 1px 0 rgba(255, 255, 255, .12); }
+.ds-btn--primary:active, .ds-btn--primary.is-pressed { background: var(--accent-press); box-shadow: inset 0 2px 4px rgba(0, 0, 0, .2); }
+.ds-btn--raised { background: var(--bg-card); box-shadow: var(--elev-1), var(--edge-light); }
+.ds-btn--raised:active, .ds-btn--raised.is-pressed { background: var(--bg-sunken); box-shadow: var(--elev-0); }
+.ds-btn--ghost { background: transparent; box-shadow: none; padding: 0 var(--space-3); }
+.ds-btn--ghost:active, .ds-btn--ghost.is-pressed { background: var(--state-press); }
+.ds-btn--on-inverse { background: rgba(243, 241, 234, .12); color: var(--content-on-inverse); box-shadow: inset 0 0 0 1px rgba(243, 241, 234, .16); }
+.ds-btn--on-inverse:active, .ds-btn--on-inverse.is-pressed { background: rgba(243, 241, 234, .2); }
+.ds-btn--sm { min-height: 36px; padding: 0 var(--space-4); font: var(--text-meta); font-weight: 600; }
+.ds-btn--icon { width: var(--target); padding: 0; }
+.ds-btn[aria-pressed="true"], .ds-btn.is-selected { background: var(--accent-tint); color: var(--accent); box-shadow: inset 0 0 0 1.5px var(--accent-line); }
+.ds-btn:disabled, .ds-btn[aria-disabled="true"] { opacity: var(--disabled-opacity); cursor: default; transform: none; box-shadow: none; }
+/* Busy: no spinner. A pen line draws under the label and loops until done. */
+.ds-btn.is-busy { pointer-events: none; }
+.ds-btn.is-busy::after {
+  content: ""; position: absolute; left: 22%; right: 22%; bottom: 9px; height: 2px; border-radius: 2px;
+  background: currentColor; transform-origin: left; animation: ds-pen 900ms var(--ds-ease-out) infinite;
+}
+@keyframes ds-pen { 0% { transform: scaleX(0); opacity: 1; } 70% { transform: scaleX(1); opacity: 1; } 100% { transform: scaleX(1); opacity: 0; } }
+
+/* ---------- Cards ---------- */
+.ds-card {
+  position: relative; background: var(--bg-card); border-radius: var(--radius-card);
+  box-shadow: var(--elev-2), var(--edge-light); padding: var(--space-4);
+}
+.ds-card--flat { box-shadow: var(--elev-1), var(--edge-light); }
+.ds-card--sunken { background: var(--bg-sunken); box-shadow: var(--elev-0); }
+.ds-card--tap { cursor: pointer; text-decoration: none; color: inherit; display: block;
+  transition: transform var(--ds-dur-spatial-fast) var(--ds-spring-spatial-fast), box-shadow var(--ds-dur-effects) var(--ds-spring-effects);
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+.ds-card--tap:active, .ds-card--tap.is-pressed { transform: scale(.985); box-shadow: var(--elev-1); transition-duration: var(--ds-press-in); }
+.ds-card.is-selected, .ds-card[aria-selected="true"] { box-shadow: var(--elev-2), inset 0 0 0 2px var(--accent); }
+.ds-card[aria-disabled="true"] { opacity: var(--disabled-opacity); box-shadow: var(--elev-1); }
+
+/* ---------- Lead card: makes one item lead a list ----------
+   Dark green, hand-cut corners, grain, the deepest shadow. One per screen. */
+.ds-lead {
+  position: relative; isolation: isolate; overflow: hidden;
+  background: var(--bg-inverse); color: var(--content-on-inverse);
+  border-radius: var(--radius-cut); box-shadow: var(--elev-lead);
+  padding: var(--space-5) var(--space-5) var(--space-4);
+}
+.ds-lead::before {
+  content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background-image: var(--grain); background-size: 200px; opacity: var(--lead-grain, .9); mix-blend-mode: screen;
+}
+.ds-lead::after { /* soft light from the top-left corner, like paper under a lamp */
+  content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background: radial-gradient(120% 90% at 0% 0%, rgba(243, 241, 234, .10), transparent 60%);
+}
+.ds-lead :focus-visible { outline-color: var(--content-on-inverse); }
+.ds-lead--tap { cursor: pointer; transition: transform var(--ds-dur-spatial-fast) var(--ds-spring-spatial-fast); -webkit-tap-highlight-color: transparent; }
+.ds-lead--tap:active, .ds-lead--tap.is-pressed { transform: scale(.985); transition-duration: var(--ds-press-in); }
+
+/* ---------- Grouped list and rows ---------- */
+.ds-list { background: var(--bg-card); border-radius: var(--radius-panel); box-shadow: var(--elev-1), var(--edge-light); overflow: hidden; }
+.ds-row {
+  position: relative; display: flex; align-items: center; gap: var(--space-3); width: 100%;
+  min-height: 52px; padding: var(--space-3) var(--space-4); border: 0; background: transparent; text-align: left; color: inherit; text-decoration: none;
+  transition: background-color var(--ds-dur-effects-fast) var(--ds-spring-effects-fast);
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation; cursor: pointer;
+}
+.ds-row + .ds-row::before, .ds-row-wrap + .ds-row-wrap::before { /* a hand-drawn rule, not a 1px line */
+  content: ""; position: absolute; top: -2px; left: var(--space-4); right: var(--space-4); height: 5px; background: var(--line-strong);
+  -webkit-mask: url("rule.svg") center / 100% 100% no-repeat; mask: url("rule.svg") center / 100% 100% no-repeat; }
+.ds-row-wrap { position: relative; }
+.ds-row:active, .ds-row.is-pressed { background: var(--state-press); transition-duration: var(--ds-press-in); }
+.ds-row[aria-selected="true"], .ds-row.is-selected, .ds-row[aria-current] { background: var(--state-selected); }
+.ds-row:disabled, .ds-row[aria-disabled="true"] { opacity: var(--disabled-opacity); cursor: default; }
+.ds-row__main { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.ds-row__title { font: var(--text-label); letter-spacing: var(--track-label); }
+.ds-row__text { font: var(--text-body); }
+.ds-row__meta { font: var(--text-meta); white-space: nowrap; }
+.ds-row__lead { flex: none; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 10px; background: var(--bg-sunken); color: var(--content-default); }
+
+/* ---------- Select (added 2026-11-20 for Satie's role pick) ----------
+   A native list in a sunken well, with a drawn chevron. The native picker opens on tap (the iOS wheel on a phone).
+   Markup: <label class="ds-select"><select>...</select></label>. While the empty first option is chosen, its words
+   read like a placeholder (same ink, weight 300). 16px text so iOS never zooms. */
+.ds-select { position: relative; display: block; min-width: 0; }
+.ds-select select {
+  -webkit-appearance: none; appearance: none; display: block; width: 100%; min-height: 52px; margin: 0;
+  padding: 0 calc(var(--space-4) + 26px) 0 var(--space-4); border: 0; border-radius: var(--radius-control);
+  font: var(--text-body); color: var(--ink); background: var(--bg-sunken); box-shadow: var(--elev-0);
+  cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  transition: transform var(--ds-dur-spatial-fast) var(--ds-spring-spatial-fast), box-shadow var(--ds-dur-effects) var(--ds-spring-effects);
+}
+.ds-select select:has(option[value=""]:checked) { font-weight: 300; }
+.ds-select select option { font-weight: 400; color: var(--ink); background: var(--bg-card); }
+.ds-select::after { /* the chevron, drawn by hand, in the second ink */
+  content: ""; position: absolute; right: var(--space-4); top: 50%; width: 15px; height: 10px; margin-top: -5px; pointer-events: none; /* select-chev.svg, a file: the Inbox CSP blocks data: images (gaps3) */
+  background: var(--content-default);
+  -webkit-mask: url("select-chev.svg") center / contain no-repeat;
+  mask: url("select-chev.svg") center / contain no-repeat;
+}
+.ds-select select:active, .ds-select.is-pressed select { transform: scale(.985); transition-duration: var(--ds-press-in); }
+.ds-select select:focus-visible, .ds-select.is-focus select { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.ds-select:has(select:disabled), .ds-select[aria-disabled="true"] { opacity: var(--disabled-opacity); }
+.ds-select select:disabled { cursor: default; transform: none; }
+/* Chosen (a list with an empty first option, once something else is picked): the selected tint. */
+.ds-select select:has(option[value=""]):not(:has(option[value=""]:checked)), .ds-select.is-selected select { background: var(--accent-tint); box-shadow: inset 0 0 0 1.5px var(--accent-line); }
+/* Long choices (gaps3, 2026-11-20): a native select cuts its shown text at one line. components.js gives every
+   .ds-select a face (.ds-select__show) that shows the whole chosen text, wrapping to as many lines as it needs, and lays
+   the real select over it, transparent, so a tap still opens the native picker (the iOS wheel) and the 44px target
+   holds (the face is at least 52px). Without the script the plain select above shows. The face takes the well, the
+   placeholder weight, the chosen tint, press, focus and disabled from the select under it. */
+.ds-select.is-live select { position: absolute; inset: 0; z-index: 1; height: 100%; min-height: 0; opacity: 0; }
+.ds-select__show { display: none; }
+.ds-select.is-live .ds-select__show {
+  display: flex; align-items: center; min-height: 52px; padding: var(--space-3) calc(var(--space-4) + 26px) var(--space-3) var(--space-4);
+  border-radius: var(--radius-control); background: var(--bg-sunken); box-shadow: var(--elev-0);
+  font: var(--text-body); color: var(--ink); text-align: left; overflow-wrap: anywhere;
+  transition: transform var(--ds-dur-spatial-fast) var(--ds-spring-spatial-fast), box-shadow var(--ds-dur-effects) var(--ds-spring-effects);
+}
+.ds-select.is-live:has(option[value=""]:checked) .ds-select__show { font-weight: 300; }
+.ds-select.is-live:has(option[value=""]):not(:has(option[value=""]:checked)) .ds-select__show, .ds-select.is-live.is-selected .ds-select__show { background: var(--accent-tint); box-shadow: inset 0 0 0 1.5px var(--accent-line); }
+.ds-select.is-live:active .ds-select__show, .ds-select.is-live.is-pressed .ds-select__show { transform: scale(.985); transition-duration: var(--ds-press-in); }
+.ds-select.is-live:has(select:focus-visible) .ds-select__show, .ds-select.is-live.is-focus .ds-select__show { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.ds-select.is-live:has(select:disabled) .ds-select__show { transform: none; }
+.ds-select.is-live::after { z-index: 2; top: calc(26px - 5px); margin-top: 0; } /* the chevron stays on the first line when the words wrap */
+
+/* ---------- Text input (gaps3, 2026-11-20) ----------
+   A field in the sunken input well, 16px so iOS never zooms, at least 52px tall. The placeholder is the one ink at
+   weight 300 (the base rule above), never grey. Filled: the words at 400. Focus: the 2px green ring. Disabled: 42%.
+   Markup: <input class="ds-input" type="text" placeholder="Monthly floor" aria-label="Monthly floor">
+   On the dark green lead card add .ds-input--on-inverse: a faint paper well with a paper hairline, its words and
+   placeholder in the on-inverse ink (placeholder weight 300, opacity 1, the same rule turned over), a solid paper ring
+   2px outside on focus, a slightly brighter well once filled. Same in both themes. */
+.ds-input {
+  display: block; width: 100%; min-width: 0; min-height: 52px; margin: 0; padding: 0 var(--space-4); border: 0;
+  border-radius: var(--radius-control); background: var(--bg-input); box-shadow: var(--elev-0), inset 0 0 0 1px var(--line-default);
+  font: var(--text-body); font-weight: 500; color: var(--ink); -webkit-appearance: none; appearance: none;
+  transition: box-shadow var(--ds-dur-effects-fast) var(--ds-spring-effects-fast), background-color var(--ds-dur-effects-fast) var(--ds-spring-effects-fast);
+}
+.ds-input[type="number"] { -moz-appearance: textfield; }
+.ds-input::-webkit-inner-spin-button, .ds-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.ds-input:focus-visible, .ds-input:focus, .ds-input.is-focus { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.ds-input:disabled, .ds-input[aria-disabled="true"] { opacity: var(--disabled-opacity); cursor: default; }
+.ds-input--on-inverse { background: rgba(243, 241, 234, .07); color: var(--content-on-inverse); box-shadow: inset 0 0 0 1.5px rgba(243, 241, 234, .3); caret-color: var(--content-on-inverse); }
+.ds-input--on-inverse::placeholder { color: var(--content-on-inverse); opacity: 1; font-weight: 300; }
+.ds-input--on-inverse:not(:placeholder-shown) { background: rgba(243, 241, 234, .18); }
+.ds-input--on-inverse:focus-visible, .ds-input--on-inverse:focus, .ds-input--on-inverse.is-focus { outline: 2px solid var(--content-on-inverse); outline-offset: 2px; box-shadow: inset 0 0 0 1.5px rgba(243, 241, 234, .5); }
+/* A label over a field, in the label style; on the lead card it takes the card's ink. */
+.ds-field { display: grid; gap: var(--space-2); min-width: 0; font: var(--text-label); font-weight: 500; color: var(--ink); }
+.ds-lead .ds-field { color: var(--content-on-inverse); }
+
+/* ---------- Figure row (added 2026-11-20, lifted from Finance's Summary .sum-row) ----------
+   A headline row with a number: label left (Hanken), figure right (Newsreader 500), a chevron. Rows sit in a .ds-list
+   with a hand rule between them; the details open in place (.ds-collapse). components.js wires the tap and keeps one
+   row open per list. Markup:
+   <div class="ds-list">
+     <div class="ds-figrow">
+       <button type="button" class="ds-figrow__head" aria-expanded="false">
+         <span class="ds-figrow__label">Checking</span><span class="ds-figrow__fig">$2,064</span>
+         <span class="ds-chev" aria-hidden="true"><svg class="ds-icon ds-icon--sm"><use href="/ds/icons/sprite.svg#i-chevron-down"></use></svg></span>
+       </button>
+       <div class="ds-collapse"><div><div class="ds-figrow__more">What the number means, in one or two sentences.</div></div></div>
+     </div>
+   </div>
+   A row with nothing to open: leave out the chevron and the collapse, and use a <div class="ds-figrow__head"> instead. */
+.ds-figrow { position: relative; min-width: 0; }
+.ds-figrow + .ds-figrow::before, .ds-notice + .ds-notice::before {
+  content: ""; position: absolute; top: -2px; left: var(--space-4); right: var(--space-4); height: 5px; background: var(--line-strong);
+  -webkit-mask: url("rule.svg") center / 100% 100% no-repeat; mask: url("rule.svg") center / 100% 100% no-repeat; }
+.ds-figrow__head {
+  display: flex; align-items: center; gap: var(--space-3); width: 100%; min-height: 60px; margin: 0;
+  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4); border: 0; border-radius: 0; background: transparent;
+  color: var(--ink); text-align: left; font: var(--text-label); font-size: 16px; font-weight: 500; letter-spacing: var(--track-label);
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  transition: background-color var(--ds-dur-effects-fast) var(--ds-spring-effects-fast);
+}
+button.ds-figrow__head { cursor: pointer; }
+div.ds-figrow__head::after { content: ""; flex: none; width: 18px; } /* keeps the figure in line with rows that have a chevron */
+button.ds-figrow__head:active, .ds-figrow__head.is-pressed { background: var(--state-press); transition-duration: var(--ds-press-in); }
+.ds-figrow__head:focus-visible, .ds-figrow__head.is-focus { outline-offset: -2px; border-radius: var(--radius-card); }
+.ds-figrow__head:disabled, .ds-figrow__head[aria-disabled="true"] { opacity: var(--disabled-opacity); cursor: default; }
+.ds-figrow.is-selected > .ds-figrow__head, .ds-figrow__head[aria-current] { background: var(--state-selected); }
+.ds-figrow__label { flex: 1; min-width: 0; }
+.ds-figrow__fig { flex: none; font: var(--text-heading); letter-spacing: var(--track-heading); white-space: nowrap; text-align: right; }
+.ds-figrow__head .ds-chev, .ds-notice__head .ds-chev { color: var(--content-default); }
+.ds-figrow__more {
+  margin: 0 var(--space-4) var(--space-4); padding: var(--space-4) var(--space-5);
+  background: var(--bg-sunken); border-radius: var(--radius-card); box-shadow: var(--elev-0); font: var(--text-body); color: var(--ink);
+}
+/* A figure row with a meter (gaps2, 2026-11-20, from Finance's Where pay goes): label and figure on the first line,
+   the bar under both, the chevron on the first line. */
+.ds-figrow__head:has(> .ds-meter) {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto 18px; grid-template-areas: "l f c" "m m ."; column-gap: var(--space-3); row-gap: var(--space-2);
+}
+.ds-figrow__head:has(> .ds-meter) > .ds-figrow__label { grid-area: l; }
+.ds-figrow__head:has(> .ds-meter) > .ds-figrow__fig { grid-area: f; }
+.ds-figrow__head:has(> .ds-meter) > .ds-chev, div.ds-figrow__head:has(> .ds-meter)::after { grid-area: c; }
+.ds-figrow__head > .ds-meter { grid-area: m; }
+
+/* ---------- Meter (gaps2, 2026-11-20) ----------
+   A rounded bar for a share or a progress: a track in --meter-track, a fill in a series or status color. The value is
+   0 to 1 in data-value (components.js sets --v and the accessible value; the Inbox CSP blocks inline styles, so do not
+   rely on style="--v:..." there). A value above 0 always shows a nub. The fill wipes in with the entrance and slides
+   on the spatial spring when the value changes; both are off under reduced motion. Markup:
+   <span class="ds-meter" data-value="0.31" data-label="31% of pay"></span>
+   Colors: default --series-1; --s2 to --s5 for the other series; --done (green), --attention (amber), --over (red,
+   only past a limit). In the lead card use --on-inverse. */
+.ds-meter {
+  --v: 0; --fill: var(--series-1);
+  position: relative; display: block; width: 100%; min-width: 0; height: 8px; border-radius: var(--radius-chip);
+  background: var(--meter-track); overflow: hidden;
+}
+.ds-meter::after {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; border-radius: inherit; background: var(--fill);
+  width: clamp(0px, calc(var(--v) * 100%), 100%);
+  transition: width var(--ds-dur-spatial) var(--ds-spring-spatial);
+}
+.ds-meter:not([data-value="0"])::after { min-width: 8px; } /* the nub: any value above 0 stays visible */
+html.ds-enter .ds-meter::after, .ds-entering .ds-meter::after, .ds-meter.ds-entering::after { animation: ds-meter-in var(--ds-dur-spatial-slow) var(--ds-ease-out) both; animation-delay: 240ms; }
+@keyframes ds-meter-in { from { clip-path: inset(0 100% 0 0 round 4px); } to { clip-path: inset(0 0 0 0 round 4px); } }
+.ds-meter--s2 { --fill: var(--series-2); }
+.ds-meter--s3 { --fill: var(--series-3); }
+.ds-meter--s4 { --fill: var(--series-4); }
+.ds-meter--s5 { --fill: var(--series-5); }
+.ds-meter--done { --fill: var(--accent); }
+.ds-meter--attention { --fill: var(--attention); }
+.ds-meter--over { --fill: var(--series-over); }
+.ds-meter--on-inverse { --meter-track: rgba(243, 241, 234, .16); --fill: var(--content-on-inverse); }
+.ds-figrow__more .ds-meter, .ds-notices .ds-meter { --meter-track: var(--line-strong); }
+:where(button:disabled, [aria-disabled="true"]) .ds-meter { opacity: 1; } /* the row's own opacity already dims it */
+
+/* Read by screen readers, not drawn. components.js uses it for a meter inside a button, where ARIA flattens roles. */
+.ds-sr { position: absolute !important; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+
+/* ---------- Checkbox (gaps2, 2026-11-20, from Finance's Cut list) ----------
+   A real checkbox, styled: a hand-cut square in the sunken well, the drawn check (icons/check.svg) inking in from the
+   left when it is ticked. The label wraps it, so the whole line is the 44px target. Markup:
+   <label class="ds-check"><input type="checkbox"><span class="ds-check__text">Cancel the gym</span></label>
+   States: rest, pressed (the box dips), focus (the ring on the box), checked (green), mixed (indeterminate, a drawn
+   dash), disabled (42%). */
+.ds-check {
+  display: inline-flex; align-items: center; gap: var(--space-3); min-height: var(--target); min-width: 0;
+  font: var(--text-label); font-size: 16px; font-weight: 500; color: var(--ink); cursor: pointer;
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation; user-select: none; -webkit-user-select: none;
+}
+.ds-check__text { min-width: 0; }
+.ds-check > input[type="checkbox"] {
+  -webkit-appearance: none; appearance: none; position: relative; flex: none; width: 24px; height: 24px; margin: 0;
+  border: 0; border-radius: 7px 6px 8px 6px / 6px 8px 6px 7px; /* hand-cut, like the lead card's corners */
+  background: var(--bg-sunken); box-shadow: var(--elev-0), inset 0 0 0 1.5px var(--content-default); color: var(--content-on-accent); cursor: pointer;
+  transition: transform var(--ds-dur-spatial-fast) var(--ds-spring-spatial-fast), background-color var(--ds-dur-effects-fast) var(--ds-spring-effects-fast), box-shadow var(--ds-dur-effects-fast) var(--ds-spring-effects-fast);
+}
+.ds-check > input[type="checkbox"]::after {
+  content: ""; position: absolute; inset: 4px 3px 4px 4px; background: currentColor;
+  -webkit-mask: url("icons/check.svg") center / contain no-repeat; mask: url("icons/check.svg") center / contain no-repeat;
+  clip-path: inset(0 100% 0 0); transition: clip-path 90ms linear;
+}
+.ds-check > input[type="checkbox"]:checked, .ds-check > input[type="checkbox"]:indeterminate { background: var(--accent); box-shadow: var(--elev-1); }
+.ds-check > input[type="checkbox"]:checked::after { clip-path: inset(0 0 0 0); transition: clip-path 300ms cubic-bezier(0.45, 0.05, 0.25, 1) 40ms; } /* the marks.js pen curve */
+.ds-check > input[type="checkbox"]:indeterminate::after {
+  inset: 10px 5px; border-radius: 2px; -webkit-mask: none; mask: none; clip-path: inset(0 0 0 0);
+}
+.ds-check:active > input[type="checkbox"]:not(:checked), .ds-check.is-pressed > input[type="checkbox"]:not(:checked) { background: var(--line-strong); }
+.ds-check:active > input[type="checkbox"], .ds-check.is-pressed > input[type="checkbox"] { transform: scale(.88); transition-duration: var(--ds-press-in); transition-timing-function: var(--ds-ease-out); }
+.ds-check > input[type="checkbox"]:focus-visible, .ds-check.is-focus > input[type="checkbox"] { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.ds-check.is-focus { outline: none; } /* the ring belongs on the box, not the whole line */
+.ds-check:has(> input:disabled), .ds-check[aria-disabled="true"] { opacity: var(--disabled-opacity); cursor: default; }
+.ds-check > input[type="checkbox"]:disabled { cursor: default; transform: none; }
+.ds-lead .ds-check { color: var(--content-on-inverse); }
+.ds-lead .ds-check > input[type="checkbox"] { background: rgba(243, 241, 234, .12); box-shadow: inset 0 0 0 1.5px rgba(243, 241, 234, .4); }
+.ds-lead .ds-check > input[type="checkbox"]:checked, .ds-lead .ds-check > input[type="checkbox"]:indeterminate { background: var(--content-on-inverse); color: var(--bg-inverse); box-shadow: none; }
+/* In a list: one checkbox per row, the row's padding. */
+.ds-list > .ds-check { display: flex; width: 100%; min-height: 56px; padding: var(--space-2) var(--space-4); position: relative; }
+.ds-list > .ds-check + .ds-check::before {
+  content: ""; position: absolute; top: -2px; left: var(--space-4); right: var(--space-4); height: 5px; background: var(--line-strong);
+  -webkit-mask: url("rule.svg") center / 100% 100% no-repeat; mask: url("rule.svg") center / 100% 100% no-repeat; }
+.ds-list > .ds-check:active { background: var(--state-press); }
+
+/* ---------- Notice (added 2026-11-20 from Finance's notice rows) ----------
+   One status dot, one sentence, a chevron, on the sunken surface; the details open in place. Several notices share
+   one well with hand rules between them. Markup:
+   <div class="ds-notices">
+     <div class="ds-notice">
+       <button type="button" class="ds-notice__head" aria-expanded="false">
+         <span class="ds-dot ds-dot--attention"></span><span class="ds-notice__text">Off forecast by $4,259.</span>
+         <span class="ds-chev" aria-hidden="true"><svg class="ds-icon ds-icon--sm"><use href="/ds/icons/sprite.svg#i-chevron-down"></use></svg></span>
+       </button>
+       <div class="ds-collapse"><div><div class="ds-notice__more">The longer explanation.</div></div></div>
+     </div>
+   </div>
+   Dots: --attention (amber, waiting), --critical (red, broken), --info (slate, for your information). Status only:
+   the sentence stays in the ink, never colored. */
+.ds-notices { background: var(--bg-sunken); border-radius: var(--radius-panel); box-shadow: var(--elev-0); overflow: hidden; min-width: 0; }
+.ds-notices:empty { display: none; }
+.ds-notice { position: relative; min-width: 0; }
+.ds-notice__head {
+  display: flex; align-items: center; gap: var(--space-3); width: 100%; min-height: 56px; margin: 0;
+  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4); border: 0; border-radius: 0; background: transparent;
+  color: var(--ink); text-align: left; font: var(--text-label); font-size: 16px; font-weight: 500; letter-spacing: var(--track-label);
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  transition: background-color var(--ds-dur-effects-fast) var(--ds-spring-effects-fast);
+}
+button.ds-notice__head { cursor: pointer; }
+div.ds-notice__head { padding-right: var(--space-4); }
+button.ds-notice__head:active, .ds-notice__head.is-pressed { background: var(--state-press); transition-duration: var(--ds-press-in); }
+.ds-notice__head:focus-visible, .ds-notice__head.is-focus { outline-offset: -2px; border-radius: var(--radius-card); }
+.ds-notice__head:disabled, .ds-notice__head[aria-disabled="true"] { opacity: var(--disabled-opacity); cursor: default; }
+.ds-notice__head .ds-dot { align-self: center; }
+.ds-notice__text { flex: 1; min-width: 0; }
+.ds-notice__more { padding: 0 var(--space-4) var(--space-4) calc(var(--space-4) + 9px + var(--space-3)); font: var(--text-body); color: var(--ink); }
+
+/* ---------- Symbol row (gaps3, 2026-11-20, from Finance's holdings on Investments) ----------
+   A list row for a holding or a ticker: the short symbol on the left with its name under it, the figure on the right in
+   the serif with a meta line under it (price, change). Rows sit in a .ds-list with the hand rule between them and open
+   in place like a figure row (components.js wires the tap; one open per list). A long name wraps under itself; the
+   figure and meta never wrap. Change is words, never color: write the sign ("+1.2%", "−0.4%"). Markup:
+   <div class="ds-list">
+     <div class="ds-symrow">
+       <button type="button" class="ds-symrow__head" aria-expanded="false" aria-controls="sym-vti">
+         <span class="ds-symrow__sym">VTI</span><span class="ds-symrow__fig">$12,480</span>
+         <span class="ds-symrow__name">Vanguard Total Stock Market</span><span class="ds-symrow__meta"><span>$291.20</span><span>+1.2%</span></span>
+         <span class="ds-chev" aria-hidden="true"><svg class="ds-icon ds-icon--sm"><use href="/ds/icons/sprite.svg#i-chevron-down"></use></svg></span>
+       </button>
+       <div class="ds-collapse" id="sym-vti"><div><div class="ds-figrow__more">Shares, cost and gain.</div></div></div>
+     </div>
+   </div>
+   A row with nothing to open is a <div class="ds-symrow__head"> with no chevron and no collapse. */
+.ds-symrow { position: relative; min-width: 0; }
+.ds-symrow + .ds-symrow::before {
+  content: ""; position: absolute; top: -2px; left: var(--space-4); right: var(--space-4); height: 5px; background: var(--line-strong);
+  -webkit-mask: url("rule.svg") center / 100% 100% no-repeat; mask: url("rule.svg") center / 100% 100% no-repeat; }
+.ds-symrow__head {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto 18px; grid-template-areas: "sym fig chev" "name meta chev";
+  align-items: baseline; column-gap: var(--space-3); row-gap: 2px; width: 100%; min-height: 64px; margin: 0;
+  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4); border: 0; border-radius: 0; background: transparent;
+  color: var(--ink); text-align: left; -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  transition: background-color var(--ds-dur-effects-fast) var(--ds-spring-effects-fast);
+}
+button.ds-symrow__head { cursor: pointer; }
+div.ds-symrow__head::after { content: ""; grid-area: chev; width: 18px; }
+button.ds-symrow__head:active, .ds-symrow__head.is-pressed { background: var(--state-press); transition-duration: var(--ds-press-in); }
+.ds-symrow__head:focus-visible, .ds-symrow__head.is-focus { outline-offset: -2px; border-radius: var(--radius-card); }
+.ds-symrow__head:disabled, .ds-symrow__head[aria-disabled="true"] { opacity: var(--disabled-opacity); cursor: default; }
+.ds-symrow.is-selected > .ds-symrow__head, .ds-symrow__head[aria-current] { background: var(--state-selected); }
+.ds-symrow__sym { grid-area: sym; min-width: 0; font: var(--text-label); font-size: 16px; font-weight: 700; letter-spacing: .02em; }
+.ds-symrow__name { grid-area: name; min-width: 0; font: var(--text-meta); font-weight: 400; text-wrap: pretty; }
+.ds-symrow__fig { grid-area: fig; font: var(--text-heading); letter-spacing: var(--track-heading); white-space: nowrap; text-align: right; }
+.ds-symrow__meta { grid-area: meta; display: inline-flex; justify-content: flex-end; gap: var(--space-2); font: var(--text-meta); white-space: nowrap; text-align: right; }
+.ds-symrow__head > .ds-chev { grid-area: chev; align-self: center; color: var(--content-default); }
+
+/* ---------- Lead card in parts (gaps3, 2026-11-20, from Finance's Long term .lt-lp) ----------
+   One dark green lead card split into stacked parts: a header part (what the card is), the main figure part (the one
+   number that answers the screen), and a two-up of secondary figures. A paper hand rule at low strength divides the
+   parts; a paper hairline divides the two-up. Grain and lamp light belong to the whole card. Markup:
+   <section class="ds-lead ds-lead--parts">
+     <div class="ds-lead__part"><p class="ds-label">Runway</p><p class="ds-meta">If her pay stops in March</p></div>
+     <div class="ds-lead__part"><p class="ds-meta">You start covering her share</p><p class="ds-number">Oct 11</p></div>
+     <div class="ds-lead__part ds-lead__two">
+       <div class="ds-lead__fig"><span class="ds-lead__k">Each month</span><span class="ds-lead__v">$1,240</span></div>
+       <div class="ds-lead__fig"><span class="ds-lead__k">Cushion</span><span class="ds-lead__v">$8,400</span></div>
+     </div>
+   </section>
+   When an app cannot nest the parts in one element (Finance's page checks need each heading inside its own card), use
+   loose parts instead: sibling .ds-lead-part elements, the first with --top and the last with --bottom. They take the
+   top-only and bottom-only hand-cut corners, the top one draws the lamp light, the bottom one casts the shadow, and they
+   touch: put them in a parent with no gap, or set --ds-gap on the parent to its gap so each part pulls up by it. */
+.ds-lead--parts { display: grid; padding: 0; }
+.ds-lead__part { position: relative; display: grid; gap: var(--space-1); min-width: 0; padding: var(--space-4) var(--space-5); }
+.ds-lead__part:first-child { padding-top: var(--space-5); }
+.ds-lead__part:last-child { padding-bottom: var(--space-5); }
+.ds-lead__part + .ds-lead__part::before, .ds-lead-part + .ds-lead-part::after { /* loose parts keep ::before for their grain */
+  content: ""; position: absolute; top: -2px; left: var(--space-5); right: var(--space-5); height: 5px;
+  background: var(--content-on-inverse); opacity: .24; z-index: 1;
+  -webkit-mask: url("rule.svg") center / 100% 100% no-repeat; mask: url("rule.svg") center / 100% 100% no-repeat; }
+.ds-lead__part > .ds-number { margin-top: var(--space-2); }
+.ds-lead__two { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0; }
+.ds-lead__two > .ds-lead__fig + .ds-lead__fig { padding-left: var(--space-4); border-left: 1px solid rgba(243, 241, 234, .2); }
+.ds-lead__two > .ds-lead__fig:first-child { padding-right: var(--space-4); }
+.ds-lead__fig { display: grid; gap: var(--space-1); align-content: start; min-width: 0; }
+.ds-lead__k { font: var(--text-meta); font-weight: 500; text-wrap: balance; }
+.ds-lead__v { font: var(--text-heading); letter-spacing: var(--track-heading); white-space: nowrap; }
+/* Loose parts: siblings drawn as one card. */
+.ds-lead-part {
+  position: relative; isolation: isolate; display: grid; gap: var(--space-1); min-width: 0; padding: var(--space-4) var(--space-5);
+  background: var(--bg-inverse); color: var(--content-on-inverse); border-radius: 0; box-shadow: none;
+}
+.ds-lead-part::before { /* grain, as on the lead card */
+  content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background-image: var(--grain); background-size: 200px; opacity: var(--lead-grain, .9); mix-blend-mode: screen; border-radius: inherit;
+}
+.ds-lead-part + .ds-lead-part { margin-top: calc(-1px - var(--ds-gap, 0px)); } /* 1px overlap: no seam while the entrance moves them */
+.ds-lead-part--top { padding-top: var(--space-5); border-radius: var(--radius-cut-top); }
+/* Loose parts carry no lamp light: sized to one short part it ended hard at the join and read as a seam (critic, gaps3). */
+.ds-lead-part--bottom { padding-bottom: var(--space-5); border-radius: var(--radius-cut-bottom); box-shadow: var(--elev-lead); clip-path: inset(0 -60px -80px -60px); }
+.ds-lead-part :focus-visible { outline-color: var(--content-on-inverse); }
+
+/* ---------- Phase bar (gaps3, 2026-11-20, from Finance's "Her income from now" on Long term) ----------
+   One horizontal bar split into phases in the series colors, in order; a date under each boundary on a short tick; a
+   legend of dots and words. The author writes only the legend; components.js (DS.phases) draws the bar, the ticks and
+   the words a screen reader hears. Widths come from data-weight (any unit: days, months). Dates that would collide at
+   phone width drop to a second row on a longer tick, so nothing overlaps or runs off the card. Markup:
+   <figure class="ds-phases" data-end="Dec 31">
+     <figcaption class="ds-phases__title">Her income from now</figcaption>
+     <ol class="ds-phases__legend">
+       <li data-weight="100" data-from="Now">Her pay</li>
+       <li data-weight="42" data-from="Mar 1">Severance</li>
+       <li data-weight="182" data-from="Apr 12">Unemployment</li>
+       <li data-weight="81" data-from="Oct 11" class="is-over">Nothing</li>
+     </ol>
+   </figure>
+   Five phases at most (the series rule, 12.6). .is-over on a phase gives it the past-the-limit red, hatched; never use it
+   for an ordinary phase. data-end is the date at the right end, if there is one. */
+.ds-phases { display: grid; gap: var(--space-2); min-width: 0; margin: 0; }
+.ds-phases__title { font: var(--text-label); font-weight: 500; }
+.ds-phases__bar { display: flex; gap: 2px; height: 12px; min-width: 0; }
+.ds-phases__part { --ph: var(--series-1); flex: 1 1 0; min-width: 4px; background: var(--ph); }
+.ds-phases__part:first-child { border-radius: var(--radius-chip) 0 0 var(--radius-chip); }
+.ds-phases__part:last-child { border-radius: 0 var(--radius-chip) var(--radius-chip) 0; }
+.ds-phases__part:only-child { border-radius: var(--radius-chip); }
+.ds-phases [data-ph="2"] { --ph: var(--series-2); }
+.ds-phases [data-ph="3"] { --ph: var(--series-3); }
+.ds-phases [data-ph="4"] { --ph: var(--series-4); }
+.ds-phases [data-ph="5"] { --ph: var(--series-5); }
+.ds-phases [data-ph="over"] { --ph: var(--series-over); }
+.ds-phases__part[data-ph="over"] {
+  background: repeating-linear-gradient(135deg, var(--series-over) 0 3px, color-mix(in srgb, var(--series-over) 35%, var(--bg-card)) 3px 7px);
+}
+.ds-phases:not(.is-live) .ds-phases__bar { display: none; }
+.ds-phases__ticks { position: relative; min-width: 0; height: calc(var(--ph-rows, 1) * 20px + 2px); margin-top: -4px; font: var(--text-meta); }
+.ds-phases__tick { position: absolute; top: 0; white-space: nowrap; padding-top: 7px; line-height: 13px; }
+.ds-phases__tick::before { /* the tick: from the bar down to the date */
+  content: ""; position: absolute; top: 0; left: 0; width: 1px; height: calc(6px + var(--row, 0) * 20px); background: var(--line-ink);
+}
+.ds-phases__tick.is-right::before { left: auto; right: 0; }
+.ds-phases__tick.is-right:last-child::before { right: 1px; width: 1.5px; } /* the end tick, clear of the bar's rounded end */
+.ds-phases__tick[data-row="1"] { padding-top: 27px; }
+.ds-phases__tick:not(.is-right) { padding-left: 5px; }
+.ds-phases__tick.is-right { padding-right: 5px; }
+.ds-phases__legend { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); margin: 0; padding: 0; list-style: none; font: var(--text-meta); }
+.ds-phases__legend > li { display: inline-flex; align-items: center; gap: var(--space-2); }
+/* The dates each phase covers: read by screen readers always; shown in the key only when that date could not fit under
+   the bar at this width (components.js marks the entry .is-dated). */
+.ds-phases__when { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.ds-phases__legend > li.is-dated { gap: 0; }
+.ds-phases__legend > li.is-dated > .ds-phases__dot { margin-right: var(--space-2); }
+.ds-phases__legend > li.is-dated > .ds-phases__when { position: static; width: auto; height: auto; overflow: visible; clip-path: none; }
+.ds-phases__tick.is-dropped { display: none; }
+.ds-phases__dot { flex: none; width: 10px; height: 10px; border-radius: var(--radius-chip); background: var(--ph, var(--series-1)); }
+.ds-phases__legend > li[data-ph="over"] .ds-phases__dot { background: repeating-linear-gradient(135deg, var(--series-over) 0 2px, color-mix(in srgb, var(--series-over) 35%, var(--bg-card)) 2px 4px); }
+.ds-lead .ds-phases__tick::before { background: rgba(243, 241, 234, .4); }
+
+/* ---------- Segmented control (added 2026-11-20; renamed .seg to .ds-seg in gaps3) ----------
+   Two to four choices in a sunken well; the chosen one sits on a raised pill that slides to the new choice on a
+   spatial spring (instant under reduced motion). components.js (DS.seg) adds the pill, arrow keys and the change
+   event; it wires every .ds-seg[role="radiogroup"] on load. Markup:
+   <div class="ds-seg" role="radiogroup" aria-label="Range">
+     <button type="button" class="ds-seg__opt" role="radio" aria-checked="true">Week</button>
+     <button type="button" class="ds-seg__opt" role="radio" aria-checked="false">Month</button>
+     <button type="button" class="ds-seg__opt" role="radio" aria-checked="false">Year</button>
+   </div>
+   Listen with el.addEventListener("seg-change", e => e.detail.index / e.detail.value). The value is data-value or the words.
+   Renamed from .seg (gaps3) because apps had their own .seg (Finance's runway bar, the Inbox's older Inbox/Rules switch)
+   and the system's rules leaked into them. There is no .seg alias. */
+.ds-seg {
+  --seg-pad: var(--space-1); --seg-gap: var(--space-1); --seg-n: 2; --seg-i: 0;
+  position: relative; isolation: isolate; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: var(--seg-gap);
+  padding: var(--seg-pad); border-radius: var(--radius-control); background: var(--bg-sunken); box-shadow: var(--elev-0); min-width: 0;
+}
+/* The chosen pill: --seg-pill is the card in light and the card lifted toward the ink in dark, so in dark it reads as a
+   filled choice rather than an outline (gaps3). The well stays the quiet sunken it was; only the pill moved. */
+.ds-seg__pill {
+  position: absolute; z-index: -1; top: var(--seg-pad); bottom: var(--seg-pad); left: var(--seg-pad);
+  width: calc((100% - 2 * var(--seg-pad) - (var(--seg-n) - 1) * var(--seg-gap)) / var(--seg-n));
+  border-radius: 8px; background: var(--seg-pill); box-shadow: var(--elev-1), var(--edge-light); pointer-events: none;
+  transform: translateX(calc(var(--seg-i) * (100% + var(--seg-gap))));
+  transition: transform var(--ds-dur-spatial-fast) var(--ds-spring-spatial-fast);
+}
+.ds-seg.is-still .ds-seg__pill { transition: none; }
+.ds-seg__opt {
+  position: relative; min-width: 0; min-height: var(--target); margin: 0; padding: 0 var(--space-3); border: 0; border-radius: 8px;
+  background: transparent; color: var(--ink); font: var(--text-label); font-weight: 500; letter-spacing: var(--track-label); white-space: nowrap;
+  cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation; user-select: none; -webkit-user-select: none;
+  transition: transform var(--ds-dur-spatial-fast) var(--ds-spring-spatial-fast), font-weight 0s;
+}
+.ds-seg__opt:active, .ds-seg__opt.is-pressed { transform: scale(.96); transition-duration: var(--ds-press-in); transition-timing-function: var(--ds-ease-out); }
+.ds-seg__opt[aria-checked="true"], .ds-seg__opt.is-selected { font-weight: 700; }
+/* Before the script runs (or without it), the chosen option carries the raised look itself. */
+.ds-seg:not(.is-live) .ds-seg__opt[aria-checked="true"] { background: var(--seg-pill); box-shadow: var(--elev-1), var(--edge-light); }
+.ds-seg__opt:focus-visible, .ds-seg__opt.is-focus { outline-offset: 0; }
+.ds-seg__opt:disabled, .ds-seg__opt[aria-disabled="true"] { opacity: var(--disabled-opacity); cursor: default; transform: none; }
+.ds-seg[aria-disabled="true"] { opacity: var(--disabled-opacity); pointer-events: none; }
+/* On the dark green lead card (gaps2, 2026-11-20; Finance's This week range pick). A faint paper well; the chosen
+   option sits on a solid paper pill with the lead card's green as its words (as a primary button inverts), so the
+   choice can never be mistaken for the focus ring, which sits 2px outside the option. Same in both themes. */
+.ds-seg--on-inverse { background: rgba(243, 241, 234, .09); box-shadow: inset 0 1px 2px rgba(0, 0, 0, .22); }
+.ds-seg--on-inverse .ds-seg__pill { background: var(--content-on-inverse); box-shadow: 0 1px 2px rgba(0, 0, 0, .3); }
+.ds-seg--on-inverse .ds-seg__opt { color: var(--content-on-inverse); transition: transform var(--ds-dur-spatial-fast) var(--ds-spring-spatial-fast), color var(--ds-dur-effects-fast) var(--ds-spring-effects-fast), font-weight 0s; }
+.ds-seg--on-inverse .ds-seg__opt[aria-checked="true"] { color: var(--bg-inverse); }
+.ds-seg--on-inverse:not(.is-live) .ds-seg__opt[aria-checked="true"] { background: var(--content-on-inverse); box-shadow: none; }
+/* Focus on the lead card rings the whole well, not the option: the group is one tab stop, and a ring on an option read as
+   a second chosen pill (two critics, gaps3). */
+.ds-seg--on-inverse .ds-seg__opt:focus-visible, .ds-seg--on-inverse .ds-seg__opt.is-focus { outline: none; }
+.ds-seg--on-inverse:has(.ds-seg__opt:focus-visible), .ds-seg--on-inverse:has(.ds-seg__opt.is-focus) { outline: 1.5px solid var(--content-on-inverse); outline-offset: 3px; }
+
+/* ---------- Chips ---------- */
+.ds-chip {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 0 var(--space-3);
+  border: 0; border-radius: var(--radius-chip); background: var(--bg-sunken); color: var(--ink);
+  font: var(--text-meta); font-weight: 600; white-space: nowrap; cursor: default;
+  box-shadow: var(--chip-edge, none); /* dark only: a hairline so a resting chip still reads as tappable */
+}
+button.ds-chip, a.ds-chip { cursor: pointer; min-height: 34px; transition: transform var(--ds-dur-spatial-fast) var(--ds-spring-spatial-fast), background-color var(--ds-dur-effects-fast) linear; -webkit-tap-highlight-color: transparent; text-decoration: none; }
+button.ds-chip:active, a.ds-chip:active, .ds-chip.is-pressed { transform: scale(.95); background: var(--line-default); }
+.ds-chip[aria-pressed="true"], .ds-chip.is-selected { background: var(--accent); color: var(--content-on-accent); box-shadow: none; }
+.ds-chip:disabled, .ds-chip[aria-disabled="true"] { opacity: var(--disabled-opacity); }
+.ds-chip--outline { background: transparent; box-shadow: inset 0 0 0 1px var(--line-strong); }
+.ds-chip--on-inverse { background: rgba(243, 241, 234, .14); color: var(--content-on-inverse); }
+/* A filter chip row on the dark green lead card (gaps3, 2026-11-20, from Finance's period chips on Investments).
+   Resting: the faint paper chip above. Chosen: a solid paper chip with its words in the lead card green and bold, the
+   way the on-inverse segmented pill inverts (the system's green chip would vanish on the green card). Pressed: the
+   paper wash deepens on finger-down. Focus: a thinner paper ring 2px outside, so focus never reads as chosen. Same in
+   both themes, because the lead card is dark in both. Markup:
+   <div class="ds-chips" role="group" aria-label="Period">
+     <button type="button" class="ds-chip ds-chip--on-inverse" aria-pressed="true">1M</button>
+     <button type="button" class="ds-chip ds-chip--on-inverse" aria-pressed="false">1Y</button>
+   </div> */
+.ds-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); min-width: 0; }
+/* A filter chip draws at 34px but takes taps across 44 (section 11): a clear hit area 5px above and below, and at least 44 wide. */
+.ds-chips > button.ds-chip { position: relative; min-width: var(--target); justify-content: center; }
+.ds-chips > button.ds-chip::before { content: ""; position: absolute; inset: -5px 0; }
+button.ds-chip--on-inverse:active, a.ds-chip--on-inverse:active, .ds-chip--on-inverse.is-pressed { background: rgba(243, 241, 234, .26); }
+.ds-chip--on-inverse[aria-pressed="true"], .ds-chip--on-inverse.is-selected { background: var(--content-on-inverse); color: var(--bg-inverse); font-weight: 700; box-shadow: none; }
+button.ds-chip--on-inverse[aria-pressed="true"]:active, .ds-chip--on-inverse[aria-pressed="true"].is-pressed { background: rgba(243, 241, 234, .82); }
+.ds-chip--on-inverse:focus-visible, .ds-chip--on-inverse.is-focus { outline: 1.5px solid var(--content-on-inverse); outline-offset: 3px; }
+.ds-chip--on-inverse:disabled, .ds-chip--on-inverse[aria-disabled="true"] { opacity: var(--disabled-opacity); }
+
+/* ---------- Status dots ---------- */
+.ds-dot { --dot: var(--line-ink); flex: none; display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--dot); }
+.ds-dot--working { --dot: var(--accent); --ds-breathe-color: var(--accent-line); animation: ds-breathe 2.4s ease-in-out infinite; }
+.ds-dot--idle { --dot: transparent; box-shadow: inset 0 0 0 1.5px var(--line-ink); }
+.ds-dot--attention { --dot: var(--attention); }
+.ds-dot--critical { --dot: var(--critical); }
+.ds-dot--info { --dot: var(--info); }
+.ds-dot--done { --dot: var(--accent); }
+
+/* ---------- Section header ---------- */
+.ds-section-head { display: flex; align-items: baseline; gap: var(--space-3); padding: 0 var(--space-1); margin-bottom: var(--space-3); }
+.ds-section-head__title { position: relative; font: var(--text-heading); letter-spacing: var(--track-heading); }
+/* The felt-pen stroke under a section title is opt-in (gaps2, 2026-11-20): it counts as one of the screen's three marks,
+   so put .ds-section-head--pen on the one or two heads that lead the screen, never on every head. The class works on
+   any container of a __title (Links' References toggle uses it). marks.js counts these strokes in its warning. */
+.ds-section-head--pen .ds-section-head__title::after {
+  content: ""; position: absolute; left: -2px; bottom: -6px; width: min(100%, 64px); height: 6px; background: var(--mark);
+  -webkit-mask: url("rule.svg") left center / 100% 100% no-repeat; mask: url("rule.svg") left center / 100% 100% no-repeat;
+  transform-origin: left; opacity: .9;
+}
+html.ds-enter .ds-section-head--pen .ds-section-head__title::after, .ds-entering .ds-section-head--pen .ds-section-head__title::after, .ds-section-head--pen.ds-entering .ds-section-head__title::after { animation: ds-pen-in var(--ds-dur-spatial) var(--ds-spring-effects) both; animation-delay: 380ms; }
+@keyframes ds-pen-in { from { transform: scaleX(0); } }
+.ds-section-head__count { font: var(--text-meta); font-weight: 600; }
+.ds-section-head__action { margin-left: auto; }
+
+/* ---------- Tab bar ---------- */
+.ds-tabbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+  display: grid; grid-auto-flow: column; grid-auto-columns: 1fr;
+  padding: 6px max(8px, env(safe-area-inset-left, 0px)) env(safe-area-inset-bottom, 0px) max(8px, env(safe-area-inset-right, 0px));
+  background: var(--bg-card);
+  box-shadow: 0 -1px 0 var(--line-soft), 0 -10px 30px -18px rgba(var(--shadow-tint), .25);
+}
+.ds-tab {
+  position: relative; display: grid; justify-items: center; align-content: center; gap: 2px; min-height: var(--tabbar-h);
+  color: var(--ink); text-decoration: none; font: var(--text-meta); font-weight: 500;
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  transition: transform var(--ds-dur-spatial-fast) var(--ds-spring-spatial-fast);
+}
+.ds-tab .ds-icon { width: 26px; height: 26px; opacity: .78; transition: transform var(--ds-dur-spatial) var(--ds-spring-spatial), opacity var(--ds-dur-effects-fast) linear; }
+.ds-tab:active, .ds-tab.is-pressed { transform: scale(.92); transition-duration: var(--ds-press-in); }
+.ds-tab[aria-current="page"], .ds-tab.is-selected { font-weight: 700; }
+.ds-tab[aria-current="page"] .ds-icon, .ds-tab.is-selected .ds-icon { opacity: 1; color: var(--accent); transform: translateY(-1px) rotate(-4deg); }
+.ds-tab__pen { position: absolute; left: 50%; bottom: 3px; width: 34px; height: 7px; transform: translateX(-50%); color: var(--mark-green); overflow: visible; }
+
+/* ---------- Sheet ---------- */
+.ds-scrim { position: fixed; inset: 0; z-index: 40; background: var(--scrim); opacity: 0; pointer-events: none; transition: opacity var(--ds-dur-effects) var(--ds-spring-effects); }
+.ds-scrim.is-open { opacity: 1; pointer-events: auto; }
+.ds-sheet {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 41; max-height: 86vh; overflow: auto;
+  background: var(--bg-card); border-radius: var(--radius-sheet) var(--radius-sheet) 0 0; box-shadow: var(--elev-3);
+  padding: var(--space-3) var(--gutter) calc(var(--space-6) + env(safe-area-inset-bottom, 0px));
+  transform: translateY(105%); visibility: hidden;
+  transition: transform var(--ds-dur-spatial) var(--ds-spring-spatial), visibility 0s linear var(--ds-dur-spatial);
+}
+.ds-sheet.is-open { transform: none; visibility: visible; transition-delay: 0s; }
+.ds-sheet__handle { width: 38px; height: 5px; border-radius: 3px; background: var(--line-strong); margin: 0 auto var(--space-4); }
+
+/* ---------- Empty and loading states (no spinners) ---------- */
+.ds-empty { display: grid; justify-items: center; gap: var(--space-3); padding: var(--space-7) var(--space-4); text-align: center; }
+.ds-empty .ds-illo { width: min(200px, 60%); }
+.ds-empty__line { font: var(--text-heading); letter-spacing: var(--track-heading); }
+.ds-loading { display: grid; justify-items: center; gap: var(--space-3); padding: var(--space-7) var(--space-4); }
+.ds-loading .ds-illo { width: min(170px, 50%); }
+.ds-loading__line { width: 120px; height: 10px; color: var(--mark); overflow: visible; }
+.ds-loading__line path { stroke-dasharray: 140; stroke-dashoffset: 140; animation: ds-write 1.5s var(--ds-ease-out) infinite; }
+@keyframes ds-write { 0% { stroke-dashoffset: 140; } 60% { stroke-dashoffset: 0; opacity: 1; } 100% { stroke-dashoffset: 0; opacity: 0; } }
+
+/* ---------- Illustration ---------- */
+.ds-illo { display: block; height: auto; overflow: visible; }
+/* The header drawing inks itself in from the left on the entrance. */
+html.ds-enter .ds-illo--draw { animation: ds-ink-in var(--ds-dur-spatial-slow) var(--ds-ease-out) both; animation-delay: 120ms; }
+@keyframes ds-ink-in { from { clip-path: inset(0 100% 0 0); opacity: .2; } to { clip-path: inset(0 0 0 0); opacity: 1; } }
+.ds-illo .ink { fill: var(--illo-ink); }
+.ds-illo .wash { fill: var(--illo-fill); }
+.ds-illo--green .wash { fill: var(--illo-fill-2); }
+
+/* ---------- Marks (marks.js draws them into this layer) ---------- */
+.ds-mark-host { position: relative; }
+.ds-mark { position: absolute; pointer-events: none; overflow: visible; z-index: 1; }
+.ds-mark path { fill: currentColor; }
+.ds-mark--stroke path { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ---------- Haptic overlay (components.js DS.haptic): iOS plays the switch tick when a real tap lands on its label ---------- */
+.ds-haptic-wrap { position: relative; display: inline-flex; }
+.ds-haptic { position: absolute; inset: 0; z-index: 2; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.ds-haptic input { position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-dot--working { animation: none; box-shadow: 0 0 0 3px var(--accent-soft); }
+}
+
+/* ---- Grab handle (2026-11-21, Cole: the drawer tab and the side panel arrow "could look much nicer") ----
+   One handle for anything that pulls open: a drawer, a sheet, a side panel. No text, no arrow at rest: a short rounded
+   bar. Pointing at it bends the bar into a small arrow toward where it will go (up when closed, down when open); on
+   touch, where nothing hovers, it rests slightly bent. `.ds-grab--v` stands it upright for a panel edge (right when
+   closed, left when open). It is a real button: set aria-expanded and an aria-label ("Tracks and Mix"). 44px target. */
+.ds-grab { appearance: none; border: 0; background: none; padding: 0; margin: 0; width: 72px; height: 28px; min-height: 28px; display: grid; place-items: center; cursor: pointer;
+  color: var(--line-ink); -webkit-tap-highlight-color: transparent; position: relative; border-radius: 14px;
+  transition: color var(--ds-dur-effects-fast) var(--ds-spring-effects-fast), transform var(--ds-dur-spatial-fast) var(--ds-spring-spatial-fast); }
+.ds-grab::before { content: ""; position: absolute; inset: -8px 0; }                       /* the 44px target */
+.ds-grab__bar { display: flex; align-items: center; pointer-events: none; --bend: 0deg; }
+.ds-grab__bar i { display: block; width: 20px; height: 5px; border-radius: 3px; background: currentColor;
+  transition: transform var(--ds-dur-spatial-fast) var(--ds-spring-spatial-fast), width var(--ds-dur-spatial-fast) var(--ds-spring-spatial-fast); }
+.ds-grab__bar i:first-child { transform-origin: calc(100% - 2.5px) 50%; transform: rotate(calc(var(--bend) * -1)); }
+.ds-grab__bar i:last-child { transform-origin: 2.5px 50%; transform: rotate(var(--bend)); margin-left: -5px; }
+.ds-grab:hover, .ds-grab:focus-visible { color: var(--content-default); }
+.ds-grab:hover .ds-grab__bar, .ds-grab:focus-visible .ds-grab__bar { --bend: 18deg; }
+.ds-grab[aria-expanded="true"]:hover .ds-grab__bar, .ds-grab[aria-expanded="true"]:focus-visible .ds-grab__bar { --bend: -18deg; }
+.ds-grab:hover .ds-grab__bar i { width: 22px; }
+.ds-grab:active { transform: scale(.94); transition-duration: var(--ds-press-in); transition-timing-function: var(--ds-ease-out); }
+.ds-grab:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.ds-grab--v { width: 28px; height: 72px; }
+.ds-grab--v::before { inset: 0 -8px; }
+.ds-grab--v .ds-grab__bar { transform: rotate(90deg); }
+@media (hover: none) { .ds-grab .ds-grab__bar { --bend: 9deg; } .ds-grab[aria-expanded="true"] .ds-grab__bar { --bend: -9deg; } }
+@media (prefers-reduced-motion: reduce) { .ds-grab, .ds-grab__bar i { transition-duration: 1ms; } }
+
+/* Grab handle, pill variant (Cole's pick, 2026-11-21 21:20: "definitely Pill"): a solid green capsule sitting half on
+   the edge it opens, with one small arrow. It stretches along the edge on hover and the arrow flips when open.
+   Markup: <button class="ds-grab ds-grab--pill" aria-expanded="false" aria-label="..."><svg class="ds-grab__arrow" viewBox="0 0 16 16"><path d="M3 10l5-5 5 5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+   The app places it centered on the edge (half above, half below). Add .ds-grab--v for a side edge: 26 wide, 56 tall,
+   arrow points toward where the panel will go. */
+.ds-grab--pill { width: 56px; height: 26px; min-height: 26px; border-radius: 13px; background: var(--accent); color: var(--content-on-accent); box-shadow: 0 2px 6px rgba(20, 16, 10, .18);
+  transition: width var(--ds-dur-spatial-fast) var(--ds-spring-spatial-fast), height var(--ds-dur-spatial-fast) var(--ds-spring-spatial-fast), transform var(--ds-dur-spatial-fast) var(--ds-spring-spatial-fast), background-color var(--ds-dur-effects-fast) var(--ds-spring-effects-fast); }
+.ds-grab--pill:hover, .ds-grab--pill:focus-visible { width: 72px; background: var(--accent-hover); color: var(--content-on-accent); }
+.ds-grab--pill:active { background: var(--accent-press); }
+.ds-grab--pill .ds-grab__arrow { width: 16px; height: 16px; display: block; pointer-events: none; transition: transform var(--ds-dur-spatial) var(--ds-spring-spatial); }
+.ds-grab--pill:hover .ds-grab__arrow { transform: translateY(-2px); }
+.ds-grab--pill[aria-expanded="true"] .ds-grab__arrow { transform: rotate(180deg); }
+.ds-grab--pill[aria-expanded="true"]:hover .ds-grab__arrow { transform: rotate(180deg) translateY(-2px); }
+.ds-grab--pill.ds-grab--v { width: 26px; height: 56px; }
+.ds-grab--pill.ds-grab--v:hover, .ds-grab--pill.ds-grab--v:focus-visible { width: 26px; height: 72px; }
+.ds-grab--pill.ds-grab--v .ds-grab__arrow { transform: rotate(90deg); }                               /* closed: points right */
+.ds-grab--pill.ds-grab--v[aria-expanded="true"] .ds-grab__arrow { transform: rotate(-90deg); }        /* open: points left */
+.ds-grab--pill.ds-grab--v:hover .ds-grab__arrow { transform: rotate(90deg) translateY(-2px); }
+.ds-grab--pill.ds-grab--v[aria-expanded="true"]:hover .ds-grab__arrow { transform: rotate(-90deg) translateY(-2px); }
