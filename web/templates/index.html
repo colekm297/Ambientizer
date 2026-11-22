@@ -17,6 +17,7 @@
     <link rel="stylesheet" href="/static/ds/tokens.css">
     <link rel="stylesheet" href="/static/ds/motion.css">
     <link rel="stylesheet" href="/static/ds/components.css">
+    <link rel="stylesheet" href="/static/house-legacy.css?v={{ range(1,99999) | random }}">
     <link rel="stylesheet" href="/static/house.css?v={{ range(1,99999) | random }}">
 </head>
 <body class="ds">
@@ -69,7 +70,7 @@
                         <div id="music-experiment-group" class="form-group hidden">
                             <label for="music-generation-mode">Music engine</label>
                             <select id="music-generation-mode" title="Stitch = generate several short rich cells that evolve and crossfade into one long, full-bodied track (best for richness over 10+ min). Text = one looped cell. Composition plan = single planned generation.">
-                                <option value="stitch">Stitch (rich, evolving — recommended)</option>
+                                <option value="stitch">Stitch (rich, evolving, recommended)</option>
                                 <option value="text">Text prompt (single cell, looped)</option>
                                 <option value="composition_plan">Composition plan</option>
                             </select>
@@ -94,7 +95,7 @@
                                 <option value="15">15 min (stitch)</option>
                                 <option value="20">20 min (stitch)</option>
                                 <option value="30">30 min (stitch)</option>
-                                <option value="40">40 min (stitch — max)</option>
+                                <option value="40">40 min (stitch, max)</option>
                             </select>
                             <span class="form-hint">Length of unique audio before it loops. Final video length is set on Export. Longer = fewer repeats.</span>
                         </div>
@@ -143,23 +144,23 @@
                         <div id="prompt-card" class="prompt-card">
                             <div class="prompt-card-header">
                                 <span class="prompt-card-icon">🎵</span>
-                                <input id="song-title" class="prompt-card-title" placeholder="Untitled — Enhance &amp; Plan names it for you" maxlength="60" autocomplete="off">
+                                <input id="song-title" class="prompt-card-title" placeholder="Untitled, Enhance &amp; Plan names it for you" maxlength="60" autocomplete="off">
                                 <span id="prompt-cost" class="prompt-card-cost"></span>
                             </div>
                             <div id="prompt-chips" class="prompt-card-instruments">
                                 <input id="prompt-add-inst" class="plan-add-inst" placeholder="+ instrument" size="12">
                             </div>
                             <textarea id="prompt" class="prompt-main"
-                                placeholder="Describe your soundscape — e.g., Project Hail Mary deep space, cozy rainy cafe at midnight, Blade Runner rooftop..."></textarea>
+                                placeholder="Describe your soundscape, e.g., cozy rainy cafe at midnight, a slow drift through deep space..."></textarea>
                         </div>
                         <div class="prompt-tools">
-                            <button id="btn-enhance-prompt" class="btn btn-enhance" title="Research your idea, rewrite it into a richer prompt — and design the composition timeline when Composition plan is selected">✦ Enhance &amp; Plan</button>
+                            <button id="btn-enhance-prompt" class="btn btn-enhance" title="Research your idea, rewrite it into a richer prompt, and design the composition timeline when Composition plan is selected">✦ Enhance &amp; Plan</button>
                             <div id="enhance-style-toggle" class="enhance-style-toggle" role="group" aria-label="Enhance style">
                                 <button type="button" class="enhance-style-btn active" data-style="world" title="Use the setting / lore / atmosphere of the reference (e.g. Dune → sand worm rumbles, spice visions)">World feel</button>
-                                <button type="button" class="enhance-style-btn" data-style="score" title="Capture the harmonic DNA of the score — key/mode, chord progression, tempo, characteristic instruments. No lore, no vague producer language.">Music DNA</button>
+                                <button type="button" class="enhance-style-btn" data-style="score" title="Capture the harmonic DNA of the score, key/mode, chord progression, tempo, characteristic instruments. No lore, no vague producer language.">Music DNA</button>
                             </div>
                             <span id="enhance-status" class="enhance-status"></span>
-                            <label class="raw-mode-toggle" title="Send your typed prompt to ElevenLabs VERBATIM — no theme interpretation, no arrangement rewriting. Use it to see exactly what the model does with your words.">
+                            <label class="raw-mode-toggle" title="Send your typed prompt to ElevenLabs VERBATIM, no theme interpretation, no arrangement rewriting. Use it to see exactly what the model does with your words.">
                                 <input type="checkbox" id="raw-mode"> Raw (no interpretation)
                             </label>
                         </div>
@@ -206,7 +207,7 @@
                                 <div class="canvas-empty">
                                     <div class="canvas-empty-icon">⎓</div>
                                     <p class="canvas-empty-title">Your timeline appears here</p>
-                                    <p class="canvas-empty-sub">With <strong>Composition plan</strong> selected, press <strong>Enhance &amp; Plan</strong> — Claude designs an evolving arrangement (sparse → full → sparse) you can sculpt before generating.</p>
+                                    <p class="canvas-empty-sub">With <strong>Composition plan</strong> selected, press <strong>Enhance &amp; Plan</strong>, Claude designs an evolving arrangement (sparse → full → sparse) you can sculpt before generating.</p>
                                 </div>
                             </div>
                         </div>
@@ -432,7 +433,7 @@
 
                 <div class="video-mode-toggle">
                     <button id="vmode-ai" class="btn btn-mode active" data-vmode="ai" title="Grok animates your image with subtle motion (~$0.50)">AI Animation (~$0.50)</button>
-                    <button id="vmode-motion" class="btn btn-mode" data-vmode="motion" title="Free seamlessly-looping motion (particles, fog, breathing zoom) auto-matched to your scene — perfect for hour-long videos">Living Still (Free)</button>
+                    <button id="vmode-motion" class="btn btn-mode" data-vmode="motion" title="Free seamlessly-looping motion (particles, fog, breathing zoom) auto-matched to your scene, perfect for hour-long videos">Living Still (Free)</button>
                     <button id="vmode-kb" class="btn btn-mode" data-vmode="kenburns" title="Free slow zoom effect via ffmpeg">Ken Burns (Free)</button>
                     <button id="vmode-upload" class="btn btn-mode" data-vmode="upload" title="Upload your own video file">Upload Video</button>
                 </div>
@@ -467,7 +468,7 @@
                         <button id="btn-auto-plan-motion" class="btn btn-secondary btn-sm" type="button" title="Claude looks at your image and fills these layers">✦ Auto-plan from image</button>
                     </div>
                     <div id="motion-layers-list" class="motion-layers-list">
-                        <div class="canvas-empty"><p class="canvas-empty-sub">No layers yet. <strong>Auto-plan from image</strong> to let Claude compose them, load a preset, or add layers manually — then tweak any value and Generate.</p></div>
+                        <div class="canvas-empty"><p class="canvas-empty-sub">No layers yet. <strong>Auto-plan from image</strong> to let Claude compose them, load a preset, or add layers manually, then tweak any value and Generate.</p></div>
                     </div>
                     <div class="motion-editor-add">
                         <select id="motion-add-type" class="motion-add-select">
@@ -497,7 +498,7 @@
                     <!-- Motion brush: Living Still — pick which side of the paint means what -->
                     <div id="motion-brush-block" class="motion-brush-block">
                         <label class="clip-smooth-label" title="Living Still: paint a region to mark either the moving part or the still part of the scene.">
-                            <input type="checkbox" id="use-brush"> 🖌 Motion brush — Living Still
+                            <input type="checkbox" id="use-brush"> 🖌 Motion brush, Living Still
                         </label>
                         <div id="brush-editor" class="brush-editor hidden">
                             <div class="brush-semantic-row">
@@ -509,13 +510,13 @@
                             </div>
                             <div class="brush-target-row">
                                 <span class="brush-semantic-label">For:</span>
-                                <select id="brush-target" title="Pick which mask you're painting. Whole scene = the global motion brush (anchors the camera). Layer N = scope that one effect's region (e.g. nebula on the sky, shimmer on the water) — camera still moves freely.">
+                                <select id="brush-target" title="Pick which mask you're painting. Whole scene = the global motion brush (anchors the camera). Layer N = scope that one effect's region (e.g. nebula on the sky, shimmer on the water), camera still moves freely.">
                                     <option value="global" selected>Whole scene (global mask)</option>
                                 </select>
                                 <button id="brush-clear-layer" class="btn btn-sm" type="button" title="Forget this layer's region mask">Clear this mask</button>
                             </div>
                             <div class="brush-tools">
-                                <button id="brush-tap" class="btn btn-sm" type="button" title="Click an object (e.g. the city) and AI segments it onto the canvas — then refine by hand">✦ Tap object (AI)</button>
+                                <button id="brush-tap" class="btn btn-sm" type="button" title="Click an object (e.g. the city) and AI segments it onto the canvas, then refine by hand">✦ Tap object (AI)</button>
                                 <button id="brush-mode-paint" class="btn btn-sm active" type="button">Paint</button>
                                 <button id="brush-mode-erase" class="btn btn-sm" type="button">Erase</button>
                                 <label class="brush-size-label">Size <input type="range" id="brush-size" min="10" max="240" value="80"></label>
@@ -553,7 +554,7 @@
                         <div class="form-group" style="margin-top:10px;flex:1;min-width:200px">
                             <label for="motion-intensity">Overall movement <span id="motion-intensity-val" class="ml-val">1.3×</span></label>
                             <input type="range" id="motion-intensity" min="0.5" max="2.5" step="0.1" value="1.3">
-                            <span class="form-hint">Scales ALL motion at once — bump it up and regenerate for "same look, more movement." 1.0× = exactly as composed.</span>
+                            <span class="form-hint">Scales ALL motion at once, bump it up and regenerate for "same look, more movement." 1.0× = exactly as composed.</span>
                         </div>
                     </div>
                     <span class="form-hint">Every motion effect is a layer with its own controls. What you see here is exactly what renders. Leave empty to let Auto decide at Generate.</span>
@@ -596,7 +597,7 @@
                                 <input type="checkbox" id="clip-smooth"> Smooth
                             </label>
                             <button id="btn-apply-speed" class="btn btn-secondary">Apply Speed</button>
-                            <button id="btn-boomerang" class="btn btn-secondary" title="Play forward then reverse — perfectly seamless loop with no hard cut. Great for uploaded clips.">↔ Boomerang Loop</button>
+                            <button id="btn-boomerang" class="btn btn-secondary" title="Play forward then reverse, perfectly seamless loop with no hard cut. Great for uploaded clips.">↔ Boomerang Loop</button>
                         </div>
                     </div>
                 </div>
@@ -745,7 +746,7 @@
                     <div class="clip-preview">
                         <video id="pub-preview-video" controls playsinline preload="metadata"></video>
                     </div>
-                    <p class="visuals-desc">Play this to hear exactly what will upload to YouTube. Scrub anywhere — the full-length file is on your machine.</p>
+                    <p class="visuals-desc">Play this to hear exactly what will upload to YouTube. Scrub anywhere, the full-length file is on your machine.</p>
                 </div>
             </section>
 
@@ -759,7 +760,7 @@
                 <div class="form-group">
                     <label for="yt-title">Title</label>
                     <input type="text" id="yt-title" maxlength="100"
-                        placeholder="e.g., Midnight Rain Café — 1 Hour Ambient Soundscape for Deep Focus">
+                        placeholder="e.g., Midnight Rain Café, 1 Hour Ambient Soundscape for Deep Focus">
                     <span class="char-count"><span id="yt-title-count">0</span>/100</span>
                 </div>
 
@@ -795,7 +796,7 @@
                 <div class="form-row">
                     <div class="form-group" style="flex:2;min-width:220px">
                         <label for="thumb-hook">Hook (big text)</label>
-                        <input type="text" id="thumb-hook" maxlength="32" placeholder="e.g., Project Hail Mary">
+                        <input type="text" id="thumb-hook" maxlength="32" placeholder="e.g., Rainy afternoon">
                     </div>
                     <div class="form-group" style="flex:1;min-width:120px">
                         <label for="thumb-accent">Accent</label>
@@ -939,7 +940,7 @@
                         <label for="shorts-visual-mode">Visual</label>
                         <select id="shorts-visual-mode">
                             <option value="auto" selected>Auto (use video if present)</option>
-                            <option value="crop">Vertical crop — fills frame (recommended)</option>
+                            <option value="crop">Vertical crop, fills frame (recommended)</option>
                             <option value="fit">Fit whole frame (blurred bars)</option>
                             <option value="image">Ken Burns on scene image</option>
                         </select>
@@ -997,7 +998,7 @@
             <!-- Community sub-panel -->
             <section id="dist-sub-community" class="panel distribute-panel distribute-sub hidden">
                 <h3>Community post draft</h3>
-                <p class="form-hint">YouTube has no Community write API — generates a draft to paste into YouTube Studio.</p>
+                <p class="form-hint">YouTube has no Community write API, generates a draft to paste into YouTube Studio.</p>
                 <div class="distribute-actions">
                     <button class="btn btn-secondary" data-community-style="teaser">Teaser</button>
                     <button class="btn btn-secondary" data-community-style="poll">"Which world next?" Poll</button>
@@ -1009,7 +1010,7 @@
             <!-- Reddit sub-panel -->
             <section id="dist-sub-reddit" class="panel distribute-panel distribute-sub hidden">
                 <h3>Reddit post draft</h3>
-                <p class="form-hint">Tailored to a subreddit's culture. We don't post for you — you paste via the prefilled submit link.</p>
+                <p class="form-hint">Tailored to a subreddit's culture. We don't post for you, you paste via the prefilled submit link.</p>
                 <div class="form-row">
                     <div class="form-group">
                         <label for="reddit-sub">Subreddit</label>
@@ -1017,7 +1018,7 @@
                     </div>
                     <div class="form-group" style="flex:2">
                         <label for="reddit-context">Context hint (optional)</label>
-                        <input type="text" id="reddit-context" placeholder="e.g., new release, made for the book Project Hail Mary">
+                        <input type="text" id="reddit-context" placeholder="e.g., new release, made for a rainy afternoon">
                     </div>
                 </div>
                 <button id="btn-reddit-draft" class="btn btn-primary">Generate Reddit draft</button>
@@ -1049,7 +1050,7 @@
             <!-- Live stream -->
             <section class="panel distribute-panel">
                 <h2>24/7 Live stream</h2>
-                <p class="form-hint">Push an unattended ambient loop to YouTube Live. Direct RTMP from this machine — your computer must stay on while streaming.</p>
+                <p class="form-hint">Push an unattended ambient loop to YouTube Live. Direct RTMP from this machine, your computer must stay on while streaming.</p>
                 <div id="stream-status-block" class="stream-status-block">
                     <div class="form-row">
                         <div><strong>Status:</strong> <span id="stream-status">checking…</span></div>

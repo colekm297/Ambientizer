@@ -111,6 +111,40 @@
   setTimeout(measure, 0); setTimeout(measure, 1200);
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(measure);
 
+  // ---- Listen: the ink faders. The track inks in green up to the bead.
+  function fill(r) {
+    var min = +r.min || 0, max = r.max === "" ? 100 : +r.max, v = +r.value;
+    r.style.setProperty("--fill", (max > min ? ((v - min) / (max - min)) * 100 : 0) + "%");
+  }
+  function fillAll() { document.querySelectorAll("#tab-listen input[type=range], #tab-create input[type=range]").forEach(fill); }
+  document.addEventListener("input", function (e) { if (e.target.matches && e.target.matches("input[type=range]")) fill(e.target); }, true);
+  document.addEventListener("change", function (e) { if (e.target.matches && e.target.matches("input[type=range]")) fill(e.target); }, true);
+  if (nav) nav.addEventListener("click", function () { setTimeout(fillAll, 60); setTimeout(fillAll, 600); });
+  var listen = document.getElementById("tab-listen");
+  if (listen) new MutationObserver(function () { clearTimeout(fillAll._t); fillAll._t = setTimeout(fillAll, 50); }).observe(listen, { childList: true, subtree: true });
+  setTimeout(fillAll, 500); setTimeout(fillAll, 2500);
+
+  // ---- Visuals: the developing print. A new scene image clears in like a print in the tray.
+  document.addEventListener("load", function (e) {
+    var img = e.target;
+    if (!img || img.tagName !== "IMG" || reduced || !img.closest || !img.closest("#tab-visuals") || !img.getAttribute("src")) return;
+    img.classList.remove("house-develop"); void img.offsetWidth; img.classList.add("house-develop");
+    setTimeout(function () { img.classList.remove("house-develop"); }, 1700);
+  }, true);
+
+  // ---- Publish: the green check. The first time the tab shows a live YouTube connection, a green pen line
+  // draws under it, once.
+  var ytText = document.getElementById("yt-status-text"), ytChecked = false;
+  function ytCheck() {
+    if (ytChecked || !ytText || !window.Marks) return;
+    var tab = document.getElementById("tab-publish");
+    if (!tab || !tab.classList.contains("active") || !/^Connected/i.test(ytText.textContent.trim())) return;
+    ytChecked = true;
+    setTimeout(function () { Marks.underline(ytText, { color: "var(--mark-green)" }); }, reduced ? 0 : 250);
+  }
+  if (ytText) new MutationObserver(ytCheck).observe(ytText, { childList: true, characterData: true, subtree: true });
+  if (nav) nav.addEventListener("click", function () { setTimeout(ytCheck, 120); });
+
   // Marks draw after the entrance has settled, so the pen lands on a still page.
   function start() { setTimeout(function () { penReady = true; penActiveTab(); }, reduced ? 0 : 650); }
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(start); else window.addEventListener("load", start);

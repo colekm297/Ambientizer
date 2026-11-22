@@ -548,3 +548,163 @@ body.ds { padding-bottom: calc(var(--gp-h, 96px) + var(--space-6)); }
   body.ds .generate-card .credit-balance { padding-top: var(--space-2); }
   body.ds .generate-card .credit-balance-header { margin-bottom: 4px; }
 }
+
+/* ---------- 10. Every tab (2026-11-22, round 3): one type family, no italics, no caps ---------- */
+body.ds :is(p, span, div, label, li, td, th, small, strong, b, a, button, input, select, textarea, summary, code, pre, h3, h4, h5, h6, dt, dd) {
+  font-family: var(--font-sans); letter-spacing: normal;
+}
+body.ds *, body.ds *::before, body.ds *::after { font-style: normal !important; text-transform: none !important; }
+body.ds h3, body.ds h4 { font: var(--text-label); color: var(--ink); }
+body.ds .panel { padding: clamp(18px, 2vw, 28px); margin-bottom: var(--space-5); }
+body.ds .panel h2 { margin-bottom: var(--space-4); }
+body.ds .tab-content { max-width: none; }
+body.ds #tab-create { max-width: none; }
+body.ds .form-hint, body.ds .visuals-desc, body.ds .player-prompt { font: var(--text-meta); font-weight: 400; color: var(--ink); }
+body.ds .player-prompt { font: var(--text-body); }
+
+/* Buttons: raised paper for secondary, green for the one main action of a panel */
+body.ds .btn { font: var(--text-label); border-radius: var(--radius-control); min-height: 40px; touch-action: manipulation;
+  transition: transform var(--ds-dur-spatial-fast) var(--ds-spring-spatial-fast), background-color var(--ds-dur-effects-fast) linear, box-shadow var(--ds-dur-effects-fast) linear; }
+body.ds .btn:active:not(:disabled) { transform: scale(.96); transition-duration: var(--ds-press-in, 90ms); }
+body.ds .btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+body.ds .btn-secondary, body.ds .btn-sm:not(.btn-primary):not(.btn-accent) {
+  background: var(--bg-card); color: var(--ink); border: 0; box-shadow: var(--elev-1), var(--edge-light);
+}
+body.ds .btn-secondary:hover:not(:disabled) { background: var(--bg-warm); }
+body.ds .btn-accent, body.ds .tab-content .btn-primary:not(#generate-btn) {
+  background: var(--accent); color: var(--content-on-accent); border: 0; box-shadow: 0 1px 0 rgba(255,255,255,.14) inset, 0 6px 14px -8px rgba(14,44,35,.6);
+}
+body.ds .btn-accent:hover:not(:disabled), body.ds .tab-content .btn-primary:not(#generate-btn):hover:not(:disabled) { background: var(--accent-hover); transform: none; }
+body.ds .btn:disabled, body.ds .btn[disabled] { opacity: var(--disabled-opacity); box-shadow: none; }
+body.ds .btn-sm { min-height: 34px; font: var(--text-meta) !important; font-weight: 600 !important; }
+
+/* Chips and badges: status is a chip, in the palette */
+body.ds .badge, body.ds .layer-type-badge, body.ds .stage-badge {
+  font: var(--text-meta); font-weight: 600; border: 0; border-radius: var(--radius-chip); padding: 3px 10px;
+  background: var(--bg-sunken); color: var(--ink);
+}
+body.ds .badge-ready { background: var(--accent-tint); color: var(--accent); }
+body.ds .badge-warn { background: rgba(188, 126, 46, .13); color: var(--ink); }
+body.ds .badge-warn::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--attention); margin-right: 6px; vertical-align: 1px; }
+body.ds .layer-type-badge { background: var(--accent-tint); color: var(--accent); }
+
+/* Checkboxes and colour wells */
+body.ds input[type="checkbox"], body.ds input[type="radio"] { accent-color: var(--accent); }
+
+/* ---------- 11. Listen: the ink faders (delight) ----------
+   Every slider is a fine pen line with a paper bead ringed in green. Grab one and the bead swells on a spring
+   and the line under your finger inks in green, like a fader pushed by hand. */
+body.ds #tab-listen input[type="range"], body.ds #tab-create input[type="range"] {
+  -webkit-appearance: none; appearance: none; height: 22px; background: transparent; border: 0; padding: 0; cursor: pointer;
+  --fill: 50%;
+}
+body.ds #tab-listen input[type="range"]::-webkit-slider-runnable-track, body.ds #tab-create input[type="range"]::-webkit-slider-runnable-track {
+  height: 3px; border-radius: 2px;
+  background: linear-gradient(90deg, var(--accent) 0 var(--fill), var(--line-strong) var(--fill) 100%);
+}
+body.ds #tab-listen input[type="range"]::-webkit-slider-thumb, body.ds #tab-create input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 16px; height: 16px; margin-top: -6.5px; border-radius: 50%;
+  background: var(--bg-card); border: 2px solid var(--accent); box-shadow: var(--elev-1);
+  transition: transform var(--ds-dur-spatial-fast) var(--ds-spring-spatial-fast), box-shadow var(--ds-dur-effects-fast) linear;
+}
+body.ds #tab-listen input[type="range"]:hover::-webkit-slider-thumb, body.ds #tab-create input[type="range"]:hover::-webkit-slider-thumb { transform: scale(1.12); }
+body.ds #tab-listen input[type="range"]:active::-webkit-slider-thumb, body.ds #tab-create input[type="range"]:active::-webkit-slider-thumb {
+  transform: scale(1.4); box-shadow: 0 0 0 6px var(--accent-soft), var(--elev-1);
+}
+body.ds #tab-listen input[type="range"]:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 4px; border-radius: 4px; }
+body.ds #tab-listen input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: var(--bg-card); border: 2px solid var(--accent); }
+
+/* Listen layout */
+body.ds .layer-card {
+  background: var(--bg-card); border: 0; border-radius: var(--radius-card); box-shadow: var(--elev-1), var(--edge-light);
+  padding: var(--space-4) var(--space-5);
+}
+body.ds .layer-card.muted { opacity: .62; }
+body.ds .layer-name { font: var(--text-heading); color: var(--ink); }
+body.ds .layer-icon { display: none; }
+body.ds .layer-prompt { font: var(--text-meta); font-weight: 400; color: var(--ink); max-width: 90ch; }
+body.ds .slider-label, body.ds .slider-value { font: var(--text-meta); font-variant-numeric: tabular-nums; color: var(--ink); }
+body.ds .timeline-track { background: var(--line-default); border-radius: var(--radius-chip); }
+body.ds .timeline-fill { background: var(--series-1); border-radius: var(--radius-chip); }
+body.ds .tl-input { background: var(--bg-input); }
+body.ds .layer-status { background: var(--accent); }
+body.ds .layers-panel .btn, body.ds .layer-card button { box-shadow: var(--elev-1), var(--edge-light); background: var(--bg-card); color: var(--ink); border: 0; }
+body.ds .layer-solo-btn, body.ds .tl-alt-btn { border-radius: var(--radius-control); }
+
+/* ---------- 12. Visuals: the developing print (delight) ----------
+   A new scene image arrives like a print in the tray: warm and soft first, then it clears into focus. */
+body.ds #preview-img, body.ds .visuals-panel img:not(.ds-icon), body.ds .visuals-panel video {
+  border-radius: var(--radius-card); box-shadow: var(--elev-2);
+}
+body.ds .house-develop { animation: house-develop 1.6s var(--ds-ease-out) both; }
+@keyframes house-develop {
+  0% { filter: sepia(.9) saturate(.6) blur(10px) brightness(1.25); opacity: .3; transform: scale(.985); }
+  55% { filter: sepia(.35) saturate(.85) blur(2px) brightness(1.08); opacity: 1; }
+  100% { filter: none; opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) { body.ds .house-develop { animation: none; } }
+body.ds #vis-image-panel textarea { min-height: 120px; }
+
+/* ---------- 13. Publish: the green check (delight, house.js draws it) ---------- */
+body.ds .yt-status { background: var(--bg-sunken); border: 0; border-radius: var(--radius-card); box-shadow: var(--elev-0); color: var(--ink); }
+body.ds .yt-status-text { font: var(--text-label); color: var(--ink); }
+body.ds .yt-channel, body.ds .yt-channel-card { background: var(--bg-sunken); border: 0; border-radius: var(--radius-card); }
+body.ds .yt-channel-thumb { box-shadow: var(--elev-1); }
+
+/* ---------- 14. Distribute: pull from the shelf (delight) ----------
+   Each catalog row is a sleeve on a shelf: hover or focus and its cover tips forward on a spring. */
+body.ds .distribute-row {
+  background: var(--bg-card); border: 0; border-radius: var(--radius-card); box-shadow: var(--elev-1), var(--edge-light);
+  transition: box-shadow var(--ds-dur-effects-fast) linear, transform var(--ds-dur-spatial) var(--ds-spring-spatial);
+}
+body.ds .distribute-row:hover, body.ds .distribute-row:focus-within { box-shadow: var(--elev-2), var(--edge-light); }
+body.ds .dist-thumb {
+  border-radius: 8px; box-shadow: 0 1px 2px rgba(var(--shadow-tint), .2), 0 4px 10px -4px rgba(var(--shadow-tint), .35);
+  transform-origin: 50% 100%;
+  transition: transform var(--ds-dur-spatial) var(--ds-spring-spatial), box-shadow var(--ds-dur-spatial) var(--ds-spring-spatial);
+}
+body.ds .distribute-row:hover .dist-thumb, body.ds .distribute-row:focus-within .dist-thumb {
+  transform: perspective(500px) rotateX(10deg) translateY(-4px) scale(1.06);
+  box-shadow: 0 2px 4px rgba(var(--shadow-tint), .2), 0 14px 22px -10px rgba(var(--shadow-tint), .5);
+}
+@media (prefers-reduced-motion: reduce) { body.ds .distribute-row:hover .dist-thumb { transform: none; } }
+body.ds .dist-title { font: var(--text-label); color: var(--ink); }
+body.ds .dist-prompt, body.ds .dist-meta { font: var(--text-meta); font-weight: 400; color: var(--ink); }
+body.ds .distribute-subnav { gap: 4px; padding: 4px; background: var(--bg-sunken); border-radius: var(--radius-control); box-shadow: var(--elev-0); border: 0; }
+body.ds .dist-subnav-btn { border: 0; border-radius: 7px; background: transparent; color: var(--ink); font: var(--text-label); font-weight: 500; min-height: 36px; }
+body.ds .dist-subnav-btn.active { background: var(--seg-pill); color: var(--accent); font-weight: 700; box-shadow: var(--elev-1), var(--edge-light); }
+
+/* Phone: the progress line sits inside the bar's top edge, not on it */
+@media (max-width: 720px) {
+  body.ds .global-player .transport-seek { top: 1px; height: 16px; }
+  body.ds .global-player { padding-top: calc(var(--space-3) + 6px); }
+}
+
+/* ---------- 15. Round 3 fixes ---------- */
+/* No ellipsis anywhere: long names wrap */
+body.ds .sp-text, body.ds .progress-text, body.ds .layer-name, body.ds .dist-title, body.ds .tl-block-label {
+  white-space: normal !important; overflow: visible !important; text-overflow: clip !important; overflow-wrap: anywhere;
+}
+body.ds * { text-overflow: clip !important; }
+
+@media (max-width: 720px) {
+  /* The LIVE badge belongs with the controls behind the tap */
+  body.ds .global-player .mixer-badge { display: none !important; }
+  body.ds .global-player.gp-open .mixer-badge:not(.hidden) { display: inline-flex !important; order: 10; }
+  /* Progress: a line inset from both edges, inside the bar, so the bead is never cut by the screen edge */
+  body.ds .global-player .transport-seek { left: var(--gutter); right: var(--gutter); width: auto; top: 6px; height: 16px; }
+  body.ds .global-player { padding-top: calc(var(--space-3) + 14px); }
+}
+@media (max-width: 720px) {
+  body.ds .prompt-head-tools .btn { white-space: nowrap; padding: 0 var(--space-2); }
+  body.ds .prompt-card .prompt-main { max-height: 164px; }
+}
+/* Round 3 regressions: the Create grid keeps no panel padding; an unchosen mode is never green */
+body.ds .generator-panel.panel { padding: 0; background: none; box-shadow: none; }
+body.ds .btn-mode:not(.active) .mode-title, body.ds .btn-mode:not(.active) .mode-sub { color: var(--ink) !important; }
+body.ds .btn-mode.active .mode-title { color: var(--accent) !important; }
+@media (min-width: 1000px) and (max-height: 900px) {
+  body.ds .create-col-settings { gap: var(--space-4); padding: var(--space-4) var(--space-5); }
+  body.ds .btn-mode { min-height: 50px; }
+  body.ds .create-col-settings select { min-height: 44px; padding-top: 8px; padding-bottom: 8px; }
+}

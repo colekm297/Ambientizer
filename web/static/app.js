@@ -5664,7 +5664,7 @@
       } else if (data.visual_image_url) {
         pubVideoBadge.innerHTML = '<span class="badge badge-warn">Image only — export a video in the Visuals tab first</span>';
       } else {
-        pubVideoBadge.innerHTML = '<span class="badge badge-warn">No video — create one in the Visuals tab first</span>';
+        pubVideoBadge.innerHTML = '<span class="badge badge-warn">No video yet. Create one on the Visuals tab first</span>';
       }
       pubTrackInfo.classList.remove("hidden");
 
