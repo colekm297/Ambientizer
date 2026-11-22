@@ -145,6 +145,33 @@
   if (ytText) new MutationObserver(ytCheck).observe(ytText, { childList: true, characterData: true, subtree: true });
   if (nav) nav.addEventListener("click", function () { setTimeout(ytCheck, 120); });
 
+  // ---- Distribute: the catalog shows 24 rows at a time; "Show more" reveals the next 24. Nothing is removed.
+  var cat = document.getElementById("dist-catalog-list"), PAGE = 24;
+  function capCatalog() {
+    if (!cat) return;
+    var rows = cat.querySelectorAll(":scope > .distribute-row"), shown = +(cat.dataset.shown || PAGE);
+    rows.forEach(function (r, i) { r.classList.toggle("house-cap-hidden", i >= shown); });
+    var more = cat.querySelector(":scope > .house-more");
+    var left = rows.length - Math.min(shown, rows.length);
+    if (left > 0) {
+      if (!more) {
+        more = document.createElement("button"); more.type = "button"; more.className = "btn btn-secondary house-more";
+        more.addEventListener("click", function () { cat.dataset.shown = String((+(cat.dataset.shown || PAGE)) + PAGE); capCatalog(); });
+      }
+      more.textContent = "Show more (" + left + ")";
+      cat.appendChild(more);
+    } else if (more) more.remove();
+  }
+  if (cat) {
+    var capBusy = false;
+    new MutationObserver(function () {
+      if (capBusy) return; capBusy = true;
+      if (!cat.querySelector(":scope > .house-more") && !cat.dataset.capped) cat.dataset.shown = String(PAGE);
+      capCatalog(); cat.dataset.capped = "1";
+      setTimeout(function () { capBusy = false; delete cat.dataset.capped; }, 0);
+    }).observe(cat, { childList: true });
+  }
+
   // Marks draw after the entrance has settled, so the pen lands on a still page.
   function start() { setTimeout(function () { penReady = true; penActiveTab(); }, reduced ? 0 : 650); }
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(start); else window.addEventListener("load", start);

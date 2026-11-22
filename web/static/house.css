@@ -708,3 +708,6 @@ body.ds .btn-mode.active .mode-title { color: var(--accent) !important; }
   body.ds .btn-mode { min-height: 50px; }
   body.ds .create-col-settings select { min-height: 44px; padding-top: 8px; padding-bottom: 8px; }
 }
+/* Distribute: rows past the first page wait behind "Show more" */
+body.ds .house-cap-hidden { display: none !important; }
+body.ds .house-more { display: flex; width: 100%; justify-content: center; margin-top: var(--space-3); min-height: var(--target); }
