@@ -83,6 +83,34 @@
     }
   }
 
+  // ---- phone player: one compact row, the rest behind one tap (the button only shows on the phone, via CSS)
+  var gp = document.getElementById("global-player");
+  if (gp && !gp.querySelector(".gp-more")) {
+    var more = document.createElement("button");
+    more.type = "button"; more.className = "gp-more";
+    more.setAttribute("aria-expanded", "false"); more.setAttribute("aria-label", "More player controls");
+    more.title = "Rating, previous, next, times and loop";
+    more.addEventListener("click", function () {
+      var open = !gp.classList.contains("gp-open");
+      gp.classList.toggle("gp-open", open);
+      more.setAttribute("aria-expanded", open ? "true" : "false");
+    });
+    gp.appendChild(more);
+  }
+
+  // ---- measured layout: the page clears the player, and on wide screens Settings ends above it
+  function measure() {
+    var root = document.documentElement, bar = document.getElementById("global-player");
+    var h = bar && !bar.classList.contains("hidden") ? bar.offsetHeight : 0;
+    root.style.setProperty("--gp-h", h + "px");
+    var set = document.querySelector(".create-col-settings");
+    if (set && set.offsetParent) root.style.setProperty("--settings-top", (set.getBoundingClientRect().top + window.scrollY) + "px");
+  }
+  window.addEventListener("resize", measure);
+  if (gp) new MutationObserver(measure).observe(gp, { attributes: true, attributeFilter: ["class"] });
+  setTimeout(measure, 0); setTimeout(measure, 1200);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(measure);
+
   // Marks draw after the entrance has settled, so the pen lands on a still page.
   function start() { setTimeout(function () { penReady = true; penActiveTab(); }, reduced ? 0 : 650); }
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(start); else window.addEventListener("load", start);

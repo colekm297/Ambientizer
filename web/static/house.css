@@ -440,3 +440,111 @@ body.ds { scrollbar-color: var(--line-ink) transparent; }
 body.ds .ref-summary-tag { font-size: 13px; }
 body.ds .generate-card .credit-estimate { font-size: clamp(28px, 2.1vw, 34px); }
 body.ds .btn-enhance { letter-spacing: var(--track-label); }
+
+/* ---------- 8. Round 2 (2026-11-22, Chief's review) ---------- */
+/* Header: the page word alone */
+body.ds .tagline { display: none; }
+
+/* The player is solid paper: nothing shows through beneath it */
+body.ds .global-player { background: var(--bg-card); -webkit-backdrop-filter: none; backdrop-filter: none; }
+
+/* Now playing: the world as its own small label over the title (no separator) */
+body.ds .now-playing-label { display: flex; flex-direction: column; gap: 1px; }
+body.ds .now-playing-world { font: var(--text-meta); color: var(--ink); }
+body.ds .now-playing-title { font: var(--text-label); color: var(--ink); }
+
+/* The phone's player toggle exists only on the phone */
+body.ds .gp-more { display: none; }
+
+@media (max-width: 720px) {
+  body.ds { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
+  /* One compact row: title, play, more. Progress runs along the bar's top edge. */
+  body.ds .global-player {
+    flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between;
+    gap: var(--space-2) var(--space-3);
+    padding: var(--space-3) var(--gutter) max(12px, calc(env(safe-area-inset-bottom) + 6px));
+  }
+  body.ds .global-player .gp-left, body.ds .global-player .gp-transport { display: contents; }
+  body.ds .global-player .gp-transport::after { display: none; }
+  body.ds .global-player .btn-now-playing { order: 1; flex: 1 1 0; min-width: 0; min-height: 48px; padding: var(--space-2) var(--space-3); }
+  body.ds .global-player #btn-play-pause { order: 2; width: 48px; height: 48px; }
+  body.ds .global-player .gp-more { order: 3; }
+  body.ds .global-player .transport-seek {
+    position: absolute; left: 0; right: 0; top: -9px; width: 100%; height: 18px; min-width: 0; margin: 0;
+    background: linear-gradient(var(--line-default), var(--line-default)) center / 100% 4px no-repeat;
+    border-radius: 0; touch-action: none;
+  }
+  body.ds .global-player .transport-seek::-webkit-slider-thumb { width: 14px; height: 14px; border-width: 2px; }
+
+  /* Behind the tap: rating, previous and next, times, loop */
+  body.ds .global-player .fav-stars,
+  body.ds .global-player .transport-skip,
+  body.ds .global-player .transport-time,
+  body.ds .global-player .transport-extras { display: none; }
+  body.ds .global-player.gp-open .fav-stars { display: inline-flex; order: 4; flex: 1 1 100%; justify-content: center; max-width: none; padding-top: var(--space-1); }
+  body.ds .global-player.gp-open #btn-skip-prev { display: flex; order: 5; }
+  body.ds .global-player.gp-open #transport-current { display: block; order: 6; }
+  body.ds .global-player.gp-open #transport-total { display: block; order: 7; }
+  body.ds .global-player.gp-open #btn-skip-next { display: flex; order: 8; }
+  body.ds .global-player.gp-open .transport-extras { display: flex; order: 9; margin: 0; padding: 0; border: 0; }
+
+  body.ds .gp-more {
+    display: inline-flex; align-items: center; justify-content: center; flex: none;
+    width: var(--target); height: var(--target); border: 0; border-radius: var(--radius-control);
+    background: var(--bg-sunken); color: var(--ink); box-shadow: var(--elev-0); cursor: pointer;
+    touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+    transition: transform var(--ds-dur-spatial-fast) var(--ds-spring-spatial-fast);
+  }
+  body.ds .gp-more:active { transform: scale(.94); }
+  body.ds .gp-more:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+  body.ds .gp-more::before {
+    content: ""; width: 20px; height: 20px; background: currentColor;
+    -webkit-mask: url("ds/icons/chevron-down.svg") center / contain no-repeat; mask: url("ds/icons/chevron-down.svg") center / contain no-repeat;
+    transform: rotate(180deg); transition: transform var(--ds-dur-spatial-fast) var(--ds-spring-spatial-fast);
+  }
+  body.ds .gp-open .gp-more::before { transform: rotate(0deg); }
+}
+
+/* ---------- 9. Round 2b (Chief's additions) ---------- */
+/* One cost figure on the screen: the Generate card's. The prompt card's credit count is hidden, not removed. */
+body.ds #prompt-cost { display: none; }
+
+/* The page clears the player by its measured height */
+body.ds { padding-bottom: calc(var(--gp-h, 96px) + var(--space-6)); }
+
+/* Wide screens: Settings ends above the player and scrolls inside itself */
+@media (min-width: 1000px) {
+  body.ds .create-col-settings {
+    max-height: max(360px, calc(100vh - var(--settings-top, 240px) - var(--gp-h, 80px) - var(--space-5)));
+    overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin;
+  }
+}
+
+@media (max-width: 720px) {
+  body.ds { padding-bottom: calc(var(--gp-h, 76px) + var(--space-5)); }
+  body.ds .container { padding-top: var(--space-4); }
+  body.ds .logo { font-size: 34px; }
+  body.ds .header { margin-bottom: var(--space-2); }
+  body.ds .tab-nav { margin-bottom: var(--space-3); }
+  /* First screen: prompt, then Generate, then everything else */
+  body.ds .create-grid { gap: var(--space-4); }
+  body.ds .create-col-prompt { display: contents; }
+  body.ds .create-col-prompt > * { order: 4; min-width: 0; }
+  body.ds .create-col-prompt > .prompt-head { order: 1; min-height: 0; }
+  body.ds .create-col-prompt > .prompt-card { order: 2; }
+  body.ds .create-col-generate { order: 3; }
+  body.ds .create-col-settings { order: 5; }
+  body.ds .prompt-head .col-heading { display: none; }
+  body.ds .prompt-head-tools { width: 100%; }
+  body.ds .prompt-head-tools .btn { flex: 1 1 0; min-height: 40px; }
+  body.ds .prompt-card { padding: var(--space-3) var(--space-4) var(--space-4); gap: var(--space-2); }
+  body.ds .prompt-card-title { font-size: 23px; min-height: 32px; }
+  body.ds .prompt-card-header { padding-bottom: var(--space-2); }
+  body.ds .prompt-card .prompt-main { min-height: 96px; max-height: 132px; overflow-y: auto !important; font-size: 16px !important; line-height: 1.5 !important; }
+  body.ds .generate-card.ds-lead { padding: var(--space-4); gap: var(--space-3); }
+  body.ds .generate-card .credit-estimate { font-size: 28px; }
+  body.ds .ink-tide { height: 40px; margin-top: calc(-1 * var(--space-2)); }
+  body.ds .generate-card .btn-primary { min-height: 52px; }
+  body.ds .generate-card .credit-balance { padding-top: var(--space-2); }
+  body.ds .generate-card .credit-balance-header { margin-bottom: 4px; }
+}
