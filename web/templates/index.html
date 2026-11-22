@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
@@ -7,17 +7,27 @@
     <link rel="manifest" href="/static/manifest.webmanifest">
     <link rel="icon" type="image/png" href="/static/icons/icon-192.png">
     <link rel="apple-touch-icon" href="/static/icons/icon-180.png">
-    <meta name="theme-color" content="#0e0b14">
+    <meta name="theme-color" content="#faf7f0">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-title" content="Ambientizer">
+    <link rel="preload" href="/static/ds/fonts/hanken-grotesk-latin-var.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="preload" href="/static/ds/fonts/newsreader-latin-var.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="stylesheet" href="/static/style.css?v={{ range(1,99999) | random }}">
+    <!-- House design system (2026-11-22). Old look: templates/index.html.pre-design -->
+    <link rel="stylesheet" href="/static/ds/tokens.css">
+    <link rel="stylesheet" href="/static/ds/motion.css">
+    <link rel="stylesheet" href="/static/ds/components.css">
+    <link rel="stylesheet" href="/static/house.css?v={{ range(1,99999) | random }}">
 </head>
-<body>
+<body class="ds">
     <div class="container">
         <!-- Header -->
         <header class="header">
-            <h1 class="logo">Ambientizer</h1>
-            <p class="tagline">AI-powered ambient soundscape generator</p>
+            <div class="header-words">
+                <h1 class="logo" data-enter>Ambientizer</h1>
+                <p class="tagline" data-enter>AI-powered ambient soundscape generator</p>
+            </div>
+            <div id="house-illo" class="house-illo" aria-hidden="true"></div>
         </header>
 
         <!-- Tab Navigation -->
@@ -39,7 +49,7 @@
                 <div class="create-grid">
 
                     <!-- ── COL 1: SETTINGS (feeds the plan) ──── -->
-                    <div class="create-col create-col-settings">
+                    <div class="create-col create-col-settings" data-enter="rise">
                         <span class="col-heading">Settings</span>
 
                         <div class="field-block">
@@ -122,7 +132,7 @@
                     </div>
 
                     <!-- ── COL 2: PROMPT + COMPOSITION ───────── -->
-                    <div class="create-col create-col-prompt">
+                    <div class="create-col create-col-prompt" data-enter="rise">
                         <div class="prompt-head">
                             <span class="col-heading">Prompt</span>
                             <div class="prompt-head-tools">
@@ -205,7 +215,8 @@
 
                     <!-- ── COL 3: GENERATE ───────────────────── -->
                     <aside class="create-col create-col-generate">
-                        <div class="generate-card">
+                        <div class="generate-card ds-lead" data-enter="lead">
+                            <svg id="ink-tide" class="ink-tide" viewBox="0 0 280 90" preserveAspectRatio="none" aria-hidden="true"></svg>
                             <div id="credit-balance" class="credit-balance">
                                 <div class="credit-balance-header">
                                     <span class="credit-balance-label">ElevenLabs Credits</span>
@@ -1193,5 +1204,8 @@
 
     <script src="/static/mixer.js?v={{ mixer_v }}"></script>
     <script src="/static/app.js?v={{ app_v }}"></script>
+    <script src="/static/ds/components.js"></script>
+    <script src="/static/ds/marks.js" defer></script>
+    <script src="/static/house.js?v={{ range(1,99999) | random }}" defer></script>
 </body>
 </html>
