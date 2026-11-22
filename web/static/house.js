@@ -104,9 +104,20 @@
     var h = bar && !bar.classList.contains("hidden") ? bar.offsetHeight : 0;
     root.style.setProperty("--gp-h", h + "px");
     var set = document.querySelector(".create-col-settings");
-    if (set && set.offsetParent) root.style.setProperty("--settings-top", (set.getBoundingClientRect().top + window.scrollY) + "px");
+    if (set && set.offsetParent) {
+      root.style.setProperty("--settings-top", (set.getBoundingClientRect().top + window.scrollY) + "px");
+      // Settings ends above the player wherever the page is scrolled: its height comes from where it sits now.
+      var room = window.innerHeight - set.getBoundingClientRect().top - h - 16;
+      root.style.setProperty("--settings-max", Math.max(320, Math.round(room)) + "px");
+    }
   }
+  var measureQueued = false;
+  window.addEventListener("scroll", function () {
+    if (measureQueued) return; measureQueued = true;
+    requestAnimationFrame(function () { measureQueued = false; measure(); });
+  }, { passive: true });
   window.addEventListener("resize", measure);
+  setTimeout(measure, 2600);
   if (gp) new MutationObserver(measure).observe(gp, { attributes: true, attributeFilter: ["class"] });
   setTimeout(measure, 0); setTimeout(measure, 1200);
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(measure);

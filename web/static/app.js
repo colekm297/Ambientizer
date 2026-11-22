@@ -1841,13 +1841,16 @@
 
   let _currentStems = null;
 
+  // Display only: job titles saved with middle-dot separators show commas. Stored data is unchanged.
+  function _jt(s) { return String(s == null ? "" : s).replace(/\s*\u00B7\s*/g, ", "); }
+
   function _updateNowPlayingLabel(data) {
     const label = document.getElementById("now-playing-label");
     if (!label) return;
     if (!data) { label.textContent = "No tracks yet"; return; }
     const _h = (typeof _historyCache !== "undefined" && data.job_id) ? _historyCache.find((j) => j.job_id === data.job_id) : null;
     const _w = (data.world || (_h && _h.world) || "");
-    const title = (data.title || (_h && _h.title) || data.prompt || "Untitled").trim();
+    const title = _jt((data.title || (_h && _h.title) || data.prompt || "Untitled").trim());
     const rating = data.rating > 0 ? data.rating : (data.favorite ? 1 : 0);
     // World and title as two labels (no middle-dot separator, 2026-11-22).
     label.textContent = "";
@@ -3536,7 +3539,7 @@
       const modeTag = mode === "stitch" ? "Stitch" : mode === "composition_plan" ? "Plan" : "Text";
       const d = j.created_at ? new Date(j.created_at) : null;
       const dateStr = d ? d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
-      const title = (j.world ? j.world + ", " : "") + (j.title || j.prompt || "Untitled").trim();
+      const title = (j.world ? j.world + ", " : "") + _jt((j.title || j.prompt || "Untitled").trim());
       const world = (j.seed_idea || "").trim();
       let visualBadge = "";
       if (j.youtube_url) visualBadge = `<span class="lib-visual lib-visual-published">Published</span>`;
@@ -3669,7 +3672,7 @@
       const star = _rt > 0 ? "\u2605".repeat(_rt) + " " : _rt < 0 ? `${_rt} ` : (j.rated ? "0 " : "");
       const dot = j.status === "complete" ? "\u2713" : j.status === "running" ? "\u25CB" : "\u2717";
       // Prefer the short evocative title; fall back to the prompt if absent.
-      const label = (j.title && j.title.trim()) ? j.title.trim() : j.prompt;
+      const label = _jt((j.title && j.title.trim()) ? j.title.trim() : j.prompt);
       const shown = label.length > 60 ? label.slice(0, 57) + "..." : label;
       const world = j.world ? `${j.world}, ` : "";
       opt.textContent = `${star}${dot} ${world}${shown}  (${timeStr})`;
@@ -6009,7 +6012,7 @@
         <div class="distribute-row" data-job-id="${r.job_id}">
           <div class="dist-thumb">${thumb}</div>
           <div class="dist-meta">
-            <div class="dist-title">${escapeHtml(r.title || r.prompt.slice(0, 60))}</div>
+            <div class="dist-title">${escapeHtml(_jt(r.title || r.prompt.slice(0, 60)))}</div>
             <div class="dist-prompt">${escapeHtml((r.prompt || "").slice(0, 140))}</div>
             <div class="dist-badges">${badges.join(" ")}</div>
           </div>
@@ -6042,7 +6045,7 @@
     if (!row) return;
     distSelectedPanel.classList.remove("hidden");
     distSelectedSummary.innerHTML = `
-      <strong>${escapeHtml(row.title)}</strong>
+      <strong>${escapeHtml(_jt(row.title))}</strong>
       <div class="form-hint">${escapeHtml(row.prompt.slice(0, 200))}</div>
       <div class="dist-badges">
         ${row.youtube_url ? `<a class="badge badge-ready" href="${row.youtube_url}" target="_blank">View on YouTube</a>` : `<span class="badge badge-warn">Not uploaded</span>`}

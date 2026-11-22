@@ -711,3 +711,30 @@ body.ds .btn-mode.active .mode-title { color: var(--accent) !important; }
 /* Distribute: rows past the first page wait behind "Show more" */
 body.ds .house-cap-hidden { display: none !important; }
 body.ds .house-more { display: flex; width: 100%; justify-content: center; margin-top: var(--space-3); min-height: var(--target); }
+
+/* ---------- 16. Post-swap fixes ---------- */
+/* Settings box height follows its live position (house.js), so it always ends above the player */
+@media (min-width: 1000px) {
+  body.ds .create-col-settings { max-height: var(--settings-max, calc(100vh - var(--settings-top, 240px) - var(--gp-h, 80px) - var(--space-5))); }
+}
+/* Catalog covers: the shadow and the shelf tilt sit on the picture itself, never on an empty cell */
+body.ds .distribute-row .dist-thumb { box-shadow: none; border-radius: 0; background: none; }
+body.ds .distribute-row .dist-thumb img, body.ds .distribute-row .dist-thumb .no-thumb {
+  display: block; border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(var(--shadow-tint), .2), 0 4px 10px -4px rgba(var(--shadow-tint), .35);
+}
+@media (max-width: 760px) {
+  body.ds .distribute-row { grid-template-columns: 96px minmax(0, 1fr); align-items: start; gap: var(--space-2) var(--space-3); }
+  body.ds .distribute-row .dist-thumb img, body.ds .distribute-row .dist-thumb .no-thumb { width: 96px; height: 54px; }
+  body.ds .distribute-row .dist-actions { grid-column: 1 / -1; display: flex; gap: var(--space-2); }
+  body.ds .distribute-row .dist-actions .btn { flex: 1 1 0; }
+  body.ds .dist-title { padding: 0 0 2px; }
+}
+/* A scrolling Settings well fades at its foot, so it reads as more below, never as clipped */
+@media (min-width: 1000px) {
+  body.ds .create-col-settings {
+    -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 36px), transparent);
+    mask-image: linear-gradient(to bottom, #000 calc(100% - 36px), transparent);
+    padding-bottom: var(--space-7);
+  }
+}
