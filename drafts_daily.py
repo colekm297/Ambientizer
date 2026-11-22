@@ -430,7 +430,11 @@ def draft(p: dict) -> dict:
     jid = p["job_id"]
     still = json.load(open(HERE / "saved_jobs" / f"{jid}.json")).get("visual_image_path")
     if not (still and Path(still).exists()):   # a retry keeps the still it already paid for
-        ap = jget(requests.post(f"{BASE}/api/visual/auto-prompt/{jid}", timeout=120))
+        for wait in (0, 60, 180):   # 11-21: a brief network drop (APIConnectionError) failed three takes in 20 s
+            time.sleep(wait)
+            ap = jget(requests.post(f"{BASE}/api/visual/auto-prompt/{jid}", timeout=120))
+            if ap.get("image_prompt"):
+                break
         if not ap.get("image_prompt"):
             raise RuntimeError(f"auto-prompt failed: {ap}")
         r = jget(requests.post(f"{BASE}/api/visual/image/{jid}", json={"prompt": ap["image_prompt"]}, timeout=60))
