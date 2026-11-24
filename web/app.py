@@ -652,8 +652,9 @@ def create_orchestrator(mastering: bool = True) -> SoundscapeOrchestrator:
 def _layer_has_audio(layer) -> bool:
     if not layer.generated_audio_path:
         return False
-    path = _resolve_audio_path(layer.generated_audio_path)
-    if not path or not os.path.exists(path):
+    # 2026-11-23: layer WAVs in generated_samples can live in R2; opening the take pulls them back.
+    path = local_media(_resolve_audio_path(layer.generated_audio_path))
+    if not path:
         return False
     try:
         from pydub import AudioSegment
@@ -2679,7 +2680,7 @@ def api_layer_audio(job_id: str, layer_name: str):
         print(f"  [layer-audio] 404: layer '{layer_name}' has no generated_audio_path")
         abort(404)
 
-    path = _resolve_audio_path(layer.generated_audio_path)
+    path = local_media(_resolve_audio_path(layer.generated_audio_path))   # restores an offloaded layer
     if not path:
         print(f"  [layer-audio] 404: file not found for '{layer_name}': {layer.generated_audio_path}")
         abort(404)
