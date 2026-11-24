@@ -50,7 +50,10 @@ def main():
             evicted = evicted or (Path(f).stem, p)
         if local and evicted:
             break
-    check("found a local and an evicted take", bool(local and evicted))
+    # Since the 11-23 full offload, every take older than a day lives in R2, so a local one is optional
+    check("found a take to play", bool(local or evicted))
+    if not local:
+        print("skip local take: none on disk (all offloaded)", flush=True)
     if evicted:
         url = store.presign_for_path(evicted[1])
         r = requests.get(url, headers={"Range": "bytes=0-1023"}, timeout=30) if url else None
