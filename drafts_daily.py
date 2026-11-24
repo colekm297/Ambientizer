@@ -570,7 +570,7 @@ def main():
             record_verdicts(yt)
         except Exception as e:
             print(f"verdicts failed: {str(e)[:200]}", flush=True)
-    q = queue()
+    q = [p for p in queue() if p['tier'] < 2]   # 11-24 Cole: stock takes are 'the same blah' with no refrain; hold them
     print(f"{time.strftime('%F %T')} queue: {len(q)} takes "
           f"({sum(p['tier'] == 0 for p in q)} 3-star, {sum(p['tier'] == 1 for p in q)} 2-star, "
           f"{sum(p['tier'] == 2 for p in q)} stock)", flush=True)
