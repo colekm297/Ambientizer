@@ -648,7 +648,9 @@ export class Kit {
     const files = new Map();
     for (const ins of meta.instruments) for (const z of ins.zones) files.set(z.file, null);
     await Promise.all([...files.keys()].map(async (f) => {
-      const ab = await (await fetch(base + encodeURIComponent(f))).arrayBuffer();
+      const r = await fetch(base + encodeURIComponent(f.replace(/\.wav$/, '.flac'))); // same 24-bit audio, lossless
+      if (!r.ok) throw new Error(`${f}: ${r.status}`);
+      const ab = await r.arrayBuffer();
       files.set(f, await dec.decodeAudioData(ab));
     }));
     for (const role of ROLES) {
@@ -819,7 +821,7 @@ export class Player {
     this.look = 3.0;
   }
   get position() { if (!this.ctx || this.state === 'idle') return this.stoppedAt || 0; return clamp(this.ctx.currentTime - this.t0, 0, this.plan.meta.length + 8); }
-  async start() {
+  unlock() {
     if (!this.ctx) {
       this.ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'playback', sampleRate: 48000 });
       this.g = buildGraph(this.ctx, this.S);
@@ -827,8 +829,13 @@ export class Player {
       this.cursor = 0; this.autoCursor = 0;
       this.g.tone.frequency.setValueAtTime(this.plan.auto[0].cut, this.ctx.currentTime);
       this.g.lvl.gain.setValueAtTime(this.plan.auto[0].lvl, this.ctx.currentTime);
+      this.fresh = true;
     }
-    if (this.ctx.state !== 'running') await this.ctx.resume();
+    return this.ctx.state === 'running' ? Promise.resolve() : this.ctx.resume();
+  }
+  async start() {
+    await this.unlock();
+    if (this.fresh) { this.t0 = this.ctx.currentTime + 0.25; this.fresh = false; } // loading time must not eat the opening
     this.state = 'playing';
     clearInterval(this.timer);
     this.timer = setInterval(() => this.tick(), 120);

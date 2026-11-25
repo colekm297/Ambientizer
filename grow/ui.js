@@ -16,7 +16,9 @@ const player = new Player(kit, S, {
   onEnd: () => setPlayUi('idle'),
 });
 let loadPromise = null;
-const ensureKit = () => (loadPromise = loadPromise || kit.loadStarter('sounds/folding-city/'));
+const ensureKit = () => (loadPromise = loadPromise || kit.loadStarter('sounds/folding-city/').catch((e) => { loadPromise = null; throw e; }));
+// iOS: 'playback' keeps Web Audio sounding with the ring switch off; recording needs 'play-and-record'.
+const session = (type) => { try { if (navigator.audioSession) navigator.audioSession.type = type; } catch {} };
 
 // ------------------------------------------------------------ settings UI
 const keySel = $('#key'), modeSel = $('#mode');
@@ -86,6 +88,8 @@ playBtn.addEventListener('click', async () => {
   try {
     if (player.state === 'playing') { await player.pause(); return; }
     playBtn.setAttribute('aria-busy', 'true'); $('#playWord').textContent = 'Loading';
+    session('playback');
+    player.unlock().catch(() => {}); // inside the tap: iOS refuses audio that first starts after an await
     await ensureKit();
     await player.start();
   } catch (err) { console.error(err); $('#playWord').textContent = 'Play'; playBtn.removeAttribute('aria-busy'); }
@@ -168,21 +172,31 @@ async function importFile(role, file) {
 }
 async function recordFor(role, btn) {
   const word = btn.querySelector('span');
+  let stream = null, iv = null;
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+    if (player.state === 'playing') await player.pause(); // otherwise the mic records the piece
+    if (!navigator.mediaDevices || typeof MediaRecorder === 'undefined') throw new DOMException('no recorder', 'NotFoundError');
+    session('play-and-record');
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
     const mr = new MediaRecorder(stream); const chunks = [];
     mr.ondataavailable = (e) => chunks.push(e.data);
     const done = new Promise((res) => (mr.onstop = res));
     mr.start();
     let left = 10; btn.classList.add('gr-rec'); word.textContent = `Stop ${left}`;
-    const iv = setInterval(() => { left--; word.textContent = `Stop ${Math.max(0, left)}`; if (left <= 0) mr.stop(); }, 1000);
-    btn.onclick = (e) => { e.stopPropagation(); mr.stop(); };
-    await done; clearInterval(iv);
-    stream.getTracks().forEach((t) => t.stop());
+    const end = () => { if (mr.state !== 'inactive') mr.stop(); };
+    iv = setInterval(() => { left--; word.textContent = `Stop ${Math.max(0, left)}`; if (left <= 0) end(); }, 1000);
+    btn.onclick = (e) => { e.stopPropagation(); end(); };
+    await done;
+    clearInterval(iv);
     const ab = await new Blob(chunks, { type: mr.mimeType }).arrayBuffer();
     const { mono, sr } = await decodeToMono(ab);
     await adopt(role, mono, sr, 'Recording');
-  } catch (e) { console.warn(e); say(e && e.name === 'NotAllowedError' ? 'Microphone blocked. Allow it in the browser to record.' : 'No microphone available.'); paintRoles(); }
+  } catch (e) {
+    console.warn(e);
+    const n = e && e.name;
+    say(n === 'NotAllowedError' ? 'Microphone blocked. Allow it in the browser to record.' : n === 'EncodingError' ? 'That recording could not be read.' : stream ? 'Recording failed.' : 'No microphone available.');
+    paintRoles();
+  } finally { clearInterval(iv); if (stream) stream.getTracks().forEach((t) => t.stop()); session('playback'); }
 }
 async function resetRole(role) { delete yours[role]; kit.setImported(role, null); await idbDel(role).catch(() => {}); paintRoles(); }
 async function nudgeRoot(role, d) {
