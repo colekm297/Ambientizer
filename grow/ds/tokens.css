@@ -1,0 +1,204 @@
+/* House design system: tokens.
+   Source of the palette: Satie Design System (Claude Design project 63dec0a2), copied exactly from
+   ~/Projects/satie-app/src/styles/tokens.css. Everything below the palette is new (2026-11-20).
+   Load order on any page: tokens.css, motion.css, components.css, then components.js and marks.js.
+   Rules that go with these values live in DESIGN.md. No raw hex in app CSS: use a token. */
+
+@font-face {
+  font-family: "Hanken Grotesk";
+  src: url("fonts/hanken-grotesk-latin-var.woff2") format("woff2");
+  font-weight: 100 900; font-style: normal; font-display: block;
+}
+@font-face {
+  font-family: "Newsreader";
+  src: url("fonts/newsreader-latin-var.woff2") format("woff2");
+  font-weight: 200 800; font-style: normal; font-display: block;
+}
+/* Hand notes only. Never reading text. At most one per screen. */
+@font-face {
+  font-family: "Caveat";
+  src: url("fonts/caveat-latin-var.woff2") format("woff2");
+  font-weight: 400 700; font-style: normal; font-display: block;
+}
+
+:root {
+  color-scheme: light;
+
+  /* ---- Palette, exact (Satie) ---- */
+  --bg-default: #faf7f0;      /* paper: every page */
+  --bg-card: #fffefb;         /* cards, sheets, tab bar */
+  --bg-sunken: #f3eee3;       /* wells, secondary buttons, pressed fills */
+  --bg-warm: #fbf6ec;         /* warm tint surface */
+  --bg-input: #fbf8f1;        /* text fields */
+  --bg-inverse: #0e2c23;      /* dark green surface, the lead card */
+  --content-strong: #1c1a17;  /* THE ink. All text. */
+  --content-default: #423d36; /* second ink: icons, rules, never a second text color in one block */
+  --content-on-accent: #f3f1ea;
+  --content-on-inverse: #f3f1ea; /* text on the dark green lead surface, both themes */
+  --accent: #1b4d3e;          /* the one green, the only saturated color */
+  --accent-hover: #143d31;
+  --accent-press: #123a2e;
+  --accent-tint: #eef4f1;     /* selected background */
+  --accent-soft: rgba(27, 77, 62, .07);
+  --accent-line: rgba(27, 77, 62, .2);
+  --attention: #bc7e2e;       /* amber: status and the hand marks */
+  --critical: #a84633;        /* red: status, record */
+  --info: #46617a;            /* slate: status, chart series */
+  --line-default: #e7e0d2;
+  --line-soft: #f0eadd;
+  --line-strong: #d6cbb8;
+  --line-ink: #c9bea9;
+  /* Satie's content-muted, content-subtle and content-disabled are NOT carried over: no grey text. */
+
+  /* ---- Derived roles (new) ---- */
+  --ink: var(--content-strong);
+  --paper: var(--bg-default);
+  --mark: var(--attention);           /* hand marks: circle, underline, scribble */
+  --mark-green: var(--accent);        /* the active-tab pen line */
+  --illo-ink: var(--content-strong);  /* illustration line */
+  --illo-fill: #e9c27a;               /* illustration wash: amber lifted toward paper */
+  --illo-fill-2: #cfe0d6;             /* second wash: green lifted toward paper */
+  --focus-ring: #2f6f5a;              /* 2px ring + 2px paper gap; passes 3:1 on paper and card */
+  --state-hover: rgba(28, 26, 23, .04);
+  --state-press: rgba(28, 26, 23, .07);
+  --state-selected: var(--accent-tint);
+  --disabled-opacity: .42;            /* disabled = same ink, lower opacity, never a grey color */
+  --success: var(--accent);
+  --warning: var(--attention);
+  --danger: var(--critical);
+  --scrim: rgba(20, 16, 10, .32);
+
+  /* ---- Chart series (added 2026-11-20, gaps2): bars, meters and charts, in this order. No new hue: slate, green, their
+     tints toward the card, then amber. Mixed against --bg-card, so dark mode follows on its own (these are declared on
+     :root, where the dark blocks redefine --info, --accent and --bg-card). Checked with CIEDE2000, normal vision and
+     simulated deuteranopia and protanopia, light and dark: every pair in the first five differs by 16.9 or more.
+     Red is never a series; --series-over is only for a value past its limit. DESIGN.md 12.6. */
+  --series-1: var(--info);                                          /* slate */
+  --series-2: var(--accent);                                        /* green */
+  --series-3: color-mix(in srgb, var(--info) 45%, var(--bg-card));   /* slate tint */
+  --series-4: color-mix(in srgb, var(--accent) 65%, var(--bg-card)); /* green tint */
+  --series-5: var(--attention);                                     /* amber, only when five are needed */
+  --series-over: var(--critical);
+  --meter-track: var(--line-default);
+  /* The chosen pill of a segmented control (gaps3). Light: the card, raised. Dark: the card lifted 14% toward the ink, so
+     the choice reads as filled, not as an outline on a well of nearly the same dark (two critics, 2026-11-20). Declared
+     on :root, so the dark blocks' --bg-card and --content-strong carry it. */
+  --seg-pill: var(--bg-card);
+
+  /* ---- Type ---- */
+  --font-sans: "Hanken Grotesk", ui-sans-serif, -apple-system, "Helvetica Neue", sans-serif;
+  --font-serif: "Newsreader", "Iowan Old Style", Georgia, serif;
+  --font-hand: "Caveat", "Bradley Hand", cursive;
+  /* scale: size / line-height / weight / tracking. One reading style: --text-body. */
+  --text-display: 500 46px/1 var(--font-serif);       /* one per screen: the page word */
+  --text-number: 500 40px/1 var(--font-serif);        /* big numbers 28 to 60 */
+  --text-title: 500 27px/1.12 var(--font-serif);      /* lead card title */
+  --text-heading: 500 21px/1.2 var(--font-serif);     /* section and card headings, 19 to 22 */
+  --text-body: 400 16px/1.45 var(--font-sans);        /* THE reading style */
+  --text-label: 600 15px/1.3 var(--font-sans);        /* buttons, row names, tabs */
+  --text-meta: 500 13px/1.3 var(--font-sans);         /* times, counts. Same ink, smaller. */
+  --text-hand: 600 23px/1 var(--font-hand);           /* hand notes only */
+  --track-display: -.025em;
+  --track-heading: -.01em;
+  --track-label: .005em;
+
+  /* ---- Space: 4px base ---- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 48px;
+  --space-9: 64px;
+  --gutter: max(20px, env(safe-area-inset-left, 0px));
+  --rail: 44rem;
+  --reading: 40rem;
+  --tabbar-h: 58px;
+  --target: 44px;
+
+  /* ---- Shape: radius by role ---- */
+  --radius-control: 10px;   /* buttons, inputs */
+  --radius-card: 14px;      /* cards, rows in a group */
+  --radius-panel: 18px;     /* lead card, grouped list */
+  --radius-sheet: 24px;     /* sheet top corners */
+  --radius-chip: 999px;     /* chips and dots only; no pill buttons */
+  --radius-cut: 18px 15px 19px 14px / 15px 19px 14px 18px; /* hand-cut: the lead card only */
+  /* The same cut, a corner at a time (gaps3, 2026-11-20). --radius-cut has a slash, so it cannot be split into
+     border-top-left-radius and friends; these can. Each is "horizontal vertical" for one longhand corner. */
+  --radius-cut-tl: 18px 15px;
+  --radius-cut-tr: 15px 19px;
+  --radius-cut-br: 19px 14px;
+  --radius-cut-bl: 14px 18px;
+  /* Top-only and bottom-only cuts for a lead card built from stacked parts (DESIGN.md 12.10); use with border-radius. */
+  --radius-cut-top: 18px 15px 0 0 / 15px 19px 0 0;
+  --radius-cut-bottom: 0 0 19px 14px / 0 0 14px 18px;
+
+  /* ---- Elevation: warm, layered. Never a border and a shadow together. ---- */
+  --shadow-tint: 72, 50, 18;
+  --elev-0: inset 0 1px 2px rgba(var(--shadow-tint), .07);                  /* sunken well */
+  --elev-1: 0 1px 1px rgba(var(--shadow-tint), .05), 0 2px 6px -1px rgba(var(--shadow-tint), .08);
+  --elev-2: 0 1px 2px rgba(var(--shadow-tint), .05), 0 5px 14px -4px rgba(var(--shadow-tint), .12), 0 14px 30px -14px rgba(var(--shadow-tint), .12);
+  --elev-3: 0 2px 4px rgba(var(--shadow-tint), .06), 0 12px 28px -8px rgba(var(--shadow-tint), .18), 0 30px 60px -24px rgba(var(--shadow-tint), .22);
+  --elev-lead: 0 2px 3px rgba(14, 44, 35, .18), 0 14px 30px -10px rgba(14, 44, 35, .38), 0 34px 60px -28px rgba(14, 44, 35, .4);
+  --edge-light: inset 0 1px 0 rgba(255, 255, 255, .7);  /* top light on raised cards */
+  --grain: url("grain.svg");
+  --grain-opacity: .5;
+}
+
+/* ---- One agreed dark mode, derived from the palette ----
+   Ground is the inverse green pushed toward black; the ink is the light sunken paper; the green
+   becomes a lifted sage so it still reads as the same green.
+   Retuned 2026-11-20 (gaps): sunken was near-black and read as a hole, now a quiet inset between paper and card;
+   shadows were wide black halos that read as a glow around cards, now tight and low, with the hairline top light. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg-default: #12110e; --bg-card: #1d1a16; --bg-sunken: #181611; --bg-warm: #1a1712; --bg-input: #171511;
+    --bg-inverse: #15392e;
+    --content-strong: #f3eee3; --content-default: #d6cbb8; --content-on-accent: #0c1f18; --content-on-inverse: #f3f1ea;
+    --accent: #8cc7ad; --accent-hover: #a2d4bd; --accent-press: #78b79b; --accent-tint: rgba(140, 199, 173, .12);
+    --accent-soft: rgba(140, 199, 173, .08); --accent-line: rgba(140, 199, 173, .28);
+    --attention: #e0a75a; --critical: #e58b74; --info: #93adc6;
+    --line-default: #2c2822; --line-soft: #24211c; --line-strong: #3a352d; --line-ink: #4a443a;
+    --illo-ink: #f3eee3; --illo-fill: #b9893c; --illo-fill-2: #2f5a4b;
+    --focus-ring: #8cc7ad;
+    --state-hover: rgba(243, 238, 227, .05); --state-press: rgba(243, 238, 227, .09);
+    --scrim: rgba(0, 0, 0, .55);
+    --shadow-tint: 0, 0, 0;
+    --elev-0: inset 0 1px 0 rgba(0, 0, 0, .45), inset 0 2px 4px rgba(0, 0, 0, .35), inset 0 -1px 0 rgba(243, 238, 227, .04);
+    --elev-1: 0 1px 0 rgba(0, 0, 0, .5), 0 1px 3px rgba(0, 0, 0, .35);
+    --elev-2: 0 1px 0 rgba(0, 0, 0, .55), 0 2px 4px rgba(0, 0, 0, .4), 0 6px 12px -4px rgba(0, 0, 0, .45);
+    --elev-3: 0 1px 0 rgba(0, 0, 0, .6), 0 6px 12px -4px rgba(0, 0, 0, .55), 0 20px 36px -12px rgba(0, 0, 0, .7);
+    --elev-lead: 0 1px 0 rgba(0, 0, 0, .6), 0 4px 8px -2px rgba(0, 0, 0, .5), 0 12px 24px -10px rgba(0, 0, 0, .6);
+    --edge-light: inset 0 1px 0 rgba(243, 238, 227, .07);
+    --chip-edge: inset 0 0 0 1px var(--line-strong);
+    --seg-pill: color-mix(in srgb, var(--content-strong) 14%, var(--bg-card));
+    --grain-opacity: .22; --lead-grain: .25;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg-default: #12110e; --bg-card: #1d1a16; --bg-sunken: #181611; --bg-warm: #1a1712; --bg-input: #171511;
+  --bg-inverse: #15392e;
+  --content-strong: #f3eee3; --content-default: #d6cbb8; --content-on-accent: #0c1f18; --content-on-inverse: #f3f1ea;
+  --accent: #8cc7ad; --accent-hover: #a2d4bd; --accent-press: #78b79b; --accent-tint: rgba(140, 199, 173, .12);
+  --accent-soft: rgba(140, 199, 173, .08); --accent-line: rgba(140, 199, 173, .28);
+  --attention: #e0a75a; --critical: #e58b74; --info: #93adc6;
+  --line-default: #2c2822; --line-soft: #24211c; --line-strong: #3a352d; --line-ink: #4a443a;
+  --illo-ink: #f3eee3; --illo-fill: #b9893c; --illo-fill-2: #2f5a4b;
+  --focus-ring: #8cc7ad;
+  --state-hover: rgba(243, 238, 227, .05); --state-press: rgba(243, 238, 227, .09);
+  --scrim: rgba(0, 0, 0, .55);
+  --shadow-tint: 0, 0, 0;
+  --elev-0: inset 0 1px 0 rgba(0, 0, 0, .45), inset 0 2px 4px rgba(0, 0, 0, .35), inset 0 -1px 0 rgba(243, 238, 227, .04);
+  --elev-1: 0 1px 0 rgba(0, 0, 0, .5), 0 1px 3px rgba(0, 0, 0, .35);
+  --elev-2: 0 1px 0 rgba(0, 0, 0, .55), 0 2px 4px rgba(0, 0, 0, .4), 0 6px 12px -4px rgba(0, 0, 0, .45);
+  --elev-3: 0 1px 0 rgba(0, 0, 0, .6), 0 6px 12px -4px rgba(0, 0, 0, .55), 0 20px 36px -12px rgba(0, 0, 0, .7);
+  --elev-lead: 0 1px 0 rgba(0, 0, 0, .6), 0 4px 8px -2px rgba(0, 0, 0, .5), 0 12px 24px -10px rgba(0, 0, 0, .6);
+  --edge-light: inset 0 1px 0 rgba(243, 238, 227, .07);
+  --chip-edge: inset 0 0 0 1px var(--line-strong);
+  --seg-pill: color-mix(in srgb, var(--content-strong) 14%, var(--bg-card));
+  --grain-opacity: .22; --lead-grain: .25;
+}

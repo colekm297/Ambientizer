@@ -1,0 +1,153 @@
+/* House design system: motion.
+   Two kinds of spring, three speeds each (after Material 3 Expressive):
+   - spatial springs may overshoot a little: position, size, scale, the hero.
+   - effects springs never overshoot: opacity, color, blur.
+   Curves are Motion's spring() sampled every 20 ms into CSS linear(). Each duration is when that spring settles.
+   Rules (DESIGN.md, Motion): one entrance per screen; the lead item moves on a spatial spring and the rest fade on
+   effects; stagger 40 ms, capped at 6; nothing animates on actions done many times a day except press feedback;
+   everything below is switched off under prefers-reduced-motion. */
+
+:root {
+  --ds-spring-spatial-fast: linear(0, 0.057, 0.185, 0.339, 0.49, 0.625, 0.737, 0.825, 0.89, 0.937, 0.969, 0.989, 1.002, 1.008, 1.011, 1.011, 1.01, 1.009, 1.007, 1.005, 1.004, 1.003, 1.002, 1.001, 1.001, 1, 1);
+  --ds-dur-spatial-fast: 540ms;
+  --ds-spring-spatial: linear(0, 0.027, 0.096, 0.19, 0.296, 0.404, 0.509, 0.607, 0.693, 0.768, 0.832, 0.884, 0.926, 0.958, 0.982, 1, 1.012, 1.019, 1.024, 1.025, 1.025, 1.024, 1.022, 1.019, 1.016, 1.013, 1.011, 1.009, 1.007, 1.005, 1.003, 1.002, 1.001, 1.001, 1, 1, 1);
+  --ds-dur-spatial: 740ms;
+  --ds-spring-spatial-slow: linear(0, 0.014, 0.051, 0.103, 0.167, 0.237, 0.311, 0.385, 0.457, 0.526, 0.59, 0.65, 0.705, 0.754, 0.797, 0.836, 0.869, 0.898, 0.922, 0.943, 0.96, 0.974, 0.985, 0.994, 1.001, 1.006, 1.01, 1.012, 1.014, 1.015, 1.015, 1.015, 1.014, 1.014, 1.013, 1.012, 1.01, 1.009, 1.008, 1.007, 1.006, 1.005, 1.004, 1.004, 1.003, 1.002, 1.002, 1.002, 1.001, 1.001, 1.001, 1);
+  --ds-dur-spatial-slow: 1040ms;
+  --ds-spring-effects-fast: linear(0, 0.14, 0.376, 0.584, 0.736, 0.838, 0.903, 0.943, 0.967, 0.981, 0.989, 0.994, 0.997, 0.998, 0.999, 0.999, 1);
+  --ds-dur-effects-fast: 340ms;
+  --ds-spring-effects: linear(0, 0.062, 0.193, 0.34, 0.479, 0.598, 0.695, 0.772, 0.832, 0.877, 0.91, 0.935, 0.954, 0.967, 0.976, 0.983, 0.988, 0.992, 0.994, 0.996, 0.997, 0.998, 0.999, 0.999, 0.999, 1);
+  --ds-dur-effects: 520ms;
+  --ds-spring-effects-slow: linear(0, 0.026, 0.09, 0.173, 0.263, 0.354, 0.441, 0.521, 0.593, 0.656, 0.711, 0.759, 0.8, 0.834, 0.863, 0.887, 0.908, 0.924, 0.938, 0.95, 0.959, 0.967, 0.973, 0.978, 0.982, 0.986, 0.989, 0.991, 0.993, 0.994, 0.995, 0.996, 0.997, 0.998, 0.998, 0.998, 0.999, 0.999, 1);
+  --ds-dur-effects-slow: 780ms;
+
+  /* The house ease (Satie, Evidence Explorer), for anything that is not a spring. */
+  --ds-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ds-ease-in: cubic-bezier(0.5, 0, 0.75, 0);
+  --ds-press-in: 90ms;          /* finger down: fast, no spring */
+  --ds-stagger: 40ms;
+  --ds-stagger-cap: 6;
+  --ds-rise: 14px;              /* entrance travel */
+}
+
+/* ---- Press feedback: respond on finger-down, settle on a spring ---- */
+.ds-press {
+  transition: transform var(--ds-dur-spatial-fast) var(--ds-spring-spatial-fast),
+              box-shadow var(--ds-dur-effects) var(--ds-spring-effects),
+              background-color var(--ds-dur-effects-fast) var(--ds-spring-effects-fast);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.ds-press:active, .ds-press.is-pressed {
+  transform: scale(.97);
+  transition-duration: var(--ds-press-in), var(--ds-press-in), var(--ds-press-in);
+  transition-timing-function: var(--ds-ease-out);
+}
+.ds-press-soft:active, .ds-press-soft.is-pressed { transform: scale(.985); }
+
+/* ---- Staggered entrance ----
+   Markup: data-enter on each item, style index via --i (components.js sets it).
+   html.ds-pre hides entrance items only while fonts load (set by components.js, max 900 ms);
+   without JS nothing is hidden, so the page is complete at rest. */
+html.ds-pre [data-enter] { opacity: 0; }
+/* Items on a screen that was hidden when the entrance ran wait (data-enter-wait) and play their own entrance the first
+   time that screen is shown (components.js adds .ds-entering), counted from their own first item (gaps2, 2026-11-20). */
+html.ds-enter [data-enter]:not([data-enter-wait]), [data-enter].ds-entering {
+  animation: ds-fade var(--ds-dur-effects) var(--ds-spring-effects) both;
+  animation-delay: calc(min(var(--i, 0), var(--ds-stagger-cap)) * var(--ds-stagger));
+}
+html.ds-enter [data-enter="rise"]:not([data-enter-wait]), [data-enter="rise"].ds-entering {
+  animation-name: ds-rise;
+  animation-duration: var(--ds-dur-spatial);
+  animation-timing-function: var(--ds-spring-spatial);
+}
+html.ds-enter [data-enter="lead"]:not([data-enter-wait]), [data-enter="lead"].ds-entering {
+  animation: ds-lead var(--ds-dur-spatial-slow) var(--ds-spring-spatial-slow) both;
+  animation-delay: 60ms;
+}
+html.ds-enter [data-enter="drop"]:not([data-enter-wait]), [data-enter="drop"].ds-entering {
+  animation: ds-drop var(--ds-dur-spatial) var(--ds-spring-spatial) both;
+  animation-delay: calc(min(var(--i, 0), var(--ds-stagger-cap)) * var(--ds-stagger));
+}
+@keyframes ds-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes ds-rise { from { opacity: 0; transform: translateY(var(--ds-rise)); } to { opacity: 1; transform: none; } }
+@keyframes ds-lead { 0% { opacity: 0; transform: translateY(22px) scale(.96) rotate(-.6deg); } 35% { opacity: 1; } 100% { opacity: 1; transform: none; } }
+@keyframes ds-drop { from { opacity: 0; transform: translateY(-10px) rotate(2deg) scale(.96); } to { opacity: 1; transform: none; } }
+
+/* ---- Sub-view swaps inside one screen (gaps3, 2026-11-20) ----
+   A container marked data-ds-swap holds a screen's sub-views (the panes a segmented control switches). Its entrance
+   items never wait for their own entrance, so a switch shows the new pane at once instead of a blank frame while a
+   staggered rise plays (Finance's Spending and Investments critics). data-ds-swap="fade" adds one short fade of the
+   pane that just appeared: opacity only, 200 ms on the house curve, no movement, nothing staggered. components.js does
+   the work (DS.swap(el) for apps that show panes their own way). Off under reduced motion like everything else. */
+.ds-swap-in { animation: ds-fade 200ms var(--ds-ease-out) both; }
+html.ds-enter [data-enter].ds-swap-skip:not(.ds-swap-in), [data-enter].ds-entering.ds-swap-skip:not(.ds-swap-in) { animation: none; }
+
+/* ---- Things that arrive later (a new row, a revealed panel) ---- */
+@starting-style { .ds-arrive { opacity: 0; transform: translateY(8px) scale(.98); } }
+.ds-arrive {
+  transition: opacity var(--ds-dur-effects) var(--ds-spring-effects),
+              transform var(--ds-dur-spatial) var(--ds-spring-spatial);
+}
+
+/* ---- Expand and collapse without measuring: grid rows 0fr to 1fr ----
+   Cards are headlines; details wait behind a tap (DESIGN.md 4, 2026-11-20). The height moves on a spatial spring, the
+   content fades in on an effects spring just behind it, and fades out quickly on close. Interruptible: a second tap
+   mid-move reverses from where it is (CSS transitions retarget). Closed content is hidden from taps, focus and readers. */
+.ds-collapse {
+  display: grid; grid-template-rows: 0fr;
+  transition: grid-template-rows var(--ds-dur-spatial-fast) var(--ds-spring-spatial-fast);
+}
+.ds-collapse > * {
+  min-height: 0; overflow: hidden; opacity: 0; visibility: hidden;
+  transition: opacity 140ms var(--ds-ease-out), visibility 0s linear 140ms;
+}
+.ds-collapse.is-open { grid-template-rows: 1fr; }
+.ds-collapse.is-open > * {
+  opacity: 1; visibility: visible;
+  transition: opacity var(--ds-dur-effects-fast) var(--ds-spring-effects-fast), visibility 0s;
+}
+/* The chevron that says a card opens: turns over on a spatial spring when its control is expanded. */
+.ds-chev { flex: none; display: grid; place-items: center; opacity: .6; transition: transform var(--ds-dur-spatial-fast) var(--ds-spring-spatial-fast); }
+[aria-expanded="true"] .ds-chev, .ds-chev[aria-expanded="true"] { transform: rotate(180deg); }
+
+/* ---- Breathing status dot (only for "working", never more than a few on screen) ---- */
+@keyframes ds-breathe { 0%, 100% { box-shadow: 0 0 0 0 var(--ds-breathe-color, rgba(27, 77, 62, .35)); } 50% { box-shadow: 0 0 0 5px rgba(27, 77, 62, 0); } }
+
+/* ---- Leave: what a dismissed item does (components.js DS.leave) ---- */
+@keyframes ds-leave { to { opacity: 0; transform: translateX(28px) rotate(1.5deg) scale(.96); } }
+@keyframes ds-leave-down { to { opacity: 0; transform: translateY(16px) scale(.94); } }
+
+/* ---- A commit that worked: one short lift and settle ---- */
+@keyframes ds-confirm { 0% { transform: scale(1); } 30% { transform: scale(1.025) translateY(-2px); } 100% { transform: none; } }
+.ds-confirm { animation: ds-confirm var(--ds-dur-spatial) var(--ds-spring-spatial); }
+
+/* ---- Page and shared-element transitions (Safari 18.2+; other browsers just navigate) ----
+   Same-origin page changes cross-fade; anything with the same view-transition-name on both pages morphs.
+   The tab bar is named so it holds still while the page under it changes. */
+@view-transition { navigation: auto; }
+::view-transition-old(root) { animation: ds-vt-out 180ms var(--ds-ease-in) both; }
+::view-transition-new(root) { animation: ds-vt-in var(--ds-dur-effects) var(--ds-spring-effects) both; }
+::view-transition-group(*) { animation-duration: var(--ds-dur-spatial-fast); animation-timing-function: var(--ds-spring-spatial-fast); }
+/* Something that exists only before the change (a dismissed card) slides away and fades while the rest move into its place. */
+::view-transition-old(*):only-child { animation: ds-vt-leave 280ms var(--ds-ease-in) both; }
+::view-transition-new(*):only-child { animation: ds-vt-in var(--ds-dur-effects) var(--ds-spring-effects) both; }
+@keyframes ds-vt-leave { to { opacity: 0; transform: translateX(32px) rotate(1.5deg) scale(.96); } }
+@keyframes ds-vt-out { to { opacity: 0; } }
+@keyframes ds-vt-in { from { opacity: 0; transform: translateY(6px); } }
+.ds-tabbar { view-transition-name: ds-tabbar; }
+
+/* ---- Line boil: the illustration's lines wobble like hand animation (illustration only, never text) ---- */
+.ds-boil { filter: url(#ds-boil-0); }
+
+/* ---- Reduced motion: no movement, no stagger, instant state changes ---- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 1ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important; transition-delay: 0ms !important; scroll-behavior: auto !important;
+  }
+  html.ds-pre [data-enter] { opacity: 1; }
+  .ds-press:active, .ds-press.is-pressed { transform: none; }
+  .ds-boil { filter: none; }
+  @view-transition { navigation: none; }
+}
