@@ -34,7 +34,13 @@ const KEY = 'grow.ab.picks';
 let picks = {};
 try { picks = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch {}
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(picks)); } catch {} };
-const ctx = new (window.AudioContext || window.webkitAudioContext)();
+// iOS: 'playback' keeps sound on with the ring switch off; audio must be unlocked inside the tap, before any await.
+try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch {}
+const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
+function unlock() {
+  if (ctx.state !== 'running') ctx.resume();
+  const s = ctx.createBufferSource(); s.buffer = ctx.createBuffer(1, 1, 48000); s.connect(ctx.destination); s.start();
+}
 const cache = new Map();
 let playing = null, onBtn = null;
 async function buf(url) {
@@ -44,10 +50,14 @@ async function buf(url) {
 let seq = [];
 function stop() { seq.forEach((n) => { try { n.stop(); } catch {} }); seq = []; if (playing) { try { playing.stop(); } catch {} playing = null; } if (onBtn) { onBtn.classList.remove('on'); onBtn = null; } }
 async function play(urls, btn, each) {
+  unlock();
   const same = onBtn === btn; stop(); if (same) return;
-  await ctx.resume();
+  onBtn = btn; btn.classList.add('on'); const word = btn.textContent; btn.textContent = 'Loading';
   try {
     const bufs = await Promise.all(urls.map(buf));
+    btn.textContent = word;
+    if (onBtn !== btn) return;
+    if (ctx.state !== 'running') await ctx.resume();
     let t = ctx.currentTime + 0.05;
     bufs.forEach((b, i) => {
       const d = Math.min(each, b.duration), s = ctx.createBufferSource(), g = ctx.createGain();
@@ -58,8 +68,7 @@ async function play(urls, btn, each) {
       if (i === bufs.length - 1) s.onended = () => { if (onBtn === btn) stop(); };
       t += d - 0.3;
     });
-    onBtn = btn; btn.classList.add('on');
-  } catch { btn.textContent = 'Missing'; btn.disabled = true; }
+  } catch (e) { console.error(e); btn.textContent = 'Missing'; btn.classList.remove('on'); onBtn = null; }
 }
 const name = (z) => z.file.replace(/\.wav$/, '.flac');
 async function main() {
@@ -83,6 +92,7 @@ async function main() {
     const mark = () => row.querySelectorAll('[data-p]').forEach((b) => b.classList.toggle('on', picks[id] === b.dataset.p));
     row.querySelectorAll('[data-p]').forEach((b) => b.onclick = () => { picks[id] = b.dataset.p; save(); mark(); });
     mark(); list.appendChild(row);
+    files.forEach((f) => { buf(A + f).catch(() => {}); if (made) buf(B + f).catch(() => {}); });
   }
 }
 main();
