@@ -15,6 +15,13 @@ MODEL = "gemini-omni-1.2-flash"
 TOKENS_PER_S = {"360p": 1931, "720p": 5792, "1080p": 8688, "4k": 17376}
 PRICE_PER_M = 12.00
 
+STILL_PROMPT = (
+    "In a single unbroken scene, a single continuous shot. No scene cuts. The camera is completely static, bolted to a "
+    "tripod: zero camera shake, zero drift, no zoom, no pan, no tilt, no push in. Every pixel of the frame border stays "
+    "exactly where it is in the image. Use this image as both the first frame and the last frame. Only faint light "
+    "flicker and slow haze move; the buildings, ground and sky shapes never move. Do not add smoke, people or new objects. "
+    "No embellishments. No dialogue, no music, no sound effects.")
+
 DEFAULT_PROMPT = (
     "Use this image as both the starting frame and the final frame, so the video loops seamlessly. "
     "One single continuous shot from a locked-off tripod: no camera movement at all, no push in, no zoom, no pan, "
@@ -28,20 +35,29 @@ def cost(seconds: int, res: str) -> float:
     return seconds * TOKENS_PER_S[res] * PRICE_PER_M / 1e6
 
 
-def generate(still: str, out: str, seconds: int = 10, res: str = "1080p", prompt: str = DEFAULT_PROMPT) -> dict:
+def generate(still: str, out: str, seconds: int = 10, res: str = "1080p", prompt: str = DEFAULT_PROMPT,
+             thinking: str = None, edit_from: str = None) -> dict:
     from google import genai
     client = genai.Client(api_key=os.environ["GEMINI_API_KEY"], http_options={"api_version": "v1beta"})
     data = base64.b64encode(Path(still).read_bytes()).decode()
     mime = "image/png" if still.lower().endswith(".png") else "image/jpeg"
     t0 = time.time()
-    it = client.interactions.create(
-        model=MODEL,
-        input=[{"type": "image", "data": data, "mime_type": mime},
-               {"type": "image", "data": data, "mime_type": mime},
-               {"type": "text", "text": prompt}],
-        response_format={"type": "video", "resolution": res, "duration": f"{seconds}s", "aspect_ratio": "16:9",
-                         "delivery": "uri"},
-    )
+    kw = {}
+    if thinking:
+        kw["generation_config"] = {"thinking_level": thinking}
+    if edit_from:  # turn-2 edit of an earlier stored interaction (omni.md#stateful-video-editing)
+        it = client.interactions.create(model=MODEL, previous_interaction_id=edit_from, input=prompt,
+                                        response_format={"type": "video", "resolution": res, "delivery": "uri"}, **kw)
+    else:
+        it = client.interactions.create(
+            model=MODEL,
+            input=[{"type": "image", "data": data, "mime_type": mime},
+                   {"type": "image", "data": data, "mime_type": mime},
+                   {"type": "text", "text": prompt}],
+            response_format={"type": "video", "resolution": res, "duration": f"{seconds}s", "aspect_ratio": "16:9",
+                             "delivery": "uri"},
+            **kw,
+        )
     v = it.output_video
     raw = Path(out).with_suffix(".raw.mp4")
     if getattr(v, "data", None):
@@ -68,16 +84,19 @@ def main():
     ap.add_argument("still"); ap.add_argument("out")
     ap.add_argument("--seconds", type=int, default=10); ap.add_argument("--res", default="1080p")
     ap.add_argument("--prompt", default=DEFAULT_PROMPT); ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--still-prompt", action="store_true", help="use the stricter STILL_PROMPT")
+    ap.add_argument("--thinking", choices=["low", "high"]); ap.add_argument("--edit-from", help="interaction id to edit")
     a = ap.parse_args()
     if not 3 <= a.seconds <= 10: sys.exit("two-frame loops are 3-10 s")
     print(f"{MODEL} {a.res} {a.seconds}s, about ${cost(a.seconds, a.res):.2f}", flush=True)
     if a.dry_run: return
-    res = generate(a.still, a.out, a.seconds, a.res, a.prompt)
+    prompt = STILL_PROMPT if a.still_prompt else a.prompt
+    res = generate(a.still, a.out, a.seconds, a.res, prompt, a.thinking, a.edit_from)
     import fal_loop as fl
     res["seam"] = fl.seam_report(a.out, source_frame=a.still)
     print("RESULT", json.dumps(res, default=str), flush=True)
     with open(HERE / "data" / "spend.jsonl", "a") as fh:
-        fh.write(json.dumps({"ts": time.strftime("%F %T"), "what": "omni loop", "still": a.still, **res}, default=str) + "\n")
+        fh.write(json.dumps({"ts": time.strftime("%F %T"), "what": "omni loop", "still": a.still, "thinking": a.thinking, "edit_from": a.edit_from, **res}, default=str) + "\n")
 
 
 if __name__ == "__main__":
