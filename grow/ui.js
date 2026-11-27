@@ -78,7 +78,7 @@ $('#worldSeg').addEventListener('seg-change', (e) => {
 $('#kitSeg').addEventListener('seg-change', (e) => {
   const k = e.detail.value; if (!(k in KITS) || k === kitName) return;
   kitName = k; try { localStorage.setItem('grow.kit', k); } catch {}
-  if (loadPromise) { loadPromise = null; ensureKit().catch((err) => console.error('kit', err)); } // swaps in live, even mid-piece
+  if (loadPromise) { loadPromise = null; ensureKit().then(() => player.swapSounds()).catch((err) => console.error('kit', err)); } // swaps in live, even mid-piece
 });
 $('#lenSeg').addEventListener('seg-change', (e) => { const v = +e.detail.value; if (v === S.length) return; S.length = v; changed(); });
 $('#reseed').addEventListener('click', () => { S.seed = (Math.random() * 4294967295) >>> 0; changed(); });

@@ -630,7 +630,7 @@ export function rmsOf(data) { let s = 0; for (let i = 0; i < data.length; i++) s
 
 // ---------------------------------------------------------------- kit (samples)
 export const ROLES = ['bed', 'low', 'voice', 'air'];
-export const ROLE_NAMES = { bed: 'Bed', low: 'Low', voice: 'Voice', air: 'Air' };
+export const ROLE_NAMES = { bed: 'Bed', low: 'Low', voice: 'Melody', air: 'Air' };
 const ROLE_INSTR = { bed: 'pad', low: 'cello', voice: 'horn', air: 'texture' };
 const NORM = { pad: 0.34, cello: 0.7, horn: 0.7, texture: 2.0 };
 
@@ -909,6 +909,22 @@ export class Player {
       }
     }
     this.hooks.onPlan && this.hooks.onPlan(np, cutT);
+  }
+  // The kit changed under a playing piece: fade what rings now and restart sustained notes with the new sounds,
+  // so the change is heard in seconds instead of when the next long chord starts (up to 48 s later).
+  swapSounds() {
+    if (!this.ctx || this.state !== 'playing') return;
+    const now = this.ctx.currentTime, cutAbs = now + 0.15, cutT = cutAbs - this.t0;
+    for (const h of this.active) {
+      if (h.end > cutAbs + 0.2) { h.env.gain.cancelScheduledValues(cutAbs); h.env.gain.setTargetAtTime(0, cutAbs, 0.5); try { h.src.stop(cutAbs + 3); } catch (e) {} }
+    }
+    for (const e of this.plan.events) {
+      if (e.t < cutT && e.t + e.dur > cutT + 1.5) {
+        const c = Object.assign({}, e, { t: cutT, dur: e.t + e.dur - cutT, att: 1.2, tag: 'resume' });
+        const h = playEvent(this.ctx, this.g, this.kit, c, cutAbs);
+        if (h) this.active.push(h);
+      }
+    }
   }
 }
 
