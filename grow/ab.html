@@ -68,8 +68,8 @@ async function main() {
       const f = name(z), id = inst.id + '/' + f;
       const row = document.createElement('div'); row.className = 'ab-row';
       row.innerHTML = `<span class="ab-note">${label(f)}</span>
-        <button class="ds-btn" data-u="${A + f}">Original</button>
-        <button class="ds-btn" data-u="${B + f}" ${made ? '' : 'disabled'}>Made</button>
+        <button class="ds-btn" data-u="${A + encodeURIComponent(f)}">Original</button>
+        <button class="ds-btn" data-u="${B + encodeURIComponent(f)}" ${made ? '' : 'disabled'}>Made</button>
         <span class="ab-pick"><button class="ds-btn" data-p="a">A</button><button class="ds-btn" data-p="b" ${made ? '' : 'disabled'}>B</button></span>`;
       row.querySelectorAll('[data-u]').forEach((b) => b.onclick = () => play(b.dataset.u, b));
       const mark = () => row.querySelectorAll('[data-p]').forEach((b) => b.classList.toggle('on', picks[id] === b.dataset.p));
