@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Cole's copy of Grow: read-only static files from ./site, 127.0.0.1 only, no directory listing."""
-import http.server, os
+import http.server, json, os, sys
+# Scene's Ask endpoint lives in serve.py (shipped beside this file as scene_api.py); keys and spend log stay in the repo.
+os.environ.setdefault("SCENE_REPO", os.path.expanduser("~/Projects/Ambientizer"))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from scene_api import scene_ask
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "site")
 
 class H(http.server.SimpleHTTPRequestHandler):
@@ -14,6 +18,16 @@ class H(http.server.SimpleHTTPRequestHandler):
         fixed = getattr(self, "code", 0) in (200, 304) and self.path.split("?")[0].endswith((".flac", ".woff2"))
         self.send_header("Cache-Control", "private, max-age=2592000" if fixed else "no-cache")
         super().end_headers()
+    def do_POST(self):
+        if self.path.split("?")[0] != "/api/scene/ask" or self.client_address[0] not in ("127.0.0.1", "::1"):
+            self.send_error(404); return
+        n = int(self.headers.get("Content-Length", 0))
+        if n > 120000: self.send_error(413); return
+        try: code, out = scene_ask(json.loads(self.rfile.read(n) or b"{}"))
+        except ValueError: code, out = 400, {"error": "Bad request."}
+        data = json.dumps(out).encode()
+        self.send_response(code); self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data))); self.end_headers(); self.wfile.write(data)
     def list_directory(self, path):
         self.send_error(404)
     def log_message(self, *a): pass

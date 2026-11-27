@@ -27,3 +27,35 @@
   .gr-head { min-height: 44px; }
   .gr-word { font-size: 34px; }
 }
+
+/* select and ask */
+.sc-sel { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; image-rendering: auto; }
+.sc-sel.is-select { pointer-events: auto; touch-action: none; cursor: crosshair; }
+.sc-select[aria-pressed="true"] { background: var(--accent); color: var(--content-on-inverse); }
+.sc-ask { display: grid; gap: var(--space-3); }
+.sc-ask[hidden] { display: none; }
+.sc-ask [hidden] { display: none; }
+.sc-ask__tools { display: grid; gap: var(--space-3); }
+.sc-ask__tool { display: flex; gap: var(--space-2); align-items: center; }
+.sc-ask__tool > div { flex: 1; min-width: 0; }
+.sc-ask__row { display: flex; gap: var(--space-2); }
+.sc-ask__row .ds-input { flex: 1; min-width: 0; font-size: 16px; }
+.sc-ask__row .ds-btn { min-width: 76px; }
+.sc-ask__note:empty { display: none; }
+.sc-vars { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); }
+.sc-vars:empty { display: none; }
+.sc-var { display: grid; gap: var(--space-2); min-width: 0; align-content: start; }
+.sc-var__pic { padding: 0; border: 0; background: var(--bg-inverse); border-radius: var(--radius-control, 10px); overflow: hidden; aspect-ratio: 16 / 9; display: block; cursor: pointer; }
+.sc-var__pic canvas { width: 100%; height: 100%; display: block; }
+.sc-var__row { display: grid; gap: var(--space-1); }
+.sc-var__row .ds-btn { min-height: 40px; }
+.sc-el { border-top: 1px solid var(--line-soft); padding: var(--space-2) 0; }
+.sc-el:first-child { border-top: 0; padding-top: 0; }
+.sc-el > summary { display: flex; justify-content: space-between; gap: var(--space-3); min-height: 44px; align-items: center; cursor: pointer; font-weight: 700; }
+.sc-el__err { font-size: 13px; font-weight: 500; text-align: right; }
+.sc-el__body { display: grid; gap: var(--space-3); padding: var(--space-2) 0 var(--space-1); }
+.sc-el__acts { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.sc-el .gr-slider { margin-bottom: 0; }
+@media (max-width: 520px) { .sc-vars { grid-template-columns: 1fr; } .sc-var { grid-template-columns: 1fr 1fr; align-items: center; } .sc-var__row { align-content: center; } }
+.sc-transport { grid-template-columns: 1fr auto auto; }
+.gr-sec[hidden] { display: none; }

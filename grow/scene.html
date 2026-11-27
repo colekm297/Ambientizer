@@ -25,6 +25,7 @@
   <div class="gr-left">
     <section class="sc-stage ds-card" id="stage" aria-label="Scene">
       <canvas id="cv" width="1280" height="720" aria-label="Animated scene"></canvas>
+      <canvas id="selcv" class="sc-sel" width="320" height="180" aria-label="Selection"></canvas>
       <div class="sc-stage__top">
         <span class="ds-chip sc-refrain" id="refrain" hidden>Refrain</span>
         <span class="ds-meta sc-next" id="next"></span>
@@ -35,9 +36,24 @@
       <button type="button" class="ds-btn ds-btn--primary gr-play" id="play" aria-label="Play">
         <svg class="ds-icon" aria-hidden="true"><use href="ds/icons/sprite.svg#i-play"></use></svg><span id="playWord">Play</span>
       </button>
+      <button type="button" class="ds-btn ds-btn--raised sc-select" id="select" aria-pressed="false" title="Brush or lasso a region, then Ask for an element"><span id="selectWord">Select</span></button>
       <button type="button" class="ds-btn ds-btn--raised sc-export" id="export" title="Records 1 minute of picture and sound">Export 1 min</button>
     </section>
     <div class="ds-meta sc-status" id="status" role="status" aria-live="polite"></div>
+
+    <section class="ds-card gr-card sc-ask" id="askCard" hidden aria-label="Ask">
+      <div class="ds-section-head"><h2 class="ds-section-head__title" id="askTitle">Select</h2></div>
+      <div class="sc-ask__tools" id="askTools">
+        <div class="sc-ask__tool"><div id="askToolSlot"></div><button type="button" class="ds-btn ds-btn--ghost" id="askClear">Clear</button></div>
+        <div id="askSize"></div>
+      </div>
+      <div class="sc-ask__row">
+        <input class="ds-input" id="askText" type="text" maxlength="300" placeholder="Rock arch" aria-label="Request" enterkeyhint="send" autocomplete="off">
+        <button type="button" class="ds-btn ds-btn--primary" id="askGo">Ask</button>
+      </div>
+      <div class="ds-meta sc-ask__note" id="askNote" role="status" aria-live="polite"></div>
+      <div class="sc-vars" id="variants"></div>
+    </section>
   </div>
 
   <div class="gr-cols">
@@ -52,6 +68,11 @@
         <button type="button" class="ds-seg__opt" role="radio" aria-checked="false" data-value="air">Air</button>
       </div>
       <div class="ds-card gr-card sc-panel" id="panel"></div>
+    </section>
+
+    <section class="gr-sec" id="elementsSec" hidden>
+      <div class="ds-section-head"><h2 class="ds-section-head__title">Elements</h2></div>
+      <div class="ds-card gr-card sc-els" id="elements"></div>
     </section>
 
     <section class="gr-sec">

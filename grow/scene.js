@@ -1,6 +1,7 @@
 // Scene: a code-drawn matte painting of one world ("Arrakis, last light") that animates under a Grow piece.
 // Shapes are drawn once into cached layers. Only light, sand, haze and stars move, locally. Cliff and dunes never move.
 import { Kit, Player, defaultSettings, mulberry32 } from './grow.js';
+import { createAsk } from './scene_ask.js';
 
 const W = 1280, H = 720;
 const $ = (s) => document.querySelector(s);
@@ -91,7 +92,7 @@ function defaultState() {
   for (const L of LAYERS) {
     layers[L.id] = { show: true, look: LOOK0[L.id], x: 0, y: 0, s: 1, op: 1, tint: 0.6, v: Object.fromEntries(L.sliders.map((s) => [s.id, s.def])) };
   }
-  return { time: 0.3, seed: 20261124, layer: 'sky', layers };
+  return { time: 0.3, seed: 20261124, layer: 'sky', layers, custom: [] };
 }
 let st = defaultState();
 safe(() => {
@@ -105,6 +106,7 @@ safe(() => {
     for (const k of ['look', 'x', 's', 'y', 'op', 'tint']) if (typeof b[k] === 'number') a[k] = b[k];
     Object.assign(a.v, b.v || {});
   }
+  if (Array.isArray(saved.custom)) st.custom = saved.custom.filter((c) => c && typeof c.code === 'string' && c.box && typeof c.mask === 'string' && Array.isArray(c.params)).slice(0, 12).map((c) => ({ id: String(c.id), name: String(c.name || 'Element').slice(0, 24), show: c.show !== false, z: clamp(Math.round(+c.z), 0, 5) || 0, op: clamp(+c.op, 0, 1), request: String(c.request || ''), code: c.code, params: c.params, box: c.box, mask: c.mask }));
 });
 const persist = () => safe(() => localStorage.setItem('scene.current', JSON.stringify(st)));
 const layerDef = (id) => LAYERS.find((l) => l.id === id);
@@ -551,6 +553,7 @@ function composite() {
       cx.restore();
     }
   }
+  ask.drawSlot(cx, 0, t);
   // suns: glow breathes a little, the disk does not
   if (Ls.suns.show && !photoOf('suns')) {
     const gl = Ls.suns.v.glow, breathe = 1 + 0.045 * Math.sin(t * 0.55) + 0.02 * Math.sin(t * 1.3 + 1.7), up = 1 + lift;
@@ -568,10 +571,12 @@ function composite() {
     });
   }
   if (Ls.suns.show) cx.drawImage(cache.suns, 0, 0);
+  ask.drawSlot(cx, 1, t);
   const rimK = 0.75 * (1 + lift);
   const air = Ls.air, lk = AIRLOOK[air.look % 3], wind = 0.35 + air.v.wind * 1.3;
   const hz = air.show ? clamp(0.32 + 0.5 * air.v.amount, 0, 1) * lk.haze : 0;
   if (Ls.far.show) { cx.drawImage(cache.far, 0, 0); cx.globalCompositeOperation = 'lighter'; cx.globalAlpha = rimK; cx.drawImage(cache.farRim, 0, 0); cx.globalAlpha = 1; cx.globalCompositeOperation = 'source-over'; }
+  ask.drawSlot(cx, 2, t);
   if (air.show) {
     drawParticles(cx, 0, P);
     const off = (t * 7 * wind) % 1536;
@@ -579,13 +584,16 @@ function composite() {
     cx.drawImage(cache.hazeA, -off, y); cx.drawImage(cache.hazeA, 1536 - off, y); cx.globalAlpha = 1;
   }
   if (Ls.cliff.show) { cx.drawImage(cache.cliff, 0, 0); cx.globalCompositeOperation = 'lighter'; cx.globalAlpha = rimK; cx.drawImage(cache.cliffRim, 0, 0); cx.globalAlpha = 1; cx.globalCompositeOperation = 'source-over'; }
+  ask.drawSlot(cx, 3, t);
   if (Ls.near.show) { cx.drawImage(cache.near, 0, 0); cx.globalCompositeOperation = 'lighter'; cx.globalAlpha = rimK; cx.drawImage(cache.nearRim, 0, 0); cx.globalAlpha = 1; cx.globalCompositeOperation = 'source-over'; }
+  ask.drawSlot(cx, 4, t);
   if (air.show) {
     drawParticles(cx, 1, P); drawParticles(cx, 2, P);
     const off = (t * 11 * wind + 400) % 1536; cx.globalAlpha = clamp(hz * 0.8, 0, 1); const y = 0.8 * H;
     cx.drawImage(cache.hazeB, -off, y); cx.drawImage(cache.hazeB, 1536 - off, y); cx.globalAlpha = 1;
     cx.drawImage(cache.air, 0, 0);
   }
+  ask.drawSlot(cx, 5, t);
   window.__sceneFrames = (window.__sceneFrames || 0) + 1;
 }
 
@@ -627,7 +635,7 @@ function frame() {
     const playing = player.state === 'playing', pos = playing ? player.position : 0;
     liftFrom(fake ? pos : pos, playing || !!fake);
     advance(performance.now() / 1000 - t0);
-    composite();
+    composite(); ask.drawPreviews(sim.t);
     if (++uiTick % 6 === 0) { pulseUi(pos, playing); if (playing) $('#next').dataset.pos = pos.toFixed(1); }
   }
   requestAnimationFrame(frame);
@@ -640,7 +648,7 @@ function sliderRow(parent, label, get, set, o) {
   w.innerHTML = `<span class="ds-label">${label}</span><output></output><input type="range" min="${o.min}" max="${o.max}" step="${o.step}" aria-label="${label}">`;
   const inp = w.querySelector('input'), out = w.querySelector('output');
   const paint = () => { const v = get(); inp.value = v; inp.style.setProperty('--p', ((v - o.min) / (o.max - o.min)) * 100 + '%'); out.textContent = o.fmt ? o.fmt(v) : `${Math.round(v * 100)}%`; };
-  inp.addEventListener('input', () => { set(+inp.value); paint(); dirty = true; persist(); });
+  inp.addEventListener('input', () => { set(+inp.value); paint(); if (!o.light) dirty = true; persist(); });
   paint(); parent.appendChild(w); return w;
 }
 function segEl(label, opts, idx, onPick) {
@@ -754,6 +762,9 @@ async function exportPreview(seconds) {
 }
 $('#export').addEventListener('click', () => exportPreview(window.SceneTest.exportSeconds || 60));
 
+// select and ask: generated elements drawn above a named base layer
+const ask = createAsk({ W, H, $, clamp, st: () => st, persist, geo, sim, cv, status, segEl, sliderRow, mk, timeName, dirtyAll: () => { dirty = true; }, renderNow: () => composite() });
+
 // ------------------------------------------------------------ test hooks
 function regionDiff(tA, tB) {
   if (tA < sim.t - 1e-6) resetSim();
@@ -777,12 +788,12 @@ window.SceneTest = {
   exportSeconds: 0, st: () => st, player, kit, geo, sim,
   ready: () => ensureKit().then(() => true),
   setManual(v) { manual = v; },
-  renderAt(t, refrains) { manual = true; if (t < sim.t - 1e-6) resetSim(); fake = refrains ? { refrains } : null; liftFrom(t, !!refrains); advance(t); composite(); return true; },
+  renderAt(t, refrains) { manual = true; if (t < sim.t - 1e-6) resetSim(); fake = refrains ? { refrains } : null; liftFrom(t, !!refrains); advance(t); composite(); ask.drawPreviews(t, true); return true; },
   fakeRefrains(list) { fake = list ? { refrains: list } : null; },
   regionDiff,
   setState(patch) { Object.assign(st, patch); dirty = true; buildPanel(); },
   dirty() { dirty = true; },
-  photos,
+  photos, ask: ask.test,
 };
 
 // ------------------------------------------------------------ boot
