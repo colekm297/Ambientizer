@@ -64,7 +64,56 @@ function normalize(S) {
   o.brightness = clamp(+o.brightness, 0, 1);
   o.length = +o.length;
   o.seed = (+o.seed) >>> 0;
+  o.tune = o.tune ? cleanTune(o.tune) : null;
+  if (!o.tune) delete o.tune;
   return o;
+}
+
+
+// ---------------------------------------------------------------- your tune (Sing)
+// A tune is stored as scale steps, so it follows key and mode changes:
+//   { v: 1, name, total, notes: [{ i: step (0 = tonic nearest 58..69, 7 = an octave up), b: start beat, l: length in beats }] }
+export const tonicMidi = (key) => 58 + mod(key - 58, 12);
+export const scaleMidi = (i, key, mode) => tonicMidi(key) + 12 * Math.floor(i / 7) + MODES[mode][mod(i, 7)];
+// Bars per refrain chord (refrain near 53 s). The tune may use cb * 4 - 3 beats.
+export function chordBarsFor(bpm) {
+  const bar = (60 / clamp(+bpm, 36, 84)) * 4;
+  let cb = 8;
+  for (let c = 8; c >= 2; c--) if (c * bar >= 15 && Math.abs(3 * c * bar - 53) <= Math.abs(3 * cb * bar - 53)) cb = c;
+  return cb;
+}
+export const refrainCap = (bpm) => chordBarsFor(bpm) * 4 - 3;
+export function cleanTune(t) {
+  if (!t || t.v !== 1 || !Array.isArray(t.notes)) return null;
+  const notes = t.notes.map((n) => ({ i: Math.round(+n.i), b: +n.b, l: +n.l }))
+    .filter((n) => Number.isFinite(n.i) && Number.isFinite(n.b) && Number.isFinite(n.l) && n.l > 0 && n.b >= 0 && Math.abs(n.i) < 40)
+    .sort((a, b) => a.b - b.b).slice(0, 24);
+  if (notes.length < 2) return null;
+  const last = notes[notes.length - 1];
+  return { v: 1, name: String(t.name || 'Tune').slice(0, 20), total: Math.max(+t.total || 0, last.b + last.l), notes };
+}
+export const tuneSig = (t) => { const c = cleanTune(t); return c ? c.notes.map((n) => n.i + ':' + n.b + ':' + n.l).join(',') : ''; };
+// Tune to the refrain's motif shape {idx, beats, total}. Notes run legato to the next onset; the whole thing
+// is compressed when the refrain's chord is too short for it.
+function tuneMotif(t, bpm) {
+  const c = cleanTune(t); if (!c) return null;
+  const cap = refrainCap(bpm);
+  const idx = c.notes.map((n) => n.i);
+  let beats = c.notes.map((n, k) => (k < c.notes.length - 1 ? Math.max(0.5, c.notes[k + 1].b - n.b) : Math.max(1.5, n.l)));
+  const tot = beats.reduce((a, b) => a + b, 0);
+  if (tot > cap) beats = beats.map((x) => Math.max(0.5, x * cap / tot));
+  return { idx, beats, total: beats.reduce((a, b) => a + b, 0), user: true };
+}
+// A small ornament for the second statement: one long note is split into note, upper neighbour, note.
+function ornamentTune(m, rng) {
+  const cands = []; m.beats.forEach((b, k) => { if (b >= 2 && k < m.beats.length - 1) cands.push(k); });
+  if (!cands.length) { const k = m.beats.length - 1; if (m.beats[k] >= 3) cands.push(k); }
+  if (!cands.length) return { idx: m.idx.slice(), beats: m.beats.slice() };
+  const k = pick(rng, cands);
+  const idx = m.idx.slice(), beats = m.beats.slice();
+  idx.splice(k, 1, m.idx[k], m.idx[k] + 1, m.idx[k]);
+  beats.splice(k, 1, beats[k] - 1, 0.5, 0.5);
+  return { idx, beats };
 }
 
 // Arc of the whole piece: intro, build, peak at 2/3, settling end. f is 0..1.
@@ -110,7 +159,7 @@ export function plan(S0) {
 
   // ----- refrain schedule
   const rngS = sub(seed, 'sched');
-  let cb = 8; for (let c = 8; c >= 2; c--) if (c * bar >= 15 && Math.abs(3 * c * bar - 53) <= Math.abs(3 * cb * bar - 53)) cb = c; // bars per refrain chord, refrain near 53 s
+  const cb = chordBarsFor(S.bpm); // bars per refrain chord, refrain near 53 s
   const chordSpan = cb * bar;
   const rDur = 3 * chordSpan;
   const refrains = [];
@@ -196,7 +245,7 @@ export function plan(S0) {
 
   // ----- motif
   const rngM = sub(seed, 'motif');
-  const motif = makeMotif(rngM, cb, beat);
+  const motif = (S.tune && tuneMotif(S.tune, S.bpm)) || makeMotif(rngM, cb, beat);
   const motifMidiRange = (idx) => [midiOf(Math.min(...idx)), midiOf(Math.max(...idx))];
   const foldIdx = (idx) => {
     idx = idx.slice();
@@ -240,13 +289,14 @@ export function plan(S0) {
     let idx1 = motif.idx.slice();
     // statement 2: developed
     let idx2, beats2 = motif.beats.slice();
-    if (v.dev === 'seq') idx2 = motif.idx.map((i) => i + 1);
+    if (motif.user) { const o = ornamentTune(motif, rngR); idx2 = o.idx.map((i) => i + (v.dev === 'seq' ? 1 : 0)); beats2 = o.beats; } // his tune: a small ornament, never inverted
+    else if (v.dev === 'seq') idx2 = motif.idx.map((i) => i + 1);
     else if (v.dev === 'invert') { const s0 = motif.idx[0]; idx2 = motif.idx.map((i) => s0 - (i - s0) + 2); }
     else { idx2 = motif.idx.map((i) => i + 1); const cap = chordSpan / beat - 1.5; let b = beats2.map((x, k) => (k < beats2.length - 1 ? x * 1.4 : x)); const tot = b.reduce((a, c) => a + c, 0); if (tot > cap) b = b.map((x) => x * cap / tot); beats2 = b; }
     // statement 3: answered a third or sixth above, ending chosen
-    let idx3 = motif.idx.map((i) => i + v.answer + (v.reg ? 7 : 0));
+    let idx3 = motif.idx.map((i) => i + (motif.user ? 0 : v.answer) + (v.reg ? 7 : 0)); // his tune comes back as sung, an octave up at times
     const target = { root: 0, third: 2, fifth: 4 }[v.end];
-    {
+    if (!motif.user) {
       const last = idx3[idx3.length - 1]; let bestD = 0, bd = 99;
       for (let d = -6; d <= 6; d++) if (mod(last + d, 7) === target && Math.abs(d) < bd) { bd = Math.abs(d); bestD = d; }
       idx3[idx3.length - 1] = last + bestD;
@@ -455,7 +505,7 @@ export function plan(S0) {
 
   return {
     settings: S, events: finalEvents, refrains, chords, motif, auto, arcPts,
-    meta: { beat, bar, length: L, bpm: S.bpm, key: S.key, mode: S.mode, seed, chordBars: cb },
+    meta: { beat, bar, length: L, bpm: S.bpm, key: S.key, mode: S.mode, seed, chordBars: cb, tune: !!motif.user },
   };
 }
 
@@ -566,7 +616,7 @@ export function findClashes(events) {
 
 export function harmonySig(S) {
   const s = normalize(S);
-  return [s.key, s.mode, s.bpm, s.seed, s.length, s.refrainEvery].join('|');
+  return [s.key, s.mode, s.bpm, s.seed, s.length, s.refrainEvery, s.tune ? tuneSig(s.tune) : ''].join('|');
 }
 
 // ---------------------------------------------------------------- pitch detection and loop making (imports)

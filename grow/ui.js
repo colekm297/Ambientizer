@@ -1,3 +1,4 @@
+import { initSing } from './sing_ui.js';
 import { Kit, Player, plan, renderWav, defaultSettings, WORLDS, MODES, KEYS, ROLES, ROLE_NAMES, detectPitch, noteName, arcAt } from './grow.js';
 
 const $ = (s) => document.querySelector(s);
@@ -62,10 +63,11 @@ function setSeg(sel, value) {
   const i = Math.max(0, opts.findIndex((o) => o.dataset.value === value));
   if (seg.dsSeg) seg.dsSeg.select(i); else opts.forEach((o, k) => o.setAttribute('aria-checked', k === i ? 'true' : 'false'));
 }
-let tChange = null;
+let tChange = null, tuneShown = !!S.tune;
 function changed() {
   safe(() => localStorage.setItem('grow.current', JSON.stringify(S)));
   paintAll();
+  if (!!S.tune !== tuneShown) { tuneShown = !!S.tune; paintRoles(); }
   clearTimeout(tChange);
   tChange = setTimeout(() => player.update(S), 120);
 }
@@ -129,8 +131,10 @@ function paintRoles() {
       <div class="gr-role__acts">
         <button type="button" class="ds-btn ds-btn--sm ds-btn--raised" data-act="import">Import</button>
         <button type="button" class="ds-btn ds-btn--sm ds-btn--raised" data-act="record"><svg class="ds-icon ds-icon--sm" aria-hidden="true"><use href="ds/icons/sprite.svg#i-microphone"></use></svg><span>Record</span></button>
+        ${r === 'voice' ? '<button type="button" class="ds-btn ds-btn--sm ds-btn--raised" data-act="sing" title="Hum a tune, get it back as notes on this instrument"><svg class="ds-icon ds-icon--sm" aria-hidden="true"><use href="ds/icons/sprite.svg#i-music"></use></svg><span>Sing</span></button>' : ''}
         ${y ? '<button type="button" class="ds-btn ds-btn--sm ds-btn--ghost" data-act="reset">Reset</button>' : ''}
       </div>
+      ${r === 'voice' && S.tune ? `<div class="gr-role__tune"><span class="ds-chip">Your tune</span><span class="ds-meta">${S.tune.notes.length} notes</span><button type="button" class="ds-btn ds-btn--sm ds-btn--ghost" data-act="clear-tune">Clear</button></div>` : ''}
       ${y ? `<div class="gr-role__pitch"><span class="ds-meta">Root ${noteName(y.root)}</span>
         <button type="button" class="ds-btn ds-btn--sm ds-btn--raised" data-act="down" aria-label="Root down">-1</button>
         <button type="button" class="ds-btn ds-btn--sm ds-btn--raised" data-act="up" aria-label="Root up">+1</button>
@@ -147,6 +151,8 @@ function paintRoles() {
       const a = b.dataset.act;
       if (a === 'import') file.click();
       else if (a === 'record') recordFor(r, b);
+      else if (a === 'sing') sing.start();
+      else if (a === 'clear-tune') { delete S.tune; changed(); paintRoles(); }
       else if (a === 'reset') resetRole(r);
       else if (a === 'up' || a === 'down') nudgeRoot(r, a === 'up' ? 1 : -1);
     });
@@ -156,7 +162,8 @@ function paintRoles() {
   $('#chipYours').textContent = `${n} of 4 yours`;
 }
 let noteT = null;
-function say(msg) { const n = $('#note'); n.textContent = msg; clearTimeout(noteT); noteT = setTimeout(() => { n.textContent = ''; }, 7000); }
+let lastNote = '';
+function say(msg) { lastNote = msg; const n = $('#note'); n.textContent = msg; clearTimeout(noteT); noteT = setTimeout(() => { n.textContent = ''; }, 7000); }
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 async function adopt(role, data, sr, name) {
   const det = detectPitch(data, sr);
@@ -166,10 +173,10 @@ async function adopt(role, data, sr, name) {
   await idbPut(rec).catch(() => {});
   paintRoles();
 }
-async function decodeToMono(arrayBuf) {
+async function decodeToMono(arrayBuf, maxSec = 20) {
   const ctx = new OfflineAudioContext(1, 1, 48000);
   const buf = await ctx.decodeAudioData(arrayBuf);
-  const n = Math.min(buf.length, Math.floor(buf.sampleRate * 20));
+  const n = Math.min(buf.length, Math.floor(buf.sampleRate * maxSec));
   const mono = new Float32Array(n);
   for (let c = 0; c < buf.numberOfChannels; c++) { const d = buf.getChannelData(c); for (let i = 0; i < n; i++) mono[i] += d[i] / buf.numberOfChannels; }
   return { mono, sr: buf.sampleRate };
@@ -212,6 +219,13 @@ async function nudgeRoot(role, d) {
   y.root = Math.max(24, Math.min(96, y.root + d));
   kit.setImported(role, y); await idbPut(y).catch(() => {}); paintRoles();
 }
+
+// ------------------------------------------------------------ sing (a tune for the Melody part)
+const sing = initSing({
+  $, getS: () => S, player, kit, ensureKit, session, say,
+  decode: decodeToMono,
+  useTune: (t) => { S.tune = t; changed(); paintRoles(); },
+});
 
 // ------------------------------------------------------------ pieces
 const loadPieces = () => safe(() => JSON.parse(localStorage.getItem('grow.pieces')) || [], []);
@@ -395,6 +409,8 @@ function drawFrame(now) {
 
 // test hooks (used by the headless checks)
 window.GrowTest = {
+  sing: sing.test,
+  lastNote: () => lastNote,
   exportSeconds: 0,
   player, kit, getS: () => S, setS: (o) => { Object.assign(S, o); changed(); },
   render: (o, seconds, name) => { Object.assign(S, o); return exportWav(name, name, seconds); },

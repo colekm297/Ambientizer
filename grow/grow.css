@@ -74,3 +74,16 @@ body.ds { min-height: 100dvh; }
 .gr-note:empty { display: none; }
 @media (max-width: 360px) { #worldSeg { font-size: 13px; } #worldSeg > * { padding-inline: 4px; min-width: 0; font-size: 13px; } }
 .gr-kit { width: 100%; margin-bottom: var(--space-3); }
+
+/* sing */
+.gr-sing { margin-bottom: var(--space-3); }
+.gr-sing[hidden] { display: none; }
+.gr-sing__head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); }
+.gr-sing__acts { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.gr-sing__acts .ds-btn { min-height: 40px; }
+.gr-sing .ds-seg { width: 100%; }
+.gr-roll { width: 100%; height: auto; display: block; background: var(--bg-sunken); border-radius: var(--radius-control); }
+.gr-roll__grid line { stroke: var(--line-default); stroke-width: 1; }
+.gr-roll__notes rect { fill: var(--accent); }
+.gr-roll__ghost rect { fill: none; stroke: var(--line-strong); stroke-width: 1.2; }
+.gr-role__tune { grid-column: 1 / -1; display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
