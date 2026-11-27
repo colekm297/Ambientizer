@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Grow A/B</title>
+<link rel="stylesheet" href="ds/tokens.css">
+<link rel="stylesheet" href="ds/components.css">
+<link rel="stylesheet" href="grow.css">
+<style>
+  .ab { max-width: 720px; margin: 0 auto; padding: 16px; }
+  .ab-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+  .ab-inst { margin: 20px 0 8px; }
+  .ab-row { display: grid; grid-template-columns: 64px 1fr 1fr 1fr; gap: 8px; align-items: center; padding: 8px 0; border-top: 1px solid var(--ds-line, #e5e0d6); }
+  .ab-row button { min-height: 44px; }
+  .ab-row button.on { outline: 2px solid currentColor; }
+  .ab-note { font-variant-numeric: tabular-nums; }
+  .ab-pick { display: flex; gap: 4px; }
+  .ab-empty { opacity: .6; padding: 12px 0; }
+</style>
+</head>
+<body class="ds">
+<main class="ab">
+  <header class="ab-head">
+    <h1 class="ds-display">A/B</h1>
+    <a class="ds-chip" href="index.html">Grow</a>
+  </header>
+  <p>Original is the starter kit. Made is the recreation built without AI audio. Pick the one you want in your kit.</p>
+  <div id="list"></div>
+</main>
+<script type="module">
+const A = 'sounds/folding-city/', B = 'sounds/folding-city-made/';
+const KEY = 'grow.ab.picks';
+let picks = {};
+try { picks = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch {}
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(picks)); } catch {} };
+const ctx = new (window.AudioContext || window.webkitAudioContext)();
+const cache = new Map();
+let playing = null, onBtn = null;
+async function buf(url) {
+  if (!cache.has(url)) cache.set(url, fetch(url).then((r) => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); }).then((b) => ctx.decodeAudioData(b)));
+  return cache.get(url);
+}
+function stop() { if (playing) { try { playing.stop(); } catch {} playing = null; } if (onBtn) { onBtn.classList.remove('on'); onBtn = null; } }
+async function play(url, btn) {
+  const same = onBtn === btn; stop(); if (same) return;
+  await ctx.resume();
+  try {
+    const b = await buf(url);
+    const s = ctx.createBufferSource(); s.buffer = b;
+    const g = ctx.createGain(); g.gain.value = 1;
+    s.connect(g).connect(ctx.destination); s.start();
+    s.onended = () => { if (playing === s) stop(); };
+    playing = s; onBtn = btn; btn.classList.add('on');
+  } catch { btn.textContent = 'Missing'; btn.disabled = true; }
+}
+const name = (z) => z.file.replace(/\.wav$/, '.flac');
+const label = (f) => f.replace(/\.(wav|flac)$/, '').replace(/^[a-z]+_/, '');
+async function main() {
+  const list = document.getElementById('list');
+  const meta = await (await fetch(A + 'samples.json')).json();
+  let made = null;
+  try { const r = await fetch(B + 'samples.json'); if (r.ok) made = await r.json(); } catch {}
+  if (!made) { list.innerHTML = '<p class="ab-empty">The recreations are not in yet.</p>'; }
+  for (const inst of meta.instruments) {
+    const h = document.createElement('h2'); h.className = 'ds-title ab-inst'; h.textContent = inst.name; list.appendChild(h);
+    for (const z of inst.zones || []) {
+      const f = name(z), id = inst.id + '/' + f;
+      const row = document.createElement('div'); row.className = 'ab-row';
+      row.innerHTML = `<span class="ab-note">${label(f)}</span>
+        <button class="ds-btn" data-u="${A + f}">Original</button>
+        <button class="ds-btn" data-u="${B + f}" ${made ? '' : 'disabled'}>Made</button>
+        <span class="ab-pick"><button class="ds-btn" data-p="a">A</button><button class="ds-btn" data-p="b" ${made ? '' : 'disabled'}>B</button></span>`;
+      row.querySelectorAll('[data-u]').forEach((b) => b.onclick = () => play(b.dataset.u, b));
+      const mark = () => row.querySelectorAll('[data-p]').forEach((b) => b.classList.toggle('on', picks[id] === b.dataset.p));
+      row.querySelectorAll('[data-p]').forEach((b) => b.onclick = () => { picks[id] = b.dataset.p; save(); mark(); });
+      mark(); list.appendChild(row);
+    }
+  }
+}
+main();
+window.ABTest = { picks: () => picks };
+</script>
+</body>
+</html>
