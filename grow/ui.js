@@ -16,7 +16,10 @@ const player = new Player(kit, S, {
   onEnd: () => setPlayUi('idle'),
 });
 let loadPromise = null;
-const ensureKit = () => (loadPromise = loadPromise || kit.loadStarter('sounds/folding-city/').catch((e) => { loadPromise = null; throw e; }));
+const KITS = { made: 'sounds/folding-city-made/', ai: 'sounds/folding-city/' };
+let kitName = 'made';
+try { const k = localStorage.getItem('grow.kit'); if (k in KITS) kitName = k; } catch {}
+const ensureKit = () => (loadPromise = loadPromise || kit.loadStarter(KITS[kitName]).catch((e) => { loadPromise = null; throw e; }));
 // iOS: 'playback' keeps Web Audio sounding with the ring switch off; recording needs 'play-and-record'.
 const session = (type) => { try { if (navigator.audioSession) navigator.audioSession.type = type; } catch {} };
 
@@ -49,7 +52,7 @@ function paintSlider(d) {
 function paintAll() {
   SLIDERS.forEach(paintSlider);
   keySel.value = S.key; modeSel.value = S.mode;
-  setSeg('#worldSeg', S.world); setSeg('#lenSeg', String(S.length));
+  setSeg('#worldSeg', S.world); setSeg('#kitSeg', kitName); setSeg('#lenSeg', String(S.length));
   $('#chipKey').textContent = `${KEYS[S.key]} ${S.mode}`;
   $('#timeTotal').textContent = `of ${fmt(S.length)}`;
 }
@@ -71,6 +74,11 @@ modeSel.addEventListener('change', () => { S.mode = modeSel.value; changed(); })
 $('#worldSeg').addEventListener('seg-change', (e) => {
   const w = e.detail.value; if (!(w in WORLDS) || w === S.world) return;
   S.world = w; Object.assign(S, { key: WORLDS[w].key, mode: WORLDS[w].mode, bpm: WORLDS[w].bpm }); changed();
+});
+$('#kitSeg').addEventListener('seg-change', (e) => {
+  const k = e.detail.value; if (!(k in KITS) || k === kitName) return;
+  kitName = k; try { localStorage.setItem('grow.kit', k); } catch {}
+  if (loadPromise) { loadPromise = null; ensureKit().catch((err) => console.error('kit', err)); } // swaps in live, even mid-piece
 });
 $('#lenSeg').addEventListener('seg-change', (e) => { const v = +e.detail.value; if (v === S.length) return; S.length = v; changed(); });
 $('#reseed').addEventListener('click', () => { S.seed = (Math.random() * 4294967295) >>> 0; changed(); });
