@@ -1,0 +1,29 @@
+/* Scene: sits on grow.css and the house tokens. */
+.sc-stage { position: relative; padding: 0; overflow: hidden; aspect-ratio: 16 / 9; border-radius: var(--radius-panel); background: var(--bg-inverse); }
+.sc-stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.sc-stage__top { position: absolute; left: var(--space-3); right: var(--space-3); top: var(--space-3); display: flex; justify-content: space-between; align-items: center; pointer-events: none; gap: var(--space-3); }
+.sc-refrain { box-shadow: var(--elev-1); }
+.sc-refrain[hidden] { display: none; }
+.sc-next { margin-left: auto; white-space: nowrap; color: var(--content-on-inverse); text-shadow: 0 1px 6px rgba(0, 0, 0, .55); }
+.sc-status { min-height: 18px; padding: 0 var(--space-1); }
+.sc-status:empty { display: none; }
+.sc-status a { color: var(--accent); font-weight: 700; }
+.sc-export[disabled] { opacity: var(--disabled-opacity); }
+.sc-layerseg { width: 100%; margin-bottom: var(--space-3); }
+.sc-layerseg .ds-seg__opt { padding: 0 var(--space-1); min-width: 0; }
+.sc-layerseg .ds-seg__opt.is-off { opacity: .5; }
+.gr-sec { display: grid; gap: 0; align-content: start; min-width: 0; }
+.sc-panel .gr-field { gap: var(--space-2); }
+.sc-sub { display: grid; gap: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--line-soft); }
+.sc-photo { display: flex; gap: var(--space-2); flex-wrap: wrap; align-items: center; }
+.sc-photo .ds-btn { min-height: 40px; }
+.sc-photo input[type=file] { display: none; }
+.sc-panel .gr-slider { margin-bottom: 0; }
+.gr-save .ds-input { font-variant-numeric: tabular-nums; }
+#sliders { margin-bottom: 0; }
+@media (max-width: 899px) {
+  .sc-stage { margin-inline: calc(-1 * var(--gutter)); border-radius: 0; }
+  .sc { padding-top: var(--space-2); gap: var(--space-3); }
+  .gr-head { min-height: 44px; }
+  .gr-word { font-size: 34px; }
+}
