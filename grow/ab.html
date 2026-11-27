@@ -11,7 +11,7 @@
   .ab { max-width: 720px; margin: 0 auto; padding: 16px; }
   .ab-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
   .ab-inst { margin: 20px 0 8px; }
-  .ab-row { display: grid; grid-template-columns: 64px 1fr 1fr 1fr; gap: 8px; align-items: center; padding: 8px 0; border-top: 1px solid var(--ds-line, #e5e0d6); }
+  .ab-row { display: grid; grid-template-columns: 72px 1fr 1fr 1fr; gap: 8px; align-items: center; padding: 8px 0; border-top: 1px solid var(--ds-line, #e5e0d6); }
   .ab-row button { min-height: 44px; }
   .ab-row button.on { outline: 2px solid currentColor; }
   .ab-note { font-variant-numeric: tabular-nums; }
@@ -25,7 +25,7 @@
     <h1 class="ds-display">A/B</h1>
     <a class="ds-chip" href="index.html">Grow</a>
   </header>
-  <p>Original is the starter kit. Made is the recreation built without AI audio. Pick the one you want in your kit.</p>
+  <p>Four instruments. Original plays the starter sound, Made plays the version rebuilt from real instruments, each through its notes low to high. Pick the one you want.</p>
   <div id="list"></div>
 </main>
 <script type="module">
@@ -41,21 +41,27 @@ async function buf(url) {
   if (!cache.has(url)) cache.set(url, fetch(url).then((r) => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); }).then((b) => ctx.decodeAudioData(b)));
   return cache.get(url);
 }
-function stop() { if (playing) { try { playing.stop(); } catch {} playing = null; } if (onBtn) { onBtn.classList.remove('on'); onBtn = null; } }
-async function play(url, btn) {
+let seq = [];
+function stop() { seq.forEach((n) => { try { n.stop(); } catch {} }); seq = []; if (playing) { try { playing.stop(); } catch {} playing = null; } if (onBtn) { onBtn.classList.remove('on'); onBtn = null; } }
+async function play(urls, btn, each) {
   const same = onBtn === btn; stop(); if (same) return;
   await ctx.resume();
   try {
-    const b = await buf(url);
-    const s = ctx.createBufferSource(); s.buffer = b;
-    const g = ctx.createGain(); g.gain.value = 1;
-    s.connect(g).connect(ctx.destination); s.start();
-    s.onended = () => { if (playing === s) stop(); };
-    playing = s; onBtn = btn; btn.classList.add('on');
+    const bufs = await Promise.all(urls.map(buf));
+    let t = ctx.currentTime + 0.05;
+    bufs.forEach((b, i) => {
+      const d = Math.min(each, b.duration), s = ctx.createBufferSource(), g = ctx.createGain();
+      s.buffer = b; s.connect(g).connect(ctx.destination);
+      g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(1, t + 0.03);
+      g.gain.setValueAtTime(1, t + d - 0.4); g.gain.linearRampToValueAtTime(0, t + d);
+      s.start(t); s.stop(t + d + 0.05); seq.push(s);
+      if (i === bufs.length - 1) s.onended = () => { if (onBtn === btn) stop(); };
+      t += d - 0.3;
+    });
+    onBtn = btn; btn.classList.add('on');
   } catch { btn.textContent = 'Missing'; btn.disabled = true; }
 }
 const name = (z) => z.file.replace(/\.wav$/, '.flac');
-const label = (f) => f.replace(/\.(wav|flac)$/, '').replace(/^[a-z]+_/, '');
 async function main() {
   const list = document.getElementById('list');
   const meta = await (await fetch(A + 'samples.json')).json();
@@ -63,19 +69,20 @@ async function main() {
   try { const r = await fetch(B + 'samples.json'); if (r.ok) made = await r.json(); } catch {}
   if (!made) { list.innerHTML = '<p class="ab-empty">The recreations are not in yet.</p>'; }
   for (const inst of meta.instruments) {
-    const h = document.createElement('h2'); h.className = 'ds-title ab-inst'; h.textContent = inst.name; list.appendChild(h);
-    for (const z of inst.zones || []) {
-      const f = name(z), id = inst.id + '/' + f;
-      const row = document.createElement('div'); row.className = 'ab-row';
-      row.innerHTML = `<span class="ab-note">${label(f)}</span>
-        <button class="ds-btn" data-u="${A + encodeURIComponent(f)}">Original</button>
-        <button class="ds-btn" data-u="${B + encodeURIComponent(f)}" ${made ? '' : 'disabled'}>Made</button>
-        <span class="ab-pick"><button class="ds-btn" data-p="a">A</button><button class="ds-btn" data-p="b" ${made ? '' : 'disabled'}>B</button></span>`;
-      row.querySelectorAll('[data-u]').forEach((b) => b.onclick = () => play(b.dataset.u, b));
-      const mark = () => row.querySelectorAll('[data-p]').forEach((b) => b.classList.toggle('on', picks[id] === b.dataset.p));
-      row.querySelectorAll('[data-p]').forEach((b) => b.onclick = () => { picks[id] = b.dataset.p; save(); mark(); });
-      mark(); list.appendChild(row);
-    }
+    const zones = [...(inst.zones || [])].sort((a, b) => (a.root || 0) - (b.root || 0));
+    const files = zones.map((z) => encodeURIComponent(name(z)));
+    const id = inst.id;
+    const each = (id === 'pad' || id === 'texture') ? 5 : 2.6;
+    const row = document.createElement('div'); row.className = 'ab-row';
+    row.innerHTML = `<span class="ab-note">${inst.name}</span>
+      <button class="ds-btn" data-k="a">Original</button>
+      <button class="ds-btn" data-k="b" ${made ? '' : 'disabled'}>Made</button>
+      <span class="ab-pick"><button class="ds-btn" data-p="a">A</button><button class="ds-btn" data-p="b" ${made ? '' : 'disabled'}>B</button></span>`;
+    row.querySelector('[data-k=a]').onclick = (e) => play(files.map((f) => A + f), e.currentTarget, each);
+    row.querySelector('[data-k=b]').onclick = (e) => play(files.map((f) => B + f), e.currentTarget, each);
+    const mark = () => row.querySelectorAll('[data-p]').forEach((b) => b.classList.toggle('on', picks[id] === b.dataset.p));
+    row.querySelectorAll('[data-p]').forEach((b) => b.onclick = () => { picks[id] = b.dataset.p; save(); mark(); });
+    mark(); list.appendChild(row);
   }
 }
 main();
