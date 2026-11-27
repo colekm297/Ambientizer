@@ -55,7 +55,11 @@ def ledger():
         return []
     rows = [json.loads(l) for l in LEDGER.read_text().splitlines() if l.strip()]
     for r in rows:  # ratings are live: they can change in the app at any time
-        r["stars"] = int(job_json(r["job_id"]).get("rating", 0) or 0)
+        j = job_json(r["job_id"])
+        r["stars"] = int(j.get("rating", 0) or 0)
+        r["rated"] = bool(j.get("rated"))
+        if j.get("rating_note"):
+            r["note"] = j["rating_note"]
     return rows
 
 
@@ -71,24 +75,62 @@ def best_prompts():
     return out[:8]
 
 
-def rated_evidence(days=90):
-    """Every take starred recently, dailies and others, with the full prompt and stars.
-    This is the training signal: the designer sees exactly what earned 3 stars and what earned 1."""
+def rated_evidence(days=90, jobs_dir: Path | None = None):
+    """Every take Cole rated recently (-2..3, plus rated=true 'heard, not noteworthy') with notes.
+    Positive ratings show what to build toward; negatives and heard-0 show what to avoid."""
     cutoff = (dt.date.today() - dt.timedelta(days=days)).isoformat()
+    search_dir = jobs_dir or (HERE / "saved_jobs")
     out = []
-    for p in glob.glob(str(HERE / "saved_jobs" / "*.json")):
+    for p in glob.glob(str(search_dir / "*.json")):
         try:
             d = json.loads(Path(p).read_text())
         except Exception:
             continue
         r = int(d.get("rating") or 0)
-        if r > 0 and (d.get("created_at") or "")[:10] >= cutoff and d.get("prompt"):
-            out.append({"job_id": Path(p).stem, "date": d["created_at"][:10], "stars": r, "prompt": d["prompt"][:2500]})
-    return sorted(out, key=lambda x: (-x["stars"], x["date"]))[:40]
+        rated = bool(d.get("rated"))
+        note = (d.get("rating_note") or "").strip()
+        if (r != 0 or rated or note) and (d.get("created_at") or "")[:10] >= cutoff and d.get("prompt"):
+            item = {
+                "job_id": Path(p).stem,
+                "date": d["created_at"][:10],
+                "stars": r,
+                "rated": rated or r != 0,
+                "prompt": d["prompt"][:2500],
+            }
+            if note:
+                item["note"] = note
+            out.append(item)
+    # Show highest-starred first, then explicit negatives (-2/-1), then heard-not-noteworthy (0).
+    return sorted(
+        out,
+        key=lambda x: (
+            0 if x["stars"] > 0 else (1 if x["stars"] < 0 else 2),
+            -x["stars"] if x["stars"] > 0 else x["stars"],
+            x["date"],
+        ),
+    )[:50]
 
 
 LESSONS = HERE / "data" / "daily_lessons.md"
 COLE_VERDICTS = HERE / "data" / "cole_verdicts.jsonl"   # every verdict Cole gave, his words (2026-11-18)
+COLE_NOTES = HERE / "data" / "cole_notes.jsonl"         # rating notes from the app (2026-11-11)
+
+
+def notes_log(notes_path: Path | None = None, limit: int = 30) -> str:
+    path = notes_path or COLE_NOTES
+    if not path.exists():
+        return "(none yet)"
+    rows = []
+    for l in path.read_text().splitlines():
+        if not l.strip():
+            continue
+        try:
+            r = json.loads(l)
+        except json.JSONDecodeError:
+            continue
+        if r.get("note") or (r.get("rating") is not None and r.get("rating") <= 0):
+            rows.append(r)
+    return json.dumps(rows[-limit:], indent=1) if rows else "(none yet)"
 
 
 def verdict_log() -> str:
@@ -115,7 +157,15 @@ def write_report(rows):
     lines += ["", "## What it has learned", "", (LESSONS.read_text() if LESSONS.exists() else "(nothing yet)"),
               "", "## Log", "", "| Date | Mode | World | Title | Testing | Stars |", "|---|---|---|---|---|---|"]
     for r in sorted(rows, key=lambda r: r["date"], reverse=True):
-        lines.append(f"| {r['date']} | {r.get('mode','-')} | {r['world']} | {r['title']} | {r['testing']} | {'★'*r['stars'] or '-'} |")
+        if r["stars"] > 0:
+            mark = "★" * r["stars"]
+        elif r["stars"] < 0:
+            mark = str(r["stars"])
+        elif r.get("rated"):
+            mark = "0 (heard)"
+        else:
+            mark = "-"
+        lines.append(f"| {r['date']} | {r.get('mode','-')} | {r['world']} | {r['title']} | {r['testing']} | {mark} |")
     REPORT.write_text("\n".join(lines) + "\n")
 
 
@@ -144,14 +194,15 @@ def design(rows):
     explore_share = "about 1 day in 2" if n_rated < 10 else "about 1 day in 4"
     system = (
         "You design one experimental ambient track a day for The Space of Sound, a YouTube channel of one-hour "
-        "ambient videos set in story worlds people love. The owner rates each take 0-3 stars in the app; "
+        "ambient videos set in story worlds people love. The owner rates each take -2 to 3 stars in the app "
+        "(0 with rated=true means 'heard, not noteworthy'; -1/-2 means bad, avoid); "
         "your goal is the most stars per week. Touchstones for the sound: Brian Eno, Stars of the Lid, Hiroshi "
         "Yoshimura's Music for Nine Postcards. House rules: write from a specific, well-known moment, not "
         "an obscure setting word (nobody knows what a sietch is); percussion-heavy is bad, at most one soft, "
         "distant pulse far back in the mix; no stitched or multi-part structures; boring takes that go nowhere "
-        "fail, so give each take a hook and a journey across its 10 minutes; nothing dark or dread-filled under "
-        "a hopeful story; plain titles. Unrated takes (0 stars) may simply not have been heard yet. Learn from "
-        "what scored, keep what worked, and vary one thing at a time so the ratings teach something: world, "
+        "fail, so give each take refrains, a hook, and a journey across its 10 minutes; nothing dark or dread-filled under "
+        "a hopeful story; plain titles. Unrated takes (stars=0, rated=false) may simply not have been heard yet. Learn from "
+        "what scored, avoid what scored -2/-1 or was marked heard-0, and vary one thing at a time so the ratings teach something: world, "
         "instrument palette, tempo, density, the hook. Also try general YouTube ambient ideas that are not tied "
         "to an IP (rain on a window, a train at night) when the log suggests it is worth testing.")
     user = (
@@ -159,9 +210,10 @@ def design(rows):
         f"The 3-star prompts, verbatim:\n\n" + "\n\n---\n\n".join(best_prompts()) +
         f"\n\nCole's own verdicts, his exact words, newest last. These outrank your lessons: never design the kind of "
         f"take he turned down (a 'no' row), and build toward what he said yes to:\n{verdict_log()}\n\n"
+        f"Cole's app notes & negative/0-rating log (from data/cole_notes.jsonl):\n{notes_log()}\n\n"
         f"What the ratings have taught so far (your own notes from earlier runs):\n{lessons}\n\n"
-        f"Every take starred in the last 90 days, best first, with the exact prompt:\n{json.dumps(evidence, indent=1)}\n\n"
-        f"Full daily experiment log (0 stars = not rated yet, not a dislike):\n{json.dumps(history, indent=1)}\n\n"
+        f"Every take rated in the last 90 days (3..1 positive, -2..-1 avoid, 0+rated=true heard-not-noteworthy), with prompt & notes:\n{json.dumps(evidence, indent=1)}\n\n"
+        f"Full daily experiment log (stars=0 and rated=false = not rated yet):\n{json.dumps(history, indent=1)}\n\n"
         f"Policy: explore {explore_share}; otherwise exploit, meaning take one of the best-rated takes above and change "
         f"exactly one thing, and name its job_id as parent. Compare prompts of high and low scorers to find what "
         f"actually differs. Then rewrite the lessons file with anything new the ratings show.\n\n"

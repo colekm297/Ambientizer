@@ -93,10 +93,10 @@ def thumb_attrs(path: str | Path) -> dict:
 
 
 def visual_attrs(loop_path: str | Path) -> dict:
-    """Motion numbers of the loop cell from fal_loop.seam_report (wrap < 2 reads clean on a calm loop)."""
+    """Motion numbers of the loop cell from loop_qc.seam_report (wrap < 2 reads clean on a calm loop)."""
     try:
-        import fal_loop as fl
-        rep = fl.seam_report(str(loop_path))
+        import loop_qc as lq
+        rep = lq.seam_report(str(loop_path))
         keep = {k: rep[k] for k in ("wrap", "wrap_ratio", "speed", "speed_envelope", "detail", "detail_swing") if k in rep}
         keep["cell_seconds"] = round(float(subprocess.run(
             ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(loop_path)],

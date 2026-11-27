@@ -10,8 +10,12 @@ Two critic implementations:
   - FeatureOnlyCritic: uses Claude + librosa features only (no audio listening)
 """
 
+import argparse
 import json
 import os
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 
 from google import genai
@@ -19,7 +23,63 @@ from google.genai import types
 
 from schemas import SoundscapeConfig, CritiqueResult, AudioFeatures
 from audio_engine import extract_features
+from gemini_limiter import gemini_limiter
 from llm import llm_create, llm_text  # every Claude call goes through llm.py (Opus 5.5)
+
+
+DEFAULT_MAX_INLINE_BYTES = 18 * 1024 * 1024  # stay safely under Gemini's 20 MB inline limit
+
+
+def prepare_audio_for_gemini(
+    audio_path: str,
+    max_bytes: int = DEFAULT_MAX_INLINE_BYTES,
+    sample_rate: int = 16000,
+) -> tuple[bytes, str, dict]:
+    """Downsample any audio file via ffmpeg to 16 kHz mono MP3 (~2.4 MB per 10 min)
+    so 10-min Grow renders and daily takes fit well inside Gemini's 20 MB inline limit."""
+    src = Path(audio_path)
+    if not src.exists():
+        raise FileNotFoundError(f"Audio file not found: {audio_path}")
+    src_bytes = src.stat().st_size
+    tmp_dir = tempfile.mkdtemp(prefix="gem_audio_")
+    try:
+        last_bytes = b""
+        chosen_kbps = 32
+        for kbps in (32, 24, 16):
+            out = Path(tmp_dir) / f"mono16k_{kbps}.mp3"
+            subprocess.run(
+                [
+                    "ffmpeg", "-y", "-v", "error",
+                    "-i", str(src),
+                    "-ac", "1",
+                    "-ar", str(sample_rate),
+                    "-c:a", "libmp3lame",
+                    "-b:a", f"{kbps}k",
+                    str(out),
+                ],
+                check=True,
+                capture_output=True,
+            )
+            data = out.read_bytes()
+            last_bytes = data
+            chosen_kbps = kbps
+            if len(data) <= max_bytes:
+                break
+        if len(last_bytes) > max_bytes:
+            raise ValueError(
+                f"Downsampled audio ({len(last_bytes)} bytes at {chosen_kbps} kbps) still exceeds {max_bytes} bytes"
+            )
+        info = {
+            "sample_rate": sample_rate,
+            "channels": 1,
+            "bitrate_kbps": chosen_kbps,
+            "bytes": len(last_bytes),
+            "source_bytes": src_bytes,
+            "mime_type": "audio/mpeg",
+        }
+        return last_bytes, "audio/mpeg", info
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 def _to_str_list(val) -> list[str]:
@@ -176,16 +236,17 @@ Compare our generated audio against the reference's character.
 Are we achieving a similar feel? What's different?
 """
 
-        with open(audio_path, "rb") as f:
-            audio_bytes = f.read()
+        audio_bytes, mime_type, _prep = prepare_audio_for_gemini(audio_path)
 
         try:
+            gemini_limiter.wait_if_needed(timeout=60)
+            gemini_limiter.record_call(f"audio_critic:{self.model}")
             response = self.client.models.generate_content(
                 model=self.model,
                 contents=[
                     types.Part.from_bytes(
                         data=audio_bytes,
-                        mime_type="audio/wav",
+                        mime_type=mime_type,
                     ),
                     prompt_text,
                 ],
@@ -204,16 +265,17 @@ Are we achieving a similar feel? What's different?
         Quick, unstructured listen — just ask Gemini to describe what it hears.
         Useful for debugging and sanity checks.
         """
-        with open(audio_path, "rb") as f:
-            audio_bytes = f.read()
+        audio_bytes, mime_type, _prep = prepare_audio_for_gemini(audio_path)
 
         try:
+            gemini_limiter.wait_if_needed(timeout=60)
+            gemini_limiter.record_call(f"quick_listen:{self.model}")
             response = self.client.models.generate_content(
                 model=self.model,
                 contents=[
                     types.Part.from_bytes(
                         data=audio_bytes,
-                        mime_type="audio/wav",
+                        mime_type=mime_type,
                     ),
                     (
                         "Describe this audio in detail. What sounds do you hear? "
@@ -225,6 +287,31 @@ Are we achieving a similar feel? What's different?
             return response.text
         except Exception as e:
             return f"Gemini API error: {e}"
+
+    def critique_grow_render(
+        self,
+        audio_path: str,
+        world: str = "Folding City",
+        settings: dict | None = None,
+        dry_run: bool = False,
+    ):
+        """Evaluate a Grow offline render (checking holes, refrain lift, harshness) at 16 kHz mono."""
+        cfg = SoundscapeConfig(
+            title=f"Grow · {world}",
+            description=(
+                f"Generative Grow piece in world '{world}' with scheduled refrains every ~2-3 minutes "
+                "and quiet breath passages between. Flag near-silent dropouts/holes, harsh resonances, or tuning clashes."
+            ),
+            mood=world or "ambient",
+            setting=json.dumps(settings or {}),
+            time_of_day="",
+            layers=[],
+        )
+        if dry_run:
+            features = extract_features(audio_path)
+            _, mime_type, prep = prepare_audio_for_gemini(audio_path)
+            return {"dry_run": True, "mime_type": mime_type, "prepared": prep, "features": features}
+        return self.critique(audio_path, cfg)
 
     def _parse_critique(self, response_text: str, features: AudioFeatures) -> CritiqueResult:
         """Parse the model's JSON response into a structured CritiqueResult."""
@@ -354,3 +441,25 @@ Output ONLY valid JSON."""
                 specific_suggestions=[], mood_match=0.5, density_match=0.5,
                 frequency_balance_score=0.5, overall_score=0.4, features=features,
             )
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description="16 kHz mono Gemini audio critic (supports --dry-run).")
+    ap.add_argument("audio")
+    ap.add_argument("--world", default="Folding City")
+    ap.add_argument("--dry-run", action="store_true")
+    args = ap.parse_args()
+    if args.dry_run:
+        _, mime, prep = prepare_audio_for_gemini(args.audio)
+        print(json.dumps({"dry_run": True, "mime_type": mime, **prep}, indent=2))
+        return
+    key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if not key:
+        raise SystemExit("GEMINI_API_KEY not set")
+    critic = GeminiAudioCritic(gemini_api_key=key)
+    res = critic.critique_grow_render(args.audio, world=args.world, dry_run=False)
+    print(json.dumps(res.__dict__, default=str, indent=2))
+
+
+if __name__ == "__main__":
+    main()
