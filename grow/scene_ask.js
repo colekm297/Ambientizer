@@ -210,16 +210,52 @@ export function createAsk(h) {
   function drawPreviews(t, force) {
     if (!preview || (!force && (++pvTick & 1))) return;
     const { items, snap, crop } = preview; fillEnv(st().seed);
-    for (const it of items) {
-      const x = it.canvas.getContext('2d'), k = it.canvas.width / crop.w;
+    const jobs = items.map((it) => [it, it.canvas]);
+    if (zoomAt >= 0 && items[zoomAt]) jobs.push([items[zoomAt], zoomCanvas]);
+    for (const [it, cv] of jobs) {
+      const x = cv.getContext('2d'), k = cv.width / crop.w;
       x.setTransform(1, 0, 0, 1, 0, 0); x.globalAlpha = 1; x.globalCompositeOperation = 'source-over';
-      x.drawImage(snap, crop.x, crop.y, crop.w, crop.h, 0, 0, it.canvas.width, it.canvas.height);
+      x.drawImage(snap, crop.x, crop.y, crop.w, crop.h, 0, 0, cv.width, cv.height);
       x.setTransform(k, 0, 0, k, -crop.x * k, -crop.y * k);
       const ok = render(x, it.c, it.r, t, 1, false);
       x.setTransform(1, 0, 0, 1, 0, 0);
       if (!ok && it.r.err && !it.err) { it.err = it.r.err; paintAsk(); }
     }
   }
+  // ------------------------------------------------------------ zoom (tap a preview to see it large; only Keep picks)
+  let zoomAt = -1;
+  const zoomCanvas = document.createElement('canvas'); zoomCanvas.width = 1280; zoomCanvas.height = 720;
+  const zoom = document.createElement('dialog'); zoom.className = 'sc-zoom'; zoom.setAttribute('aria-label', 'Option');
+  zoom.innerHTML = `<div class="sc-zoom__pic"></div>
+    <div class="sc-zoom__bar">
+      <button type="button" class="ds-btn" data-z="prev" aria-label="Previous option">‹</button>
+      <span class="ds-label sc-zoom__name"></span>
+      <button type="button" class="ds-btn" data-z="next" aria-label="Next option">›</button>
+      <button type="button" class="ds-btn" data-z="close">Close</button>
+      <button type="button" class="ds-btn ds-btn--raised" data-z="keep">Keep</button>
+    </div>`;
+  zoom.querySelector('.sc-zoom__pic').appendChild(zoomCanvas);
+  document.body.appendChild(zoom);
+  function showZoom(i) {
+    if (!preview) return; const n = preview.items.length; zoomAt = ((i % n) + n) % n;
+    const it = preview.items[zoomAt];
+    zoom.querySelector('.sc-zoom__name').textContent = `${zoomAt + 1} of ${n}  ${it.err ? it.v.name + ': ' + it.err : it.v.name}`;
+    zoom.querySelector('[data-z=keep]').disabled = !!it.err;
+    zoom.querySelectorAll('[data-z=prev],[data-z=next]').forEach((b) => { b.hidden = n < 2; });
+    if (!zoom.open) zoom.showModal();
+    drawPreviews(sim.t, true);
+  }
+  function hideZoom() { zoomAt = -1; if (zoom.open) zoom.close(); }
+  zoom.addEventListener('close', () => { zoomAt = -1; });
+  zoom.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-z]');
+    if (!b) { if (e.target === zoom) hideZoom(); return; }
+    const z = b.dataset.z;
+    if (z === 'prev') showZoom(zoomAt - 1); else if (z === 'next') showZoom(zoomAt + 1);
+    else if (z === 'close') hideZoom(); else if (z === 'keep') { const i = zoomAt; hideZoom(); keep(i); }
+  });
+  zoom.addEventListener('keydown', (e) => { if (e.key === 'ArrowLeft') showZoom(zoomAt - 1); else if (e.key === 'ArrowRight') showZoom(zoomAt + 1); });
+
   function keep(i) {
     if (!preview) return; const it = preview.items[i]; if (!it || it.r.err) return;
     const S = st(); S.custom = S.custom || [];
@@ -248,7 +284,7 @@ export function createAsk(h) {
     const v = $('#variants'); v.innerHTML = '';
     if (preview) preview.items.forEach((it, i) => {
       const d = document.createElement('div'); d.className = 'sc-var';
-      const b = document.createElement('button'); b.type = 'button'; b.className = 'sc-var__pic'; b.setAttribute('aria-label', `Keep ${it.v.name}`); b.dataset.keep = i; b.appendChild(it.canvas);
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'sc-var__pic'; b.setAttribute('aria-label', `View ${it.v.name} larger`); b.title = 'View larger'; b.dataset.zoom = i; b.appendChild(it.canvas);
       d.appendChild(b);
       const row = document.createElement('div'); row.className = 'sc-var__row';
       row.innerHTML = `<span class="ds-label"></span><button type="button" class="ds-btn ds-btn--raised" data-keep="${i}">Keep</button>`;
@@ -257,10 +293,13 @@ export function createAsk(h) {
       d.appendChild(row); v.appendChild(d);
     });
   }
-  $('#variants').addEventListener('click', (e) => { const b = e.target.closest('[data-keep]'); if (b && !b.disabled) keep(+b.dataset.keep); });
+  $('#variants').addEventListener('click', (e) => {
+    const z = e.target.closest('[data-zoom]'); if (z) { showZoom(+z.dataset.zoom); return; }
+    const b = e.target.closest('[data-keep]'); if (b && !b.disabled) keep(+b.dataset.keep);
+  });
   $('#askGo').addEventListener('click', ask);
   $('#askText').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); ask(); } });
-  $('#askClear').addEventListener('click', () => { clearSel(); preview = null; paintAsk(); });
+  $('#askClear').addEventListener('click', () => { clearSel(); preview = null; hideZoom(); paintAsk(); });
   const toolSeg = segEl('Tool', ['Brush', 'Lasso'], tool, (i) => { tool = i; $('#askSize').hidden = i !== 0; });
   $('#askToolSlot').appendChild(toolSeg);
   sliderRow($('#askSize'), 'Size', () => brush, (v) => { brush = v; }, { light: 1, min: 0, max: 1, step: 0.01 });
